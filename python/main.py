@@ -10,6 +10,75 @@ import scipy.misc
 import scipy.optimize
 import scipy.stats
 import cPickle
+#import mosek
+#import warnings
+
+#mosek_env = mosek.Env()
+#mosek_env.init()
+
+def solve_lp(a,b,c, lbd = -100 ):
+    
+    # formulate task
+    nc, nv = a.shape
+
+    task = mosek_env.Task()
+    task.append( mosek.accmode.var, nv)
+    task.append( mosek.accmode.con, nc)
+    
+    task.putboundlist(  mosek.accmode.var,
+            np.arange(nv), 
+            [mosek.boundkey.fr]*nv,
+            lbd*np.ones(nv),lbd*np.ones(nv) )
+        
+    #aj, ai = numpy.meshgrid(np.arange(A.shape[1]), np.arange(A.shape[0]))
+    #task.putaijlist( ai.reshape(-1), aj.reshape(-1), A.reshape(-1)  )
+        
+    ai,aj,ad = a.row,a.col,a.data
+    task.putaijlist( ai, aj, ad  )
+
+    task.putboundlist(  mosek.accmode.con,
+                        np.arange(nc), 
+                        [mosek.boundkey.lo]*nc, 
+                        b,b)
+
+    task.putclist(np.arange(nv), c)
+
+    task.putobjsense(mosek.objsense.minimize)
+    
+    # solve
+    def solve_b():
+        task.optimize()
+    solve_b()
+
+
+    [prosta, solsta] = task.getsolutionstatus(mosek.soltype.bas)
+    if solsta!=mosek.solsta.optimal and solsta!=mosek.solsta.near_optimal:
+        # mosek bug fix 
+        task._Task__progress_cb=None
+        task._Task__stream_cb=None
+        print solsta, prosta
+        raise NameError("Mosek solution not optimal. Primal LP.")
+
+    xx = np.zeros(nv)
+    y = np.zeros(nc)
+
+    warnings.simplefilter("ignore", RuntimeWarning)
+    task.getsolutionslice(mosek.soltype.bas,
+                        mosek.solitem.xx,
+                        0,nv, xx)
+
+    task.getsolutionslice(mosek.soltype.bas,
+                        mosek.solitem.y,
+                        0,nc, y)
+    warnings.simplefilter("default", RuntimeWarning)
+
+    task._Task__progress_cb=None
+    task._Task__stream_cb=None
+
+    return xx
+
+
+
 
 class Pendulum:
     """Pendulum defined as in Deisenroth2009"""
@@ -23,8 +92,7 @@ class Pendulum:
         self.sample_freq = 100.0
 
     def f(self,t,x,pi):
-        th_d = x[0]
-        th = x[1]
+        th_d,th,c = x[0], x[1], x[2]
         u = pi(t,x)
 
         th_dd = ( -self.mu * th_d 
@@ -33,15 +101,18 @@ class Pendulum:
                 #+ (self.umax-self.umin)/(1+np.exp(-4*u)) + self.umin
                 #+ np.arctan(u*np.pi)/np.pi*self.umax 
                     ) / (self.m * self.l* self.l)
-        return [th_dd,th_d]
+        c_d = 1 - np.exp( -1.0*th_d*th_d - .2*th*th )
+
+        return [th_dd,th_d,c_d]
 
     def sim(self, x0, pi,t):
 
+        t = max(t,1.0/self.sample_freq)
         ts = np.linspace(0,t,t*self.sample_freq)[:,np.newaxis]
         prob = scipy.integrate.ode(lambda t,x : self.f(t,x,pi)) 
         prob.set_integrator('dopri5')
         
-        xs = np.zeros(shape=(ts.size,2))
+        xs = np.zeros(shape=(ts.size,3))
         xs_d = np.zeros(shape=xs.shape)
         us = np.zeros(shape=(ts.size,1))
 
@@ -58,37 +129,48 @@ class Pendulum:
             #us[i+1,:] = max(min(us[i+1,:],self.umax),self.umin )
 
         # t, x, x_dot, x_2dot, u
-        return [ ts[1:], xs[1:,1:2], xs_d[1:,1:2], xs_d[1:,0:1], us[1:]]
+        return [ ts, xs[:,1:2], xs_d[:,1:2], xs_d[:,0:1], us, xs[:,2:3],xs_d[:,2:3]]
+
+    def simple_sim(self, x0, pi,t):
+
+        t = max(t,1.0/self.sample_freq)
+        ts = np.linspace(0,t,t*self.sample_freq)[:,np.newaxis]
+        
+        xs = np.zeros(shape=(ts.size,3))
+        xs_d = np.zeros(shape=xs.shape)
+        us = np.zeros(shape=(ts.size,1))
+
+        xs[0,:] = x0
+        xs_d[0,:] = self.f(ts[0],x0,pi)
+        us[0,:] = pi(ts[0],x0)
+        #us[0,:] = max(min(us[0,:],self.umax),self.umin )
+        
+        for i in range(len(ts)-1):
+            xs[i+1,:]= xs[i,:] + xs_d[i]*(ts[i+1]-ts[i])
+            xs_d[i+1,:] = self.f(ts[i+1],xs[i+1],pi)
+            us[i+1,:] = pi(ts[i+1],xs[i+1])
+            #us[i+1,:] = max(min(us[i+1,:],self.umax),self.umin )
+
+        # t, x, x_dot, x_2dot, u
+        return [ ts, xs[:,1:2], xs_d[:,1:2], xs_d[:,0:1], us, xs[:,2:3],xs_d[:,2:3]]
 
     def random_traj(self,t,control_freq = 2): 
+        
+        t = max(t,control_freq)
         ts = np.linspace(0.0,t, t*control_freq)
         us = ((numpy.random.uniform(size = ts.size))
                 *(self.umax-self.umin)+self.umin )
 
         pi = lambda t,x: np.interp(t, ts, us)
         
-        x0 = np.array((0.0,np.pi))    
+        x0 = np.array((0.0,np.pi,0.0))    
         traj = self.sim(x0,pi,t )
         return traj 
          
     def plot_traj(self,traj):
         plt.polar( traj[1], traj[0])
         plt.gca().set_theta_offset(np.pi/2)
-        plt.show()
-
-    def tangent_u(self,xs):
-
-        th_d = xs[:,0]
-        th = xs[:,1]
-
-        mus = ( -self.mu * th_d 
-                + self.m * self.g * self.l * np.sin(th) 
-                ) / (self.m * self.l* self.l)
-        F = 1.0 / (self.m * self.l* self.l)
-
-        mus = np.matrix(mus).T
-        Fs = np.ones(mus.shape)*F
-        return mus, Fs
+        #plt.show()
 
 class GaussianConjProcess:
     def __init__(self, d):
@@ -488,7 +570,7 @@ class ClusteringProblem:
     def learn(self,data=None, max_iters=100):
         self.append_data(data)
         for t in range(max_iters):
-            self.iterate()
+            self.iterate(sort=True)
         return self.clusters
 
     def iterate(self, sort=True):
@@ -535,11 +617,16 @@ class ClusteringProblem:
         
         print np.round(self.phi.sum(0)).astype(int)
 
-    def expected_log_likelihood_matrices(self):
-        sz = self.clusters[0][0].dim
-        Qs = np.zeros((self.max_clusters, sz+1,sz+1))
-        for (cx,cxy),i in zip(self.clusters,range(self.max_clusters)):
-            Qs[i,:,:] = cx.expected_log_likelihood_matrix()
+    def expected_log_likelihood_matrices(self,inds=None):
+        if inds is None:
+            sz = self.clusters[0][0].dim
+        else:
+            sz = len(inds)
+        clusters= self.clusters+[(self.new_x_proc(),self.new_xy_proc())]
+        nc = len(clusters)
+        Qs = np.zeros((nc, sz+1,sz+1))
+        for (cx,cxy),i in zip(clusters,range(nc)):
+            Qs[i,:,:] = cx.expected_log_likelihood_matrix(inds=inds)
         return Qs
 
     def p(self, data):
@@ -773,18 +860,18 @@ class CylinderMap(GaussianClusteringProblem):
         self.umin = -5.0
         self.umax = 5.0
         GaussianClusteringProblem.__init__(self,alpha,
-            3,3,1,max_clusters=max_clusters )
+            3,4,1,max_clusters=max_clusters )
     def append_data(self,traj):
         GaussianClusteringProblem.append_data(self,self.traj2data(traj))
     def set_prior(self,traj,w):
         GaussianClusteringProblem.set_prior(self,self.traj2data(traj),w)
     def traj2data(self,traj):
-        t,th,th_d,th_dd,u = traj
+        t,th,th_d,th_dd,u,c,c_d = traj
         
         th_ = self.angle_transform(th)
 
         data = ( np.hstack([th_d,th_,u]),
-                 np.hstack([th_d,u,np.ones(u.shape)]),
+                 np.hstack([th_d,th_,u,np.ones(u.shape)]),
                  np.hstack([th_dd]))
         return data
 
@@ -826,6 +913,30 @@ class CylinderMap(GaussianClusteringProblem):
 
         Sg__  = -cxd.expected_log_likelihood_matrix()
 
+        Q = Sg__
+        P = 0*Sg_
+        R = np.zeros((du,du))
+        N = np.zeros((dx,du))
+        
+        return Q,R,N,P
+
+
+    def quad_costs_old(self,cxd):
+        dx = self.dim_x+1
+        du = 1
+
+        Sg  = -cxd.expected_log_likelihood_matrix([2])
+        Sg = np.insert(Sg,0,0,0)
+        Sg = np.insert(Sg,0,0,0)
+        Sg = np.insert(Sg,0,0,1)
+        Sg = np.insert(Sg,0,0,1)
+
+        Sg_  = -cxd.expected_log_likelihood_matrix([0,1])
+        Sg_ = np.insert(Sg_,2,0,0)
+        Sg_ = np.insert(Sg_,2,0,1)
+
+        Sg__  = -cxd.expected_log_likelihood_matrix()
+
         Q = Sg
         P = Sg_
         R = np.zeros((du,du))
@@ -833,6 +944,41 @@ class CylinderMap(GaussianClusteringProblem):
         
         return Q,R,N,P
 
+    def expected_dynamics(self, dt = .01):
+
+        dx = self.dim_x+1
+        du = 1
+
+        clusters= self.clusters+[(self.new_x_proc(),self.new_xy_proc())]
+        nc = len(clusters)
+
+        A = np.zeros((nc, dx,dx))
+        B = np.zeros((nc, dx,du))
+
+        for (cx,cxy),i in zip(clusters,range(nc)):
+
+            M = cxy.M
+            M_th_d = M[0,0]
+            M_th = M[0,1]
+            M_u = M[0,2]
+            M_1 = M[0,3]
+            
+            A[i,...] = np.eye(dx) + np.array([
+                    [M_th_d, M_th,M_u,M_1 ],
+                    [1,0,0,0],
+                    [0,0,0,0],
+                    [0,0,0,0],
+                            ] )*dt
+
+            B[i,...] = np.array([
+                [0],
+                [0],
+                [1],
+                [0]
+                ])
+                
+
+        return A,B
 
 
     def controls(self,indd,xos,dt=.01,max_t = 10):
@@ -850,16 +996,21 @@ class CylinderMap(GaussianClusteringProblem):
         lqr.solve()
 
         xos = np.insert(xos,self.dim_x,1,axis=1)
-        xsa = lqr.final_positions(xos)
+        xsa = lqr.final_positions(xos)  # cti
+        
+        #final_costs = np.einsum('ij,cti,ctj->ct',P,xsa,xsa)
+        #ts =  np.argmin(final_costs,1)
+        #psf = self.p(xsa[range(ts.size),ts,:-1].reshape(-1,xsa.shape[2]-1 ))
+        #ps = psf[:,indd]
         
         psf = self.p(xsa[:,:,:-1].reshape(-1,xsa.shape[2]-1 ))
         psf = psf[:,indd].reshape((xsa.shape[0],xsa.shape[1]))
-
         ts =  np.argmax(psf,1)
         ps = psf[range(len(ts)),ts]
 
         for i in range(ps.shape[0]):
-            if ps[i]>0.01:
+            
+            if ps[i]>0.1:
                 #xplt = xsa[i,ts[i],:]
                 #plt.scatter(xplt[1],xplt[0], alpha = ps[i])
 
@@ -885,6 +1036,28 @@ class CylinderMap(GaussianClusteringProblem):
         for (cx,cxy) in self.clusters:
             self.plot_cluster(cx,n)
 
+    def features(self,xs_,n_min = None):
+        if n_min is None:
+            n_min = -float('inf')
+        clusters = [cx for cx,cxy in self.clusters if cx.n>n_min]
+
+        nc = len(clusters)
+        xs = xs_.copy()
+        xs[:,1] = self.angle_transform(xs[:,1])
+
+        for cx,i in  zip(clusters, range(nc)): 
+            p,grad,hess =  cx.predictive_likelihood(xs[:,:2], dim = 2)
+            phi_n = np.hstack([
+                    p[:,np.newaxis], 
+                    grad.reshape(p.size,-1),
+                    hess.reshape(p.size,-1)])
+            try:
+                phi = np.hstack([phi,phi_n])
+            except:
+                phi = phi_n
+
+        return phi
+
     def sample(self,n, n_min = None):
         
         if n_min is None:
@@ -901,6 +1074,27 @@ class CylinderMap(GaussianClusteringProblem):
         return xs
 
 
+        
+    def successors(self, xs, dt= 0.01):
+        dx = self.dim_x+1
+        
+        A,B = self.expected_dynamics(dt)
+        probs = self.p(xs)
+
+        xs = xs.copy()
+        xs_ = np.einsum('cij,nc, nj->ni',A,probs, 
+            np.insert(xs,xs.shape[1],1,axis=1) )[:,:-1]
+
+        return xs_
+
+
+class SingleCylinderMap(CylinderMap):
+    def __init__(self,alpha=1,max_clusters = 10):
+        GaussianClusteringProblem.__init__(self,alpha,
+            3,4,1,max_clusters=max_clusters )
+
+    def angle_transform(self,th):
+        return np.mod(th + np.pi,4*np.pi)-np.pi
         
 class CylinderProblem():
     def __init__(self,num_maps = 2, alpha=1,max_clusters=10):
@@ -919,6 +1113,27 @@ class CylinderProblem():
     def sample(self, n, n_min = None):
         xs = np.vstack([m.sample(n,n_min) for m in self.maps])
         return xs
+    def successors(self,xs, dt = .01):
+        
+        lls = np.zeros((xs.shape[0],len(self.maps)))
+        for m,i in zip(self.maps, range(len(self.maps))):
+            lls[:,i] = m.map_ll(xs)
+
+        lls -= lls.max(1)[:,np.newaxis]
+        lls = np.exp(lls)
+        lls /= lls.sum(1)[:, np.newaxis]
+            
+        xs_ = xs.copy()
+        for m,i in zip(self.maps, range(len(self.maps))):
+            xs_ += lls[:,i:(i+1)] * m.displacements(xs,dt)
+        
+        xs_[:,1] = self.maps[0].angle_transform(xs_[:,1])
+        return xs_
+            
+
+    def features(self,xs, n_min = None):
+        return np.hstack([m.features(xs,n_min) for m in self.maps])
+
 class MDPtests(unittest.TestCase):
     def test_f(self):
         a = Pendulum()
@@ -1533,10 +1748,13 @@ class MDPtests(unittest.TestCase):
             cxos = [cx for (cx,cxy) in mp.clusters
                 if cx.n>11 ]
 
+            xs = np.vstack([cx.mu for (cx,cxy) in mp.clusters
+                if cx.n>11 ])
+
             for d in range(len(cxos)):
                 mp.plot_cluster(mp.clusters[d][0])
                 print d
-                mp.controls( d , cxos, dt=.01, max_t=1)
+                mp.controls( d , xs, dt=.01, max_t=1)
         plt.show()
 
     def test_pendulum_prior(self):
@@ -1544,11 +1762,12 @@ class MDPtests(unittest.TestCase):
         a = Pendulum()
         traj = a.random_traj(200.0)
         a.plot_traj(traj)
+        plt.show()
             
-        prob = CylinderProblem(2, 50, 100)
+        prob = CylinderProblem(2, 100.0, 50)
         prob.set_prior(traj, 1.0)
 
-        prob.learn_maps(traj, max_iters = 300)
+        prob.learn_maps(traj, max_iters = 200)
 
         f =  open('./pickles/test_maps.pkl','w')
         cPickle.dump(prob,f)
@@ -1561,11 +1780,11 @@ class MDPtests(unittest.TestCase):
         d = 2
         dt = .01  
         
-        mp = prob.maps[1]
+        mp = prob.maps[0]
         
         mp.plot_clusters()
         np.random.seed(1)
-        xs = mp.sample_xs(200)
+        xs = mp.sample(10,n_min=10)
         #plt.scatter(xs[:,1], xs[:,0])
         #plt.show()
         
@@ -1574,8 +1793,361 @@ class MDPtests(unittest.TestCase):
             mp.controls( d , xs, dt=.01, max_t=1)
         plt.show()
 
+    def test_approx_vi(self):
+        f =  open('./pickles/test_maps.pkl','r')
+        prob = cPickle.load(f)
+        f.close()
+        
+        n = 1000
+        np.random.seed(10)
+        
+        mp = prob.maps[0]
+        
+        
+        xs = mp.sample_xs(n)
+        xs1 = xs.copy()
+        xs1[:,2]= 5
+        xs2 = xs.copy()
+        xs2[:,2]= -5
+        xs = np.vstack((xs1,xs2))
+        
+        xs_ = mp.successors(xs, dt = .01)
+
+        # featurize
+        phi = mp.features(xs,n_min = 10)
+        phi = np.insert(phi, 0, 1, 1)
+        phi_ = mp.features(xs_, n_min = 10)
+        phi_ = np.insert(phi_, 0, 1, 1)
+        
+        gamma = .99
+        A = phi - gamma*phi_
+
+        A = scipy.sparse.csr_matrix(A)
+        A.eliminate_zeros()
+        A = A.tocoo()
+        print A.nnz
+            
+        b = np.ones(phi.shape[0])
+        b = phi[:,1]
+        b = -(1.0 - np.exp( - .2*xs[:,0]*xs[:,0] - xs[:,1]*xs[:,1]  ) )
+        c = phi.mean(0)
+        
+        theta = solve_lp( A, b, c)
+        
+        vs = np.einsum('f,nf->n',theta,phi)
+        
+        mp.plot_clusters()
+        plt.scatter(xs[:,1],xs[:,0],c=-vs, lw=0)
+        #plt.scatter(xs_[:,1],xs_[:,0],marker="x",c=vs, lw=1)
+        plt.show()
+
+    def test_approx_vi_all_old(self):
+
+
+        f =  open('./pickles/test_maps.pkl','r')
+        prob = cPickle.load(f)
+        f.close()
+        
+        n = 40
+        dt = .1
+        avg_h = 10.0
+        #np.random.seed(10)
+        
+        xs = prob.sample(n, n_min = 10)
+
+        xs[:,2]= np.minimum(np.matrix([5.0]), 
+                np.maximum(np.matrix([-5.0]), xs[:,2]))
+        xs_ = prob.successors(xs,dt=dt)
+
+        phi = prob.features(xs,n_min = 10)
+        phi = np.insert(phi, 0, 1, 1)
+        phi_ = prob.features(xs_, n_min = 10)
+        phi_ = np.insert(phi_, 0, 1, 1)
+        
+        gamma = 1.0-dt/avg_h
+        A = phi - gamma*phi_
+            
+        b = 1.0 - np.exp( - .2*xs_[:,0]*xs_[:,0] - xs_[:,1]*xs_[:,1]  ) 
+        
+        c = phi.mean(0)
+        
+        theta = solve_lp( A, b, c)
+        
+        v0 = np.einsum('f,nf->n',theta,phi)
+
+        nth = 100
+        nvs = 90
+
+        ths = np.linspace(-np.pi,np.pi, nth)
+        vs = np.linspace(-5,5, nvs)
+        
+        ths = np.tile(ths[np.newaxis,:], [nvs,1])
+        vs = np.tile(vs[:,np.newaxis], [1,nth])
+
+        xts = np.hstack([vs.reshape(-1)[:,np.newaxis], 
+                        ths.reshape(-1)[:,np.newaxis]])
+        xts = np.insert(xts,2, 0, 1)
+
+        phi_t = prob.features(xts,n_min = 10)
+        phi_t = np.insert(phi_t, 0, 1, 1)
+
+        zs = np.einsum('f,nf->n',theta,phi_t)
+        zs = zs.reshape(ths.shape)
+        
+        plt.imshow(zs[::-1,:], extent=(-np.pi, np.pi,-5.0,5.0) )
+        #plt.show()
+
+        
+        #mp.plot_clusters()
+        msk = (xs[:,0]<5) * (xs[:,0]>-5)
+        #plt.scatter(xs[msk,1],xs[msk,0],c=v0[msk], lw=0)
+        #plt.scatter(xts[:,1],xts[:,0],c=zs.reshape(-1), lw=0)
+        plt.show()
+
+        #plt.scatter(xs[:,1],xs[:,0])
+        #plt.show()
+
+
+    def test_approx_vi_all(self):
+
+        f =  open('./pickles/test_maps.pkl','r')
+        prob = cPickle.load(f)
+        f.close()
+        
+        n = 100
+        dt = .01
+        avg_h = 10.0
+        n_min = 50
+        
+        xo = np.array([[0,np.pi,0]])
+        #np.random.seed(10)
+        
+        lxs = []
+        lxs_ = []
+        for m in prob.maps:
+            xs = m.sample(n, n_min=n_min)
+            xs1 = xs.copy()
+            xs1[:,2]= 5
+            xs2 = xs.copy()
+            xs2[:,2]= -5
+            xs = np.vstack((xs1,xs2))
+            
+            xs_ = m.successors(xs, dt = dt)
+            
+            lxs.append(xs)
+            lxs_.append(xs_)
+            
+            ind = xs_[:,1] < -np.pi 
+            xst = xs[ind,:]
+            xst_ = xs_[ind,:].copy()
+            xst_[:,1] += 2*np.pi 
+
+            lxs.append(xst)
+            lxs_.append(xst_)
+
+            ind = xs_[:,1] > np.pi 
+            xst = xs[ind,:]
+            xst_ = xs_[ind,:].copy()
+            xst_[:,1] -= 2*np.pi 
+
+            lxs.append(xst)
+            lxs_.append(xst_)
+
+        xs = np.vstack(lxs)
+        xs_ = np.vstack(lxs_)
+
+        phi = np.hstack([m.features(xs,n_min=n_min) for m in prob.maps])
+        phi = np.insert(phi, 0, 1, 1)
+        phi_ = np.hstack([m.features(xs_,n_min=n_min) for m in prob.maps])
+        phi_ = np.insert(phi_, 0, 1, 1)
+        
+        phio = np.hstack([m.features(xo,n_min=n_min) for m in prob.maps])
+        phio = np.insert(phio, 0, 1, 1)
+
+        gamma = 1.0-dt/avg_h
+        A = phi - gamma*phi_
+        #A[np.abs(A)<1e-10] = 0
+        A = scipy.sparse.csr_matrix(A)
+        A.eliminate_zeros()
+        A = A.tocoo()
+        print A.nnz
+            
+        b = -(1.0 - np.exp( - .2*xs[:,0]*xs[:,0] - xs[:,1]*xs[:,1]  ) )
+        
+        c = phi.mean(0)
+
+        theta = solve_lp( A, b, c)
+
+
+        nth = 200
+        nvs = 200
+
+        ths = np.linspace(-np.pi,np.pi, nth)
+        vs = np.linspace(-10,10, nvs)
+        
+        ths = np.tile(ths[np.newaxis,:], [nvs,1])
+        vs = np.tile(vs[:,np.newaxis], [1,nth])
+
+        xts = np.hstack([vs.reshape(-1)[:,np.newaxis], 
+                        ths.reshape(-1)[:,np.newaxis]])
+        xts = np.insert(xts,2, 0, 1)
+
+        phi_t = np.hstack([m.features(xts,n_min=n_min) for m in prob.maps])
+        phi_t = np.insert(phi_t, 0, 1, 1)
+
+        zs = np.einsum('f,nf->n',theta,phi_t)
+        zs = -zs.reshape(ths.shape)
+        
+        plt.imshow(zs[::-1,:], extent=(-np.pi, np.pi,vs.min(),vs.max()) )
+
+        
+        #v0 = np.einsum('f,nf->n',theta,phi)
+        #f = lambda th: np.mod(th + np.pi,2*np.pi) - np.pi
+        #ind = (xs[:,0]<vs.max()) * (xs[:,0]>vs.min())
+        #plt.scatter(f(xs[ind,1]),xs[ind,0],c=-v0[ind], lw=0)
+        #plt.scatter(f(xs_[:,1]),xs_[:,0],marker='x',c=-v0[:], lw=1)
+        plt.show()
+        
+
+    def test_lqr_mix(self):
+        f =  open('./pickles/test_maps_sg.pkl','r')
+        prob = cPickle.load(f)
+
+        mp = prob
+        dt = .01
+        d = 0
+        ex_h = 2
+
+        gamma = 1.0-1.0/(ex_h/dt)
+
+        #mp.plot_clusters()
+        #plt.show()
+        #asdf
+        
+        np.random.seed(1)
+        A,B = mp.expected_dynamics(dt)
+        #Q = np.zeros(A.shape)
+        #Q[:,2:,2:] = -mp.expected_log_likelihood_matrices(inds=[2])
+        Q = -mp.expected_log_likelihood_matrices()
+
+
+        P = Q.copy()   
+        Qt = -mp.clusters[d][0].expected_log_likelihood_matrix(add_const=False)
+        #Qt = np.insert(Qt,2,0,0)
+        #Qt = np.insert(Qt,2,0,1)
+
+
+        Q /= 8.0
+        Q[:,-1,-1] += 1.0
+        Q[d,-1,-1] -= 1.0
+        Q[d,...] += Qt
+
+        xs = mp.sample_xs(500)
+        xs_ = np.vstack([cx.mu for cx,cxy in mp.clusters if cx.n>10])
+        xs = np.vstack((xs,xs_))
+        xs[:,2]=0
+        ps = mp.p(xs) #nc
+        xs = np.insert(xs,xs.shape[1],1,axis=1)
+
+        A = np.einsum('nc,cij->nij',ps,A)
+        B = np.einsum('nc,cij->nij',ps,B)
+        Q = np.einsum('nc,cij->nij',ps,Q)
+        P = np.einsum('nc,cij->nij',ps,P)
+        
+        xs_ = 0*xs.copy()
+        for it in range(3*int(ex_h/dt)):
+
+            dx = np.array([0,2*np.pi,0,1])
+            tmp1 = np.einsum('nij,j->ni',P,dx)[:,:-1] 
+            tmp2 = np.einsum('nij,i,j->n',P,dx,dx) 
+            P_1 = P.copy()
+            P_1[:,:-1,-1] = tmp1
+            P_1[:,-1,:-1] = tmp1
+            P_1[:,-1,-1] = tmp2
+            
+            dx = np.array([0,-2*np.pi,0,1])
+            tmp1 = np.einsum('nij,j->ni',P,dx)[:,:-1] 
+            tmp2 = np.einsum('nij,i,j->n',P,dx,dx) 
+            P_2 = P.copy()
+            P_2[:,:-1,-1] = tmp1
+            P_2[:,-1,:-1] = tmp1
+            P_2[:,-1,-1] = tmp2
+            
+            P_ = np.vstack((P.copy(),P_1,P_2))
+
+            central_costs = np.einsum('nij,mi,mj->nm',P_,xs,xs)
+            print it,central_costs[d,0],
+            
+            ind = np.argmin(central_costs, axis=0)
+            P_ = gamma*P_[ind,:,:]
+            
+           
+            xs_ *= 0.0
+            for i in range(xs.shape[0]):
+
+                Bm = np.matrix(B[i,...])
+                Am = np.matrix(A[i,...])
+                Qm = np.matrix(Q[i,...])
+                P_m = np.matrix(P_[i,...])
+
+                tmp = np.matrix(np.linalg.inv(
+                    Bm.T*P_m*Bm))
+                K = np.matrix(-tmp*(Bm.T*P_m*Am))
+                #P[i,...] = (Qm + (Am+Bm*K).T *P_m*(Am+Bm*K) )
+
+                P[i,...] = Qm + Am.T*(P_m - P_m*Bm*tmp*Bm.T*P_m  )*Am
+
+                tmp2 = ((Am+Bm*K)*(Am+Bm*K) 
+                        * np.matrix(xs[i,:]).T)
+                xs_[i,:] = np.array(tmp2).reshape(-1)
+            print np.median(np.abs(xs_[:,2]))
+
+    
+        mp.plot_cluster(mp.clusters[d][0])
+        plt_mod = lambda x:np.mod(x+np.pi,2*np.pi)-np.pi
+        
+        vlim = 15
+        ind = (np.abs(xs[:,0])<vlim)
+        xs = xs[ind,:]
+        xs_ = xs_[ind,:]
+        P = P[ind,...]
+
+        plt.quiver(plt_mod(xs[:,1]), xs[:,0],
+            (xs_[:,1]-xs[:,1]),(xs_[:,0]-xs[:,0]),
+            angles='xy', scale_units='xy', scale=.3
+            )
+        v = np.einsum('nij,ni,nj->n',P,xs,xs)
+        plt.scatter(plt_mod(xs[:,1]),xs[:,0],c=v)
+        plt.xlim((-np.pi,np.pi))
+        plt.ylim((-vlim,vlim))
+        plt.xlabel('Angle (radians)')
+        plt.ylabel('Angular velocity (radians/second)')
+        #mp.plot_clusters()
+        #plt.quiver(xs[:,1], xs[:,0],xs[ind,1]-xs[:,1],xs[ind,0]-xs[:,0])
+        plt.show()
+        
+    def test_learn_single_map(self):
+        np.random.seed(2)
+        a = Pendulum()
+        traj = a.random_traj(200.0)
+        a.plot_traj(traj)
+        plt.show()
+        
+        prob = SingleCylinderMap(100.0,100)
+
+        #prob = CylinderProblem(2, 100.0, 50)
+        w = 1.0
+        w /= traj[0].shape[0]
+        prob.set_prior(traj, w)
+
+        prob.learn(traj, max_iters = 200)
+
+        f =  open('./pickles/test_maps_sg.pkl','w')
+        cPickle.dump(prob,f)
+        f.close()
+
 if __name__ == '__main__':
-    single_test = 'test_lqr4'
+    single_test = 'test_lqr_mix'
     if hasattr(MDPtests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(MDPtests(single_test))
