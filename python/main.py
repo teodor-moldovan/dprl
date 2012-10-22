@@ -4,12 +4,15 @@ import numpy as np
 import numpy.random 
 import scipy.integrate
 import matplotlib.pyplot as plt
+import matplotlib
 import scipy.special
 import scipy.linalg
 import scipy.misc
 import scipy.optimize
 import scipy.stats
 import cPickle
+import picos as pic
+import cvxopt as cvx
 #import mosek
 #import warnings
 
@@ -2016,7 +2019,7 @@ class MDPtests(unittest.TestCase):
         mp = prob
         dt = .01
         d = 0
-        ex_h = 2
+        ex_h = 4
 
         gamma = 1.0-1.0/(ex_h/dt)
 
@@ -2036,7 +2039,6 @@ class MDPtests(unittest.TestCase):
         #Qt = np.insert(Qt,2,0,0)
         #Qt = np.insert(Qt,2,0,1)
 
-
         Q /= 8.0
         Q[:,-1,-1] += 1.0
         Q[d,-1,-1] -= 1.0
@@ -2055,7 +2057,7 @@ class MDPtests(unittest.TestCase):
         P = np.einsum('nc,cij->nij',ps,P)
         
         xs_ = 0*xs.copy()
-        for it in range(3*int(ex_h/dt)):
+        for it in range(5*int(ex_h/dt)):
 
             dx = np.array([0,2*np.pi,0,1])
             tmp1 = np.einsum('nij,j->ni',P,dx)[:,:-1] 
@@ -2102,8 +2104,8 @@ class MDPtests(unittest.TestCase):
                 xs_[i,:] = np.array(tmp2).reshape(-1)
             print np.median(np.abs(xs_[:,2]))
 
-    
         mp.plot_cluster(mp.clusters[d][0])
+        matplotlib.rcParams.update({'font.family': 'serif'})
         plt_mod = lambda x:np.mod(x+np.pi,2*np.pi)-np.pi
         
         vlim = 15
@@ -2124,7 +2126,8 @@ class MDPtests(unittest.TestCase):
         plt.ylabel('Angular velocity (radians/second)')
         #mp.plot_clusters()
         #plt.quiver(xs[:,1], xs[:,0],xs[ind,1]-xs[:,1],xs[ind,0]-xs[:,0])
-        plt.show()
+        plt.savefig('figures/policy.pdf') 
+        #plt.show()
         
     def test_learn_single_map(self):
         np.random.seed(2)
@@ -2146,6 +2149,127 @@ class MDPtests(unittest.TestCase):
         cPickle.dump(prob,f)
         f.close()
 
+    def test_coupled_lqr_sdp(self):
+        f =  open('./pickles/test_maps_sg.pkl','r')
+        prob = cPickle.load(f)
+
+        mp = prob
+        dt = .01
+        d = 0
+        ex_h = 2
+
+        gamma = 1.0-1.0/(ex_h/dt)
+
+        np.random.seed(1)
+        A,B = mp.expected_dynamics(dt)
+        Q = -mp.expected_log_likelihood_matrices()
+
+        P = Q.copy()   
+        Qt = -mp.clusters[d][0].expected_log_likelihood_matrix(add_const=False)
+
+        Q /= 8.0
+        Q[:,-1,-1] += 1.0
+        Q[d,-1,-1] -= 1.0
+        Q[d,...] += Qt
+
+        #xs = mp.sample_xs(10)
+        xs = np.vstack([cx.mu for cx,cxy in mp.clusters if cx.n>10])
+        #xs = np.vstack((xs,xs_))
+        num_s = xs.shape[0]
+        xs[:,2]=0
+        ps = mp.p(xs) #nc
+        xs = np.insert(xs,xs.shape[1],1,axis=1)
+
+        As = np.einsum('nc,cij->nij',ps,A)
+        Bs = np.einsum('nc,cij->nij',ps,B)
+        Qs = np.einsum('nc,cij->nij',ps,Q)
+
+        dx = Qs.shape[1]
+        prob = pic.Problem()
+        
+        Ps0 = [prob.add_variable('P0[{0}]'.format(i), (dx,dx),vtype='symmetric')
+            for i in range(num_s)]
+        Ps = [prob.add_variable('P[{0}]'.format(i), (dx,dx),vtype='symmetric')
+            for i in range(num_s)]
+
+        ps = pic.new_param('p', ps)
+
+        As = [pic.new_param('A[{0}]'.format(i),As[i,...])
+            for i in range(num_s)]
+        Bs = [pic.new_param('B[{0}]'.format(i),Bs[i,...])
+            for i in range(num_s)]
+        Qs = [pic.new_param('Q[{0}]'.format(i),Qs[i,...])
+            for i in range(num_s)]
+
+        for i in range(num_s):
+            A,B,Q,P = As[i], Bs[i], Qs[i], Ps[i]
+            P_ = gamma*Ps[i]
+            prob.add_constraint(Ps[i]>>0)
+            prob.add_constraint(Ps0[i]>>0)
+            con = (
+                        ( ( Q + A.T*P_*A - P) & (A.T*P_*B) )
+                        //
+                        ( (B.T*P_*A) & (B.T*P_*B ) )
+                        )
+            prob.add_constraint(con>>0)
+            con0 = (Ps[i] == sum(Ps0[j]*ps[i,j] for j in range(num_s)) )
+
+        prob.set_objective('max',sum([Ps[d][i,i] for i in range(dx) 
+            for d in range(num_s)]))
+        prob.solve(verbose=False)
+
+        Ps0 = np.concatenate([np.array(Ps0[0].value)[np.newaxis,:,:] 
+                for d in range(num_s)])
+        
+        nth = 50
+        nvs = 50
+
+        ths = np.linspace(-np.pi,3*np.pi, nth)
+        vs = np.linspace(-10,10, nvs)
+        
+        ths = np.tile(ths[np.newaxis,:], [nvs,1])
+        vs = np.tile(vs[:,np.newaxis], [1,nth])
+
+        xts = np.hstack([vs.reshape(-1)[:,np.newaxis], 
+                        ths.reshape(-1)[:,np.newaxis]])
+        xts = np.insert(xts,2, 0, 1)
+        xts = np.insert(xts,3, 1, 1)
+
+        zs = np.einsum('nij,mn,mi,mj->m',Ps0,mp.p(xts[:,:-1])[:,:11],xts,xts)
+        zs = zs.reshape(ths.shape)
+        
+        plt.imshow(zs[::-1,:], extent=(-np.pi, 3*np.pi,vs.min(),vs.max()) )
+        plt.show()
+
+
+        
+
+    def test_pendulum_prior_traj(self):
+        np.random.seed(2)
+        a = Pendulum()
+        traj = a.random_traj(200.0)
+
+        #matplotlib.rcParams.update({'font.size': 10})
+        matplotlib.rcParams.update({'font.family': 'serif'})
+
+        plt.polar( traj[1], traj[0], lw=.4, alpha = .5)
+        plt.gca().set_theta_offset(np.pi/2)
+        plt.savefig('figures/trajectory.pdf') 
+            
+    def test_clustering_plot(self):
+        f =  open('./pickles/test_maps_sg.pkl','r')
+        prob = cPickle.load(f)
+
+        matplotlib.rcParams.update({'font.family': 'serif'})
+        mp = prob
+        for cx,cxy in mp.clusters:
+            if cx.n>5:
+                mp.plot_cluster(cx)
+        plt.scatter( mp.x[:,1], mp.x[:,0], marker='.',lw=0, c='black', alpha = .1)
+        plt.xlim((-np.pi,3*np.pi))
+        plt.xlabel('Angle (radians)')
+        plt.ylabel('Angular velocity (radians/second)')
+        plt.savefig('figures/clusters.pdf') 
 if __name__ == '__main__':
     single_test = 'test_lqr_mix'
     if hasattr(MDPtests, single_test):
