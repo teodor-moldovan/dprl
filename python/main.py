@@ -2102,7 +2102,6 @@ class MDPtests(unittest.TestCase):
                 xs_[i,:] = np.array(tmp2).reshape(-1)
             print np.median(np.abs(xs_[:,2]))
 
-    
         mp.plot_cluster(mp.clusters[d][0])
         plt_mod = lambda x:np.mod(x+np.pi,2*np.pi)-np.pi
         
