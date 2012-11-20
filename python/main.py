@@ -2,7 +2,6 @@ import unittest
 import math
 import numpy as np
 import numpy.random 
-import numdifftools as nd
 import scipy.integrate
 import matplotlib.pyplot as plt
 import scipy.special
@@ -10,10 +9,13 @@ import scipy.linalg
 import scipy.misc
 import scipy.optimize
 import scipy.stats
+import scipy.sparse
 import cPickle
-import picos as pic
-import cvxopt as cvx
+import mosek
+import warnings
 
+mosek_env = mosek.Env()
+mosek_env.init()
 
 class Pendulum:
     """Pendulum defined as in Deisenroth2009"""
@@ -170,15 +172,25 @@ class GaussianConjProcess:
         ll = -.5*(self.p_nu+self.dim)*np.log(1.0 + np.sum(tmp,1)/self.p_nu)
         return ll + self.log_norm_constant
 
-    def grad_ll(self,data):
+    def ll_jac_hess(self,data):
         self.compute_const()
         if self.n==0:
             raise Exception()
+
         data_c =  data-self.mu
         tmp = np.array(np.linalg.solve(self.p_lbd,data_c.T)).T
+
         q = np.sum( tmp*data_c,1)
-        grad = -(self.p_nu + self.dim)/(self.p_nu + q)[:,np.newaxis]*tmp
-        return grad
+
+        ll = -.5*(self.p_nu+self.dim)*np.log(1.0 + q/self.p_nu)
+        ll += self.log_norm_constant
+
+        jac = -(self.p_nu + self.dim)/(self.p_nu + q)[:,np.newaxis]*tmp
+
+        hess = -((self.p_nu + self.dim)/(self.p_nu + q)[:,np.newaxis,np.newaxis]) * np.array(np.linalg.inv(self.p_lbd))[np.newaxis,:,:]
+        hess += 2 * jac[:,:,np.newaxis]*jac[:,np.newaxis,:]/(self.p_nu+self.dim)
+
+        return ll, jac, hess
 
     def predictive_likelihood(self,data, dim = None):
         if dim is None:
@@ -318,11 +330,9 @@ class GaussianConjProcess:
         return self.lbd/(self.nu-self.dim-1.0)
 
     def covariance(self):
-
         self.p_nu = self.nu-self.dim+1.0
         self.p_lbd = self.lbd*(self.n+1.0)/self.p_nu/self.n
         return self.p_lbd*(self.p_nu)/(self.p_nu-2.0)
-
 
 class GaussianRegressionProcess:
     def __init__(self,m,d):
@@ -458,6 +468,32 @@ class GaussianRegressionProcess:
         ll= t3+t4+t5+t1+t2+t6
 
         return ll
+
+    def expected_log_likelihood_matrix(self):
+        """Find Q such that [y;x].T Q [y;x] = expected_log_likelihood(x,y)
+            assuming homogeneous x coordinates (x[-1]==1)"""
+
+        M = self.M
+        K = self.K
+        S = self.S
+        nu = self.nu
+        m = self.m
+        d = self.d
+
+        t3 =  + .5*d*np.log(2.0) 
+        t4 = + .5*scipy.special.psi( .5*( nu - np.arange(d)) ).sum()
+        t5 = - .5*np.prod(np.linalg.slogdet(S))
+        t6 = -.5*d*np.log(2*np.pi)
+        
+        const = t3+t4+t5+t6
+        
+        Byy = -.5*nu*np.linalg.inv(S)
+        Byx = -Byy*M
+        Bxx = -.5*m*np.linalg.inv(K) + M.T*Byy*M
+        Bxx[-1,-1] += t3+t4+t5+t6
+        
+        return np.bmat([[ Byy, Byx ], [Byx.T, Bxx] ])
+
     def sample_predictive(self):
         p = self.d
         nu = self.nu
@@ -574,6 +610,16 @@ class ClusteringProblem:
             Qs[i,:,:] = cx.expected_log_likelihood_matrix(inds=inds)
         return Qs
 
+    def expected_log_likelihood_matrices_xy(self):
+        clusters= self.clusters+[(self.new_x_proc(),self.new_xy_proc())]
+        (cx0,cxy0) = clusters[0]
+
+        nc = len(clusters)
+        Qs = np.zeros((nc, cxy0.m+cxy0.d,cxy0.m+cxy0.d))
+        for (cx,cxy),i in zip(clusters,range(nc)):
+            Qs[i,:,:] = cxy.expected_log_likelihood_matrix()
+        return Qs
+
     def p(self, data):
         ll = np.zeros((data.shape[0], self.max_clusters+1))
 
@@ -662,17 +708,89 @@ class ClusteringProblem:
         ll /= ll.sum(1)[:,np.newaxis]
         return ll
 
-    def grad_log_p(self,data):
-        p = self.p(data)
+    # untested
+    def cluster_ll_jac_hess(self,data):
+        
+        ll = []
+        ll_jac = []
+        ll_hess = []
+        for cx,cxy in self.clusters:
+            ll_, ll_jac_, ll_hess_ = cx.ll_jac_hess(data)            
+            ll  += [ll_[:,np.newaxis]]
+            ll_jac  += [ll_jac_[:,np.newaxis,:]]
+            ll_hess += [ll_hess_[:,np.newaxis,:,:]]
+
+        ll = np.hstack(ll)
+        ll_jac = np.hstack(ll_jac)
+        ll_hess = np.hstack(ll_hess)
+
+
+        ps = (   np.log(self.al)
+                + np.cumsum(np.log(self.bt)) - np.log(self.bt)
+                - np.cumsum(np.log(self.al+self.bt)))
+        ll += ps
+
+        ll -= ll.max(1)[:,np.newaxis]
+        p = np.exp(ll)
+        p /= p.sum(1)[:,np.newaxis]
+
         grad_log_p_ll = (np.eye(p.shape[1])[np.newaxis,:,:]  
                 - p[:,np.newaxis,:])
+
+        jac = np.einsum('npl,nlx->npx',grad_log_p_ll,ll_jac)
+
+        hess = np.einsum('npl,nlxy->npxy',grad_log_p_ll,ll_hess)
+        hess -= np.einsum('nlx,nly,nl->nlxy',ll_jac,ll_jac,p)
+
+        return ll, jac, hess
         
-        grad_ll_x = np.hstack([ cx.grad_ll(data)[:,np.newaxis,:]
-            for cx,cxy in self.clusters + [(self.new_x_proc(),
-                                            self.new_xy_proc())]])
-        grad_log_p_x = np.einsum('npl,nlx->npx',grad_log_p_ll,grad_ll_x)
+
+    # untested
+    def ll_quad_approx(self,data, ind_x, ind_x_, ind_y, ind_one ):
         
-        return grad_log_p_x
+        z = data
+        x = data[:,ind_x]
+        x_ = data[:,ind_x_]
+        y = data[:,ind_y]
+        
+        
+        c_ll, c_jac, c_hess = self.cluster_ll_jac_hess(x)
+
+        tmp = np.zeros((c_jac.shape[0],c_jac.shape[1],z.shape[1]))
+        tmp[:,:,ind_x] = c_jac
+        c_jac = tmp
+
+        tmp = np.zeros((c_jac.shape[0],c_jac.shape[1],z.shape[1],z.shape[1]))
+        tmp[:,:,[i for i in ind_x for j in ind_x],
+                [j for i in ind_x for j in ind_x]] = c_hess.reshape(
+                    c_hess.shape[0], c_hess.shape[1],-1)
+        c_hess = tmp
+        
+        p = np.exp(c_ll)
+        p /= p.sum(1)[:,np.newaxis]
+
+        Qs = []
+        for cx,cxy in self.clusters:
+            Qs += [np.array(
+                cxy.expected_log_likelihood_matrix())[np.newaxis,:,:]]
+
+        Q = np.vstack(Qs)
+
+        jac = np.einsum('nck,ni,cij,nj,nc->nk', c_jac, z,Q,z,p)
+        jac += 2*np.einsum('cij,nj,nc->ni', Q,z,p)
+        
+        hess = 2*np.einsum('ckl,nc->nkl', Q, p)
+        hess += 2*np.einsum('ckj,nj,nc,ncl->nkl', Q, z, p, c_jac)
+        hess += 2*np.einsum('clj,nj,nc,nck->nkl', Q, z, p, c_jac)
+        hess += np.einsum('ni,cij,nj,nc,nck,ncl->nkl', z,Q,z,p,c_jac,c_jac)
+        hess += np.einsum('ni,cij,nj,nc,nckl->nkl', z,Q,z,p,c_hess)
+        
+        Qn = hess
+        Qn[:,:,-1] += jac
+        Qn[:,-1,:] += jac
+        Qn /= 2.0
+
+        return Qn
         
 
     def occupied_cluster_inds(self, p_thrs = 1e-2):
@@ -718,14 +836,14 @@ class GaussianClusteringProblem(ClusteringProblem):
         return self.cxy_prior.copy()
 
 
+
 class DLQR:
-    def __init__(self,A,B,Q):
+    def __init__(self,A,B):
         self.A = A
         self.B = B
-        self.Q = Q
         
-    def solve(self,gamma):
-        P = self.Q[-1,...].copy()
+    def solve(self,gamma,Q):
+        P = Q[-1,...].copy()
         Ks = np.zeros((self.B.shape[0], self.B.shape[2],self.B.shape[1]))
 
         for t in reversed(range(self.B.shape[0])):
@@ -733,9 +851,9 @@ class DLQR:
                 gamma*np.matrix(P),
                 np.matrix(self.A[t,...]),
                 np.matrix(self.B[t,...]),
-                np.matrix(self.Q[t,...]),)
+                np.matrix(Q[t,...]),)
             Ks[t,...] = K
-        self.Ks = Ks
+        return Ks
 
     def ricatti_mapping(self,P,A,B,Q):
         tmp = np.matrix(np.linalg.inv(B.T*P*B))
@@ -757,18 +875,18 @@ class DLQR:
         return xs
             
 class DNLQR:
-    def __init__(self,prob,As,Bs,Qs):
+    def __init__(self,prob,As,Bs):
         self.As = As
         self.Bs = Bs
-        self.Qs = Qs
         self.prob = prob
 
-    def local_lqr(self,xs):
+    def solve_local_lqr(self,xs,gamma,Qs):
         p = self.prob(xs)
         A = np.einsum('cij,tc->tij',self.As,p)
         B = np.einsum('cij,tc->tij',self.Bs,p)
         Q = np.einsum('cij,tc->tij',self.Qs,p)
-        return DLQR(A,B,Q)
+        lqr = DLQR(A,B)
+        return lqr.solve(gamma,Q)
         
     def sim(self,x,Ks):
         xs = np.zeros((Ks.shape[0], x.size))
@@ -786,6 +904,414 @@ class DNLQR:
 
         return xs
 
+class PathFinder:
+    def __init__(self,f):
+        self.f = f
+    def step(self, x):
+        A,B,Q = self.f(x)
+        
+        n,dx,dx = A.shape
+        
+        ind_n = np.arange(n)[:,np.newaxis,np.newaxis] 
+        ind_i = np.arange(dx)[np.newaxis,:,np.newaxis] 
+        ind_j = np.arange(dx)[np.newaxis,np.newaxis,:] 
+        
+        i = np.repeat(ind_n*dx + ind_i,dx,2)
+        j = np.repeat(ind_n*dx + ind_j,dx,1)
+        
+        a0 = scipy.sparse.coo_matrix((A.reshape(-1) , 
+                (i.reshape(-1), j.reshape(-1))))
+
+
+        ind = (i.reshape(-1) >= j.reshape(-1))
+        q = scipy.sparse.coo_matrix((Q.reshape(-1)[ind] , 
+                (i.reshape(-1)[ind], j.reshape(-1)[ind] )))
+        
+        d = np.ones( dx *(n-1))
+        i = np.arange(dx*(n-1)) 
+        j = i + dx 
+        
+        t = scipy.sparse.coo_matrix((d, (i,j)), shape=(dx*n,dx*n))
+        
+        a = (a0-t).tocoo()
+        
+        ind_controls = np.where(B.sum(2).reshape(-1) !=0)[0]
+
+        ind_first = np.arange(dx)
+        ind_last = np.arange(dx) + (n-1)*dx
+        
+        ind_c = np.concatenate((ind_controls,ind_last))
+        ind_fx = np.concatenate((ind_first, ind_last))
+        
+        ind_one = (dx-1)+ dx*np.arange(n)
+
+        # formulating LP
+
+        nc, nv = a.shape
+
+        task = mosek_env.Task()
+        task.append( mosek.accmode.var, nv)
+        task.append( mosek.accmode.con, nc)
+        
+        task.putboundlist(  mosek.accmode.var,
+                np.arange(nv), 
+                [mosek.boundkey.fr]*nv,
+                np.ones(nv),np.ones(nv) )
+
+        task.putboundlist(  mosek.accmode.var,
+                ind_fx, 
+                [mosek.boundkey.fx]*ind_fx.size,
+                x.reshape(-1)[ind_fx], x.reshape(-1)[ind_fx] )
+
+        task.putboundlist(  mosek.accmode.var,
+                ind_one, 
+                [mosek.boundkey.fx]*ind_one.size,
+                np.ones(ind_one.size),np.ones(ind_one.size) )
+        
+           
+        ai,aj,ad = a.row,a.col,a.data
+        task.putaijlist( ai, aj, ad  )
+
+        task.putboundlist(  mosek.accmode.con,
+                            np.arange(nc), 
+                            [mosek.boundkey.fx]*nc, 
+                            np.zeros(nc),np.zeros(nc))
+
+        task.putboundlist(  mosek.accmode.con,
+                            ind_c, 
+                            [mosek.boundkey.fr]*ind_c.size, 
+                            np.zeros(ind_c.size),np.zeros(ind_c.size))
+
+
+        #task.putclist(np.arange(nv), c)
+
+        qi,qj,qd = q.row,q.col,q.data
+        task.putqobj(qi,qj,qd)
+        task.putobjsense(mosek.objsense.minimize)
+        
+        # solve
+        def solve_b():
+            task.optimize()
+            [prosta, solsta] = task.getsolutionstatus(mosek.soltype.itr)
+            if (solsta!=mosek.solsta.optimal 
+                    and solsta!=mosek.solsta.near_optimal):
+                # mosek bug fix 
+                task._Task__progress_cb=None
+                task._Task__stream_cb=None
+                print solsta, prosta
+                raise NameError("Mosek solution not optimal. Primal LP.")
+
+
+
+        try:
+            # hack
+            task.putboundlist(  mosek.accmode.var,
+                ind_controls, 
+                [mosek.boundkey.ra]*ind_controls.size,
+                -5*np.ones(ind_controls.size),5*np.ones(ind_controls.size) )
+            solve_b()
+        except:
+            task.putboundlist(  mosek.accmode.var,
+                ind_controls, 
+                [mosek.boundkey.fr]*ind_controls.size,
+                -5*np.ones(ind_controls.size),5*np.ones(ind_controls.size) ) 
+            solve_b()
+           
+
+
+        xx = np.zeros(nv)
+        y = np.zeros(nc)
+
+        warnings.simplefilter("ignore", RuntimeWarning)
+        task.getsolutionslice(mosek.soltype.itr,
+                            mosek.solitem.xx,
+                            0,nv, xx)
+
+        task.getsolutionslice(mosek.soltype.itr,
+                            mosek.solitem.y,
+                            0,nc, y)
+        warnings.simplefilter("default", RuntimeWarning)
+
+        task._Task__progress_cb=None
+        task._Task__stream_cb=None
+
+        return xx.reshape(x.shape)
+
+
+class PathPlanner:
+    def __init__(self,f,x0,nx,nu,nt,dt):
+        self.f = f
+        self.x0 = x0
+        self.nx = nx
+        self.nu = nu
+        self.nt = nt
+        self.dt = dt
+
+        self.nv = nt*(3*nx+nu)
+        self.nc = nt*(3*nx+nu)
+
+    def dyn_constraint(self):
+        nx = self.nx
+        nu = self.nu
+        nt = self.nt
+
+        i = np.arange(2*(nt-1)*nx)
+
+        j = np.kron(np.arange(nt-1), (3*nx+nu)*np.ones(2*nx))
+        j += np.kron(np.ones(nt-1), nx+np.arange(2*nx) )
+
+        Prj = scipy.sparse.coo_matrix( (np.ones(j.shape), (i,j) ), 
+                shape = (2*(nt-1)*nx,nt*(3*nx + nu)) )
+        
+        St = scipy.sparse.eye(2*(nt-1)*nx, 2*(nt-1)*nx, k=2*nx)
+        I = scipy.sparse.eye(2*(nt-1)*nx, 2*(nt-1)*nx)
+
+        Sd = scipy.sparse.eye(nt*(3*nx+nu), nt*(3*nx+nu), k=-nx)
+
+        A = (I - St)*Prj/self.dt - Prj*Sd
+
+        return A.tocoo()
+    def quad_cost(self,Qhs):
+        
+        nx = self.nx
+        nu = self.nu
+        nt = self.nt
+
+        nv = 3*nx+nu
+        
+        # Qhs.shape == nt, nx*3 + nu + 1, nx*3 + nu + 1
+
+        Q = Qhs[:,:-1,:-1] 
+        i,j = np.meshgrid(np.arange(nv), np.arange(nv))
+        i =  i[np.newaxis,...] + nv*np.arange(nt)[:,np.newaxis,np.newaxis]
+        j =  j[np.newaxis,...] + nv*np.arange(nt)[:,np.newaxis,np.newaxis]
+
+        Q = scipy.sparse.coo_matrix((Q.reshape(-1),
+                (i.reshape(-1),j.reshape(-1)) ))
+
+        c = 2*Qhs[:,:-1,-1].reshape(-1)
+        d = Qhs[:,-1,-1]
+        return Q,c,d
+
+
+    def u_indices(self):
+        nx = self.nx
+        nu = self.nu
+        nt = self.nt
+
+        j = np.tile(np.concatenate([np.zeros(3*nx)==1, np.ones(nu)==1 ]), nt)
+        i = np.int_(np.arange(nt*(3*nx+nu))[j])
+        return i
+
+
+    def dxxu_indices(self):
+        nx = self.nx
+        nu = self.nu
+        nt = self.nt
+
+        j = np.tile(np.concatenate([np.zeros(nx), 
+                np.ones(2*nx), np.ones(nu) ])==1, nt)
+        i = np.int_(np.arange(nt*(3*nx+nu))[j])
+        return i
+
+
+    def first_dxx_indices(self):
+        nx = self.nx
+        nu = self.nu
+        nt = self.nt
+
+        i = np.int_(np.arange(2*nx)+nx )
+        return i
+
+
+    def last_dxx_indices(self):
+        nx = self.nx
+        nu = self.nu
+        nt = self.nt
+
+        i = np.int_(np.arange(2*nx)+nx + (nt-1)*(3*nx+nu) )
+        return i
+
+
+    def init_task(self):
+        a = self.dyn_constraint()
+        nc, nv = self.nc, self.nv
+
+        task = mosek_env.Task()
+        task.append( mosek.accmode.var, nv)
+        task.append( mosek.accmode.con, nc)
+        
+        task.putboundlist(  mosek.accmode.var,
+                np.arange(nv), 
+                [mosek.boundkey.fr]*nv,
+                np.ones(nv),np.ones(nv) )
+
+        i = self.first_dxx_indices()
+        vs = self.x0[0][:2*self.nx]
+        task.putboundlist(  mosek.accmode.var,
+                i, 
+                [mosek.boundkey.fx]*i.size,
+                vs,vs )
+
+        i = self.last_dxx_indices()
+        vs = self.x0[-1][:2*self.nx]
+        task.putboundlist(  mosek.accmode.var,
+                i, 
+                [mosek.boundkey.fx]*i.size,
+                vs,vs )
+
+
+        # not general
+
+        iu =  self.u_indices()
+        task.putboundlist(  mosek.accmode.var,
+                iu, 
+                [mosek.boundkey.ra]*iu.size,
+                -5*np.ones(iu.size),5*np.ones(iu.size) )
+
+        # end hack
+
+        ai,aj,ad = a.row,a.col,a.data
+        task.putaijlist( ai, aj, ad  )
+
+        task.putboundlist(  mosek.accmode.con,
+                            np.arange(nc), 
+                            [mosek.boundkey.fx]*nc, 
+                            np.zeros(nc),np.zeros(nc))
+
+        #task.putclist(np.arange(nv), c)
+        #qi,qj,qd = q.row,q.col,q.data
+        #task.putqobj(qi,qj,qd)
+
+        task.putobjsense(mosek.objsense.minimize)
+
+        self.task = task
+
+
+    def step(self,x):
+
+        # formulating LP
+        nv = self.nt*(3*self.nx+self.nu)
+
+        task = self.task
+        q,c,d = self.quad_cost(self.f(x)) 
+
+        qi,qj,qd = q.row,q.col,q.data
+        ind = (qj <= qi)
+        task.putqobj(qi[ind],qj[ind],2*qd[ind])
+        
+        task.putclist(np.arange(c.size), c)
+        task.putcfix(np.sum(d))
+
+        task.putobjsense(mosek.objsense.minimize)
+        
+        # solve
+        def solve_b():
+            task.optimize()
+            [prosta, solsta] = task.getsolutionstatus(mosek.soltype.itr)
+            if (solsta!=mosek.solsta.optimal 
+                    and solsta!=mosek.solsta.near_optimal):
+                # mosek bug fix 
+                task._Task__progress_cb=None
+                task._Task__stream_cb=None
+                print solsta, prosta
+                raise NameError("Mosek solution not optimal. Primal LP.")
+
+        solve_b()
+           
+        xx = np.zeros(nv)
+
+        warnings.simplefilter("ignore", RuntimeWarning)
+        task.getsolutionslice(mosek.soltype.itr,
+                            mosek.solitem.xx,
+                            0,nv, xx)
+
+        warnings.simplefilter("default", RuntimeWarning)
+
+        task._Task__progress_cb=None
+        task._Task__stream_cb=None
+        
+        xr = xx[self.dxxu_indices()].reshape(x.shape)
+        return xr
+
+
+class PathPlanner_(PathPlanner):
+    def __init__(self,f,x0,nx,nu,nt,dt):
+        PathPlanner.__init__(self,f,x0,nx,nu,nt,dt)
+        self.nv = nt*(3*nx+nu) + 1 
+        self.nc = nt*(3*nx+nu) + nt
+
+    def step(self,x):
+        # formulating LP
+        nc, nv = self.nc, self.nv
+        c_offset = self.nt*(3*self.nx + self.nu)
+
+        task = self.task
+        q,c,d = self.quad_cost(self.f(x)) 
+
+        qi,qj,qd = q.row,q.col,q.data
+        qk = np.kron(np.arange(self.nt), np.ones(np.power(3*self.nx+self.nu,2)))
+        qk = np.int_(qk+ c_offset)
+        ind = (qj <= qi)
+
+                
+        task.putqcon(qk[ind], qi[ind],qj[ind],2*qd[ind])
+
+        ai = np.kron(np.arange(self.nt), np.ones(3*self.nx+self.nu))
+        ai = np.int_(ai+ c_offset)
+        aj = range(c_offset)
+        task.putaijlist(ai,aj,c)
+
+        ai = np.int_(np.arange(self.nt) + c_offset)
+        aj = np.int_(np.ones(self.nt)*(nv-1))
+        ad = np.ones(self.nt)*(-1)
+        task.putaijlist(ai,aj,ad)
+
+        ## leq -d
+        task.putaijlist(ai,aj,ad)
+        
+        task.putboundlist(  mosek.accmode.con,
+                ai, 
+                [mosek.boundkey.up]*ai.size,
+                -d,-d )
+
+        #task.putqobj(qi[ind],qj[ind],2*qd[ind])
+        #task.putclist(np.arange(c.size), c)
+        #task.putcfix(np.sum(d))
+
+        task.putclist([nv-1], [1])
+        task.putobjsense(mosek.objsense.minimize)
+        
+        # solve
+        def solve_b():
+            task.optimize()
+            [prosta, solsta] = task.getsolutionstatus(mosek.soltype.itr)
+            if (solsta!=mosek.solsta.optimal 
+                    and solsta!=mosek.solsta.near_optimal):
+                # mosek bug fix 
+                task._Task__progress_cb=None
+                task._Task__stream_cb=None
+                print solsta, prosta
+                raise NameError("Mosek solution not optimal. Primal LP.")
+
+        solve_b()
+           
+        xx = np.zeros(nv)
+
+        warnings.simplefilter("ignore", RuntimeWarning)
+        task.getsolutionslice(mosek.soltype.itr,
+                            mosek.solitem.xx,
+                            0,nv, xx)
+
+        warnings.simplefilter("default", RuntimeWarning)
+
+        task._Task__progress_cb=None
+        task._Task__stream_cb=None
+        
+        xr = xx[self.dxxu_indices()].reshape(x.shape)
+        return xr
+
+
 # unfinished
 class CNLQR:
     def __init__(self, f, q):
@@ -799,8 +1325,6 @@ class CNLQR:
 class CylinderMap(GaussianClusteringProblem):
     def __init__(self,center,alpha=1,max_clusters = 10):
         self.center = center
-        self.umin = -5.0
-        self.umax = 5.0
         GaussianClusteringProblem.__init__(self,alpha,
             3,4,1,max_clusters=max_clusters )
     def append_data(self,traj):
@@ -821,100 +1345,6 @@ class CylinderMap(GaussianClusteringProblem):
     def angle_transform(self,th):
         return np.mod(th + np.pi - self.center,2*np.pi) - np.pi + self.center
         
-    def map_ll(self,xs):
-        xs_ = xs.copy()
-        xs_[:,1]= self.angle_transform(xs_[:,1])
-        cx = self.new_x_proc()
-        return cx.log_likelihood_batch(xs_)
-
-    def tid_lqr_problem(self,cxd, dt = .01, max_t= 10):
-        
-        max_iters = int(max_t/dt)
-
-        A,B =  self.expected_dynamics()
-
-        A = np.eye(A.shape[1])[np.newaxis,:,:] + A*dt
-        B = B*dt
-        
-        Q,R,N,P = self.quad_costs(cxd)
-
-        prob = DNLQR(self.p_single, A,B)
-        prob.set_costs(Q,R,N,P, max_iters)
-        return prob.local_lqr(cxd.mu)
-
-    # unfinished
-    def cnlqr_problem(self,cxd):
-        
-        A,B =  self.expected_dynamics()
-
-        Q,R,N,P = self.quad_costs(cxd)
-
-        f = lambda x: np.einsum('nij,n,j',A,self.p_single(x[:-1]),x)
-        q = None
-        
-        prob = CNLQR(f,q)
-        return prob
-
-    def quad_costs(self,cxd):
-        dx = self.dim_x+1
-        du = 1
-
-        Sg  = -cxd.expected_log_likelihood_matrix([2])
-        Sg = np.insert(Sg,0,0,0)
-        Sg = np.insert(Sg,0,0,0)
-        Sg = np.insert(Sg,0,0,1)
-        Sg = np.insert(Sg,0,0,1)
-
-        Sg_  = -cxd.expected_log_likelihood_matrix([0,1])
-        Sg_ = np.insert(Sg_,2,0,0)
-        Sg_ = np.insert(Sg_,2,0,1)
-
-        Sg__  = -cxd.expected_log_likelihood_matrix()
-
-        Q = Sg__
-        P = 0*Sg_
-        R = np.zeros((du,du))
-        N = np.zeros((dx,du))
-        
-        return Q,R,N,P
-
-
-    def expected_dynamics(self):
-
-        dx = self.dim_x+1
-        du = 1
-
-        clusters= self.clusters+[(self.new_x_proc(),self.new_xy_proc())]
-        nc = len(clusters)
-
-        A = np.zeros((nc, dx,dx))
-        B = np.zeros((nc, dx,du))
-
-        for (cx,cxy),i in zip(clusters,range(nc)):
-
-            M = cxy.M
-            M_th_d = M[0,0]
-            M_th = M[0,1]
-            M_u = M[0,2]
-            M_1 = M[0,3]
-            
-            A[i,...] = np.array([
-                    [M_th_d, M_th,M_u,M_1 ],
-                    [1,0,0,0],
-                    [0,0,0,0],
-                    [0,0,0,0],
-                            ] )
-
-            B[i,...] = np.array([
-                [0],
-                [0],
-                [1],
-                [0]
-                ])
-
-        return A,B
-
-
     def plot_cluster(self,c, n = 100):
         w,V = np.linalg.eig(c.covariance()[:2,:2])
         V =  np.array(np.matrix(V)*np.matrix(np.diag(np.sqrt(w))))
@@ -930,23 +1360,6 @@ class CylinderMap(GaussianClusteringProblem):
         for (cx,cxy) in self.clusters:
             self.plot_cluster(cx,n)
 
-    def sample(self,n, n_min = None):
-        
-        if n_min is None:
-            n_min = -float('inf')
-        clusters = [cx for cx,cy in self.clusters if cx.n>n_min]
-
-        nc = len(clusters)
-
-        xs = np.zeros((n*nc, self.dim_x))
-        
-        for cx,i in  zip(clusters, range(nc)): 
-            tmp = numpy.random.multivariate_normal(cx.mu, cx.covariance(),n)
-            xs[i*n:(i+1)*n,:] = tmp
-        return xs
-
-
-        
 class SingleCylinderMap(CylinderMap):
     def __init__(self,alpha=1,max_clusters = 10):
         GaussianClusteringProblem.__init__(self,alpha,
@@ -1427,7 +1840,12 @@ class MDPtests(unittest.TestCase):
             for cx,cxy in mp.clusters + [(mp.new_x_proc(),mp.new_xy_proc())]])
         xs = xs[mp.occupied_cluster_inds(),:]
 
-        print mp.grad_log_p(xs)
+        #print  mp.cluster_ll_jac_hess(xs)
+        
+        zs = np.insert(xs,3,1,axis=1)
+        zs = np.insert(zs,0,0,axis=1)
+
+        print  mp.ll_quad_approx(zs, [1,2,3],[1,2,3,4],[0],[4])
 
         
     def test_sdp(self):
@@ -1575,8 +1993,109 @@ class MDPtests(unittest.TestCase):
             print np.max(np.abs(xs[:,2]))
             plt.show()
 
+    def test_path_finder(self):
+        f =  open('./pickles/test_maps_sg.pkl','r')
+        mp = cPickle.load(f)
+
+        dt = .01
+        d = 0
+        ex_h = 2
+
+        gamma = 1.0-1.0/(ex_h/dt)
+
+        A,B = mp.expected_dynamics()
+        A = np.eye(A.shape[1])[np.newaxis,:,:] + A*dt
+        B = B*dt
+        Sgs = mp.covariances()
+
+        Q = np.zeros(A.shape)
+        #Q[:,2:,2:] = -mp.expected_log_likelihood_matrices(inds=[2])
+        Q = -mp.expected_log_likelihood_matrices()
+        #Qt = -mp.clusters[d][0].expected_log_likelihood_matrix(add_const=False)
+
+        #Q *= 10000.0
+        #Q[:,-1,-1] += 1.0
+        #Q[d,-1,-1] -= 1.0
+        #Q[d,...] += Qt
+
+        def f(xr):
+            pr = mp.p(xr[:,:-1]) 
+            Ar = np.einsum('cij,tc->tij',A,pr)
+            Br = np.einsum('cij,tc->tij',B,pr)
+            Qr = np.einsum('cij,tc->tij',Q,pr)
+
+            Sgr = np.zeros(Ar.shape)
+            Sgr[:,:-1,:-1] = np.einsum('cij,tc->tij',Sgs,pr)
+            Sgr[:,-1,-1] += np.einsum('tij,ti,tj->t', 
+                Sgr[:,:-1,:-1],xr[:,:-1],xr[:,:-1])
+            tmp = np.einsum('tij,tj->ti', Sgr[:,:-1,:-1],xr[:,:-1] )
+            Sgr[:,:-1,-1] -= tmp 
+            Sgr[:,-1,:-1] -= tmp 
+            return (Ar,Br,Qr)
+
+        prob = PathFinder(f)
+
+        ts = 270 # 270
+        x0 = np.hstack([np.zeros((ts,1)),np.linspace(np.pi,0,ts)[:,np.newaxis], 
+                np.zeros((ts,1)), np.ones((ts,1))])
+
+        xn = x0
+        for t in range(100):
+            print t
+            xn = prob.step(xn)
+            
+        plt.scatter(xn[:,1],xn[:,0], c=xn[:,2])
+        plt.show()
+            
+    def test_expected_ll_matrix(self):
+        f =  open('./pickles/test_maps_sg.pkl','r')
+        mp = cPickle.load(f)
+        
+        c = mp.clusters[0][1]
+        Q = c.expected_log_likelihood_matrix()
+        x = np.random.normal(size =(1,4))
+        x[-1]=1
+        y = np.random.normal(size =(1,1))
+        z = np.matrix(np.hstack([y,x]))
+
+        print z*np.matrix(Q)*z.T - c.expected_log_likelihood((x,y))
+        
+
+    def test_path_planner(self):
+        f =  open('./pickles/test_maps_sg.pkl','r')
+        mp = cPickle.load(f)
+
+        dt = .01
+        ex_h = 2.5
+
+        #gamma = 1.0-1.0/(ex_h/dt)
+
+        # this is wrong. Need log likelihood with average parameters, not average log lokelihood
+        Q = -mp.expected_log_likelihood_matrices_xy()
+
+        def f(xr):
+            pr = mp.p_approx(xr) 
+            Qr = np.einsum('cij,tc->tij',Q[:-1,:,:],pr)
+            return Qr
+
+        x0 = np.hstack([np.zeros((ex_h/dt,1)),
+                np.linspace(np.pi,0,ex_h/dt)[:,np.newaxis], 
+                np.zeros((ex_h/dt,1))])
+        
+
+        planner = PathPlanner(f, x0, 1,1,int(ex_h/dt), dt)
+        planner.init_task()
+        
+        x = x0
+        for i in range(400):
+            print i
+            x = planner.step(x)
+            
+        plt.scatter(x[:,1],x[:,0], c=x[:,2])
+        plt.show()
+
 if __name__ == '__main__':
-    single_test = 'test_ilqr'
+    single_test = 'test_path_planner'
     if hasattr(MDPtests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(MDPtests(single_test))
