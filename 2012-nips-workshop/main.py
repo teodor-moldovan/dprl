@@ -798,292 +798,18 @@ class GaussianClusteringProblem(ClusteringProblem):
 
         jac = np.einsum('npl,nlx->npx',grad_log_p_ll,ll_jac)
 
-        jac = np.einsum('nck,ni,cij,nj,nc->nk', jac, z,Q+Q_,z,p)
-        jac += 2*np.einsum('cij,nj,nc->ni', Q+Q_,z,p)
+        if False:
+            tmp = Q+Q_
+        else:
+            tmp = Q
 
-        ll = np.einsum('ni,cij,nj,nc->n', z,Q+Q_,z,p)
-
-        F = np.einsum('cij,nc->nij',Q+Q_,p)
+        jac = np.einsum('nck,ni,cij,nj,nc->nk', jac, z,tmp,z,p)
+        jac += 2*np.einsum('cij,nj,nc->ni', tmp,z,p)
+        ll = np.einsum('ni,cij,nj,nc->n', z,tmp,z,p)
+        F = np.einsum('cij,nc->nij',tmp,p)
         
         return ll, jac, F
         
-
-class PathPlannerOld:
-    def __init__(self,f,x0,nx,nu,nt,dt):
-        self.f = f
-        self.x0 = x0
-        self.nx = nx
-        self.nu = nu
-        self.nt = nt
-        self.dt = dt
-
-        self.nv = nt*(3*nx+nu)
-        self.nc = nt*(3*nx+nu)
-
-    def dyn_constraint(self,dt):
-        nx = self.nx
-        nu = self.nu
-        nt = self.nt
-
-        i = np.arange(2*(nt)*nx)
-
-        j = np.kron(np.arange(nt), (3*nx+nu)*np.ones(2*nx))
-        j += np.kron(np.ones(nt), nx+np.arange(2*nx) )
-
-        Prj = scipy.sparse.coo_matrix( (np.ones(j.shape), (i,j) ), 
-                shape = (2*(nt)*nx,nt*(3*nx + nu)) )
-        
-        St = scipy.sparse.eye(2*(nt)*nx, 2*(nt)*nx, k=2*nx)
-        I = scipy.sparse.eye(2*(nt)*nx, 2*(nt)*nx)
-
-        Sd = scipy.sparse.eye(nt*(3*nx+nu), nt*(3*nx+nu), k=-nx)
-
-        A = -(I - St)*Prj/dt - Prj*Sd
-        
-        A = A[:-2*nx,:]
-        A = A.tocoo()
-
-        return A
-    def quad_cost(self,Qhs):
-        
-        nx = self.nx
-        nu = self.nu
-        nt = self.nt
-
-        nv = 3*nx+nu
-        
-        # Qhs.shape == nt, nx*3 + nu + 1, nx*3 + nu + 1
-
-        Q = Qhs[:,:-1,:-1] 
-        i,j = np.meshgrid(np.arange(nv), np.arange(nv))
-        i =  i[np.newaxis,...] + nv*np.arange(nt)[:,np.newaxis,np.newaxis]
-        j =  j[np.newaxis,...] + nv*np.arange(nt)[:,np.newaxis,np.newaxis]
-
-        Q = scipy.sparse.coo_matrix((Q.reshape(-1),
-                (i.reshape(-1),j.reshape(-1)) ))
-
-        c = 2*Qhs[:,:-1,-1].reshape(-1)
-        d = Qhs[:,-1,-1]
-        return Q,c,d
-
-
-    def u_indices(self):
-        nx = self.nx
-        nu = self.nu
-        nt = self.nt
-
-        j = np.tile(np.concatenate([np.zeros(3*nx)==1, np.ones(nu)==1 ]), nt)
-        i = np.int_(np.arange(nt*(3*nx+nu))[j])
-        return i
-
-
-    def dxxu_indices(self):
-        nx = self.nx
-        nu = self.nu
-        nt = self.nt
-
-        j = np.tile(np.concatenate([np.zeros(nx), 
-                np.ones(2*nx), np.ones(nu) ])==1, nt)
-        i = np.int_(np.arange(nt*(3*nx+nu))[j])
-        return i
-
-
-    def first_dxx_indices(self):
-        nx = self.nx
-        nu = self.nu
-        nt = self.nt
-
-        i = np.int_(np.arange(2*nx)+nx )
-        return i
-
-
-    def last_dxx_indices(self):
-        nx = self.nx
-        nu = self.nu
-        nt = self.nt
-
-        i = np.int_(np.arange(2*nx)+nx + (nt-1)*(3*nx+nu) )
-        return i
-
-
-    def init_task(self):
-        a = self.dyn_constraint(self.dt)
-        nc, nv = self.nc, self.nv
-
-        task = mosek_env.Task()
-        task.append( mosek.accmode.var, nv)
-        task.append( mosek.accmode.con, nc)
-        
-        task.putboundlist(  mosek.accmode.var,
-                np.arange(nv), 
-                [mosek.boundkey.fr]*nv,
-                np.ones(nv),np.ones(nv) )
-
-        i = self.first_dxx_indices()
-        vs = self.x0[0][:2*self.nx]
-        task.putboundlist(  mosek.accmode.var,
-                i, 
-                [mosek.boundkey.fx]*i.size,
-                vs,vs )
-
-        i = self.last_dxx_indices()
-        vs = self.x0[-1][:2*self.nx]
-        task.putboundlist(  mosek.accmode.var,
-                i, 
-                [mosek.boundkey.fx]*i.size,
-                vs,vs )
-
-
-        # not general
-
-        iu =  self.u_indices()
-        task.putboundlist(  mosek.accmode.var,
-                iu, 
-                [mosek.boundkey.ra]*iu.size,
-                -5*np.ones(iu.size),5*np.ones(iu.size) )
-
-        # end hack
-
-        ai,aj,ad = a.row,a.col,a.data
-        task.putaijlist( ai, aj, ad  )
-
-        task.putboundlist(  mosek.accmode.con,
-                            np.arange(nc), 
-                            [mosek.boundkey.fx]*nc, 
-                            np.zeros(nc),np.zeros(nc))
-
-        #task.putclist(np.arange(nv), c)
-        #qi,qj,qd = q.row,q.col,q.data
-        #task.putqobj(qi,qj,qd)
-
-        task.putobjsense(mosek.objsense.minimize)
-
-        self.task = task
-
-
-    def step(self,x):
-
-        # formulating LP
-        nv = self.nt*(3*self.nx+self.nu)
-
-        task = self.task
-        q,c,d = self.quad_cost(self.f(x)) 
-
-        qi,qj,qd = q.row,q.col,q.data
-        ind = (qj <= qi)
-        task.putqobj(qi[ind],qj[ind],2*qd[ind])
-        
-        task.putclist(np.arange(c.size), c)
-        task.putcfix(np.sum(d))
-
-        task.putobjsense(mosek.objsense.minimize)
-        
-        # solve
-        def solve_b():
-            task.optimize()
-            [prosta, solsta] = task.getsolutionstatus(mosek.soltype.itr)
-            if (solsta!=mosek.solsta.optimal 
-                    and solsta!=mosek.solsta.near_optimal):
-                # mosek bug fix 
-                task._Task__progress_cb=None
-                task._Task__stream_cb=None
-                print solsta, prosta
-                raise NameError("Mosek solution not optimal. Primal LP.")
-
-        solve_b()
-           
-        xx = np.zeros(nv)
-
-        warnings.simplefilter("ignore", RuntimeWarning)
-        task.getsolutionslice(mosek.soltype.itr,
-                            mosek.solitem.xx,
-                            0,nv, xx)
-
-        warnings.simplefilter("default", RuntimeWarning)
-
-        task._Task__progress_cb=None
-        task._Task__stream_cb=None
-        
-        xr = xx[self.dxxu_indices()].reshape(x.shape)
-        return xr
-
-
-class PathPlanner_(PathPlannerOld):
-    def __init__(self,f,x0,nx,nu,nt,dt):
-        PathPlanner.__init__(self,f,x0,nx,nu,nt,dt)
-        self.nv = nt*(3*nx+nu) + 1 
-        self.nc = nt*(3*nx+nu) + nt
-
-    def step(self,x):
-        # formulating LP
-        nc, nv = self.nc, self.nv
-        c_offset = self.nt*(3*self.nx + self.nu)
-
-        task = self.task
-        q,c,d = self.quad_cost(self.f(x)) 
-
-        qi,qj,qd = q.row,q.col,q.data
-        qk = np.kron(np.arange(self.nt), np.ones(np.power(3*self.nx+self.nu,2)))
-        qk = np.int_(qk+ c_offset)
-        ind = (qj <= qi)
-
-                
-        task.putqcon(qk[ind], qi[ind],qj[ind],2*qd[ind])
-
-        ai = np.kron(np.arange(self.nt), np.ones(3*self.nx+self.nu))
-        ai = np.int_(ai+ c_offset)
-        aj = range(c_offset)
-        task.putaijlist(ai,aj,c)
-
-        ai = np.int_(np.arange(self.nt) + c_offset)
-        aj = np.int_(np.ones(self.nt)*(nv-1))
-        ad = np.ones(self.nt)*(-1)
-        task.putaijlist(ai,aj,ad)
-
-        ## leq -d
-        task.putaijlist(ai,aj,ad)
-        
-        task.putboundlist(  mosek.accmode.con,
-                ai, 
-                [mosek.boundkey.up]*ai.size,
-                -d,-d )
-
-        #task.putqobj(qi[ind],qj[ind],2*qd[ind])
-        #task.putclist(np.arange(c.size), c)
-        #task.putcfix(np.sum(d))
-
-        task.putclist([nv-1], [1])
-        task.putobjsense(mosek.objsense.minimize)
-        
-        # solve
-        def solve_b():
-            task.optimize()
-            [prosta, solsta] = task.getsolutionstatus(mosek.soltype.itr)
-            if (solsta!=mosek.solsta.optimal 
-                    and solsta!=mosek.solsta.near_optimal):
-                # mosek bug fix 
-                task._Task__progress_cb=None
-                task._Task__stream_cb=None
-                print solsta, prosta
-                raise NameError("Mosek solution not optimal. Primal LP.")
-
-        solve_b()
-           
-        xx = np.zeros(nv)
-
-        warnings.simplefilter("ignore", RuntimeWarning)
-        task.getsolutionslice(mosek.soltype.itr,
-                            mosek.solitem.xx,
-                            0,nv, xx)
-
-        warnings.simplefilter("default", RuntimeWarning)
-
-        task._Task__progress_cb=None
-        task._Task__stream_cb=None
-        
-        xr = xx[self.dxxu_indices()].reshape(x.shape)
-        return xr
-
 
 class PathPlanner:
     def __init__(self,nx,nu,nt):
@@ -1168,7 +894,7 @@ class PathPlanner:
 
         Sd = scipy.sparse.eye(nt*(3*nx+nu), nt*(3*nx+nu), k=-nx)
 
-        A = (I - St)*Prj/dt - Prj*Sd
+        A = -(I - St)*Prj/dt - Prj*Sd
         
         A = A[:-2*nx,:]
         A = A.tocoo()
@@ -1406,7 +1132,70 @@ class SingleCylinderMap(CylinderMap):
 
     def angle_transform(self,th):
         return np.mod(th + np.pi,4*np.pi)-np.pi
+       
+
+class PendulumPlanner:
+    def __init__(self,mp,dt):
+        self.dt = dt
+        self.mp = mp
+
+    def plan(self,ex_h, start,stop):
+        planner = PathPlanner(1,1,int(ex_h/self.dt))
+        planner.init_task(self.dt)
         
+        xs = []
+
+        x = planner.min_acc_solution(start,stop)
+        xs += [x]
+        
+        Qs = self.mp.expected_log_likelihood_matrices_xy()[:-1,:,:]
+
+        # iterate this part
+
+        #plt.ion()
+        
+        l = 1000.0
+        for i in range(400):
+            
+            # homogeneous coordinates
+            xh = np.insert(x, x.shape[1], 1, axis=1)
+            #ll, h, Q  = mp.ll_grad_approx(xh,[1,2,3])
+            ll, h, Q  = self.mp.ll_grad_approx_new(xh,
+                slice(1,None), slice(0,None))
+
+            val = np.sum(ll)
+            h = -h[:,:-1]
+            Q = -Q[:,:-1,:-1]
+            
+            try:
+                if val<val_o:
+                    x = x_o
+                    val = val_o
+                    l/=2.0
+                else:
+                    #l*=2
+                    if l<.001:
+                        break
+                    xs += [x]
+                    raise Exception() 
+            except:
+                pass
+                #plt.clf()
+                #plt.scatter(x[:,2],x[:,1], c=x[:,3],linewidth=0)
+                #plt.draw()
+            print l,val
+
+            planner.lQ_ball_constraint(Q,l)
+            
+            x_o = x
+            val_o = val
+
+            dx = planner.optimize(x,h)
+            x = x + dx
+        
+        self.xs = xs 
+        return x
+
 class MDPtests(unittest.TestCase):
     def test_f(self):
         a = Pendulum()
@@ -1949,61 +1738,40 @@ class MDPtests(unittest.TestCase):
     def test_path_planner(self):
         f =  open('./pickles/test_maps_sg.pkl','r')
         mp = cPickle.load(f)
-
         dt = .01
-        ex_h = 2.37 #2.37
 
-        planner = PathPlanner(1,1,int(ex_h/dt))
-        planner.init_task(dt)
-        
-        x = planner.min_acc_solution(np.array([0,0]),np.array([0,np.pi]))
-        
-        Qs = mp.expected_log_likelihood_matrices_xy()[:-1,:,:]
+        a = Pendulum()
+        planner = PendulumPlanner(mp, dt)
 
-        # iterate this part
+        h = 2.5 #2.37
+        h_rp = .1
+        h_p = 0.0
+        start = np.array([0,np.pi])
+        stop = np.array([0,0])
 
-        #plt.ion()
-        
-        l = 1000.0
-        for i in range(400):
+        xl = []
+
+        while h>0:
+            x = planner.plan(h,start,stop)
+                
+            plt.scatter(x[:,2],x[:,1], c=x[:,3])  # qdd, qd, q, u
+
+            policy = lambda t,tmp: np.interp(t, 
+                np.linspace(0,h,int(h/dt)), x[:,3] )
+
+            traj = a.sim( np.insert(start,2,0) ,policy , h_rp ) 
             
-            # homogeneous coordinates
-            xh = np.insert(x, x.shape[1], 1, axis=1)
-            #ll, h, Q  = mp.ll_grad_approx(xh,[1,2,3])
-            ll, h, Q  = mp.ll_grad_approx_new(xh,slice(1,None), slice(0,None))
-
-            val = np.sum(ll)
-            h = -h[:,:-1]
-            Q = -Q[:,:-1,:-1]
+            x_ = np.hstack(traj[1:5])[:,[2,1,0,3]] # q,qd,qdd,u
             
-            try:
-                if val<val_o:
-                    x = x_o
-                    val = val_o
-                    l/=2.0
-                else:
-                    #l*=2
-                    if l<.1:
-                        break
-                    raise Exception() 
-
-            except:
-                pass
-                #plt.clf()
-                #plt.scatter(x[:,2],x[:,1], c=x[:,3],linewidth=0)
-                #plt.draw()
-            print l,val
-
-            planner.lQ_ball_constraint(Q,l)
+            xl += [(x,x_,planner.xs)]
             
-            x_o = x
-            val_o = val
+            start = np.array([traj[2][-1], traj[1][-1]]).reshape(-1)
 
-            dx = planner.optimize(x,h)
-            x = x + dx
-            
-        #plt.scatter(x[:,2],x[:,1], c=x[:,3],linewidth=0)
-        #plt.show()
+            h = h-h_rp
+
+        cPickle.dump(xl,open('./pickles/swing_up_sim.pkl','w'))
+
+           
 
     def test_approx_ll_grad(self):
         f =  open('./pickles/test_maps_sg.pkl','r')
