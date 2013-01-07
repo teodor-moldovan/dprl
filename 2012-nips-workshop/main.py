@@ -3,6 +3,8 @@ import math
 import numpy as np
 import numpy.random 
 import scipy.integrate
+import matplotlib
+matplotlib.use('pdf')
 import matplotlib.pyplot as plt
 import scipy.special
 import scipy.linalg
@@ -1790,8 +1792,22 @@ class MDPtests(unittest.TestCase):
         print Q.shape
 
         
+    def test_clustering_plot(self):
+        f =  open('./pickles/test_maps_sg.pkl','r')
+        prob = cPickle.load(f)
+
+        mp = prob
+        plt.scatter( mp.x[:,1], mp.x[:,0], marker='.',lw=0, c='black', alpha = .1)
+        plt.xlim((-np.pi,3*np.pi))
+        plt.xlabel('Angle (radians)')
+        plt.ylabel('Angular velocity (radians/second)')
+        plt.savefig('figures/data.pdf') 
+        for cx,cxy in mp.clusters:
+            if cx.n>5:
+                mp.plot_cluster(cx)
+        plt.savefig('figures/clusters.pdf') 
 if __name__ == '__main__':
-    single_test = 'test_path_planner'
+    single_test = 'test_clustering_plot'
     if hasattr(MDPtests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(MDPtests(single_test))

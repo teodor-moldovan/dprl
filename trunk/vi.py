@@ -22,6 +22,17 @@ class ExponentialFamilyDistribution:
             - self.log_partition(nus)[:,np.newaxis]  )
         
         
+    def posterior_ll(self,x,nu):
+        t1 = self.log_base_measure(x)
+        n = x.shape[0]
+        k,d = nu.shape
+        nu_p = (nu[np.newaxis,:,:] 
+            + np.insert(x,x.shape[1],1,axis=1)[:,np.newaxis,:])
+        prior = self.conjugate_prior
+        t2 = prior.log_partition(nu)
+        t3 = prior.log_partition(nu_p.reshape((-1,d))).reshape((n,k))
+        return t1[:,np.newaxis] - t2[np.newaxis,:] + t3
+
 class Gaussian(ExponentialFamilyDistribution):
     """Multivariate Gaussian distribution
     """
@@ -38,34 +49,25 @@ class Gaussian(ExponentialFamilyDistribution):
         d = self.dim
         return math.log(2*np.pi)* (-d/2.0) * np.ones(x.shape[0])
     def nat_param(self,mus, Sgs):
-        y = mus.reshape(-1)
-        a = scipy.linalg.block_diag(*Sgs)
-        ind = scipy.linalg.block_diag(*np.bool_(np.ones(Sgs.shape)))
-        nu1 = scipy.linalg.solve(a,y).reshape((Sgs.shape[0],-1)) 
-        a_inv = scipy.linalg.inv(a,overwrite_a=True)
-        nu2 = -.5*a_inv[ind].reshape((Sgs.shape[0],-1))
-        nu = np.hstack((nu1,nu2))
+        nu2 = np.array(map(np.linalg.inv,Sgs))
+        nu1 = np.einsum('nij,nj->ni',nu2,mus)
+        nu = np.hstack((nu1,-.5*nu2.reshape(nu2.shape[0],-1)))
         return nu
         
     def nat_param_inv(self,nus):
         d = self.dim
         nu1 = nus[:,:d]
         nu2 = nus[:,d:].reshape((-1,d,d))        
-        a = scipy.linalg.block_diag(*nu2)
-        ind = scipy.linalg.block_diag(*np.bool_(np.ones(nu2.shape)))
-        a_inv = scipy.linalg.inv(-2.0*a,overwrite_a=True)
-        Sgs = a_inv[ind].reshape(nu2.shape)
-        mus = scipy.linalg.solve(-2.0*a, nu1.reshape(-1)).reshape(nu1.shape)
+        Sgs = np.array(map(np.linalg.inv,-2.0*nu2))
+        mus = np.einsum('nij,nj->ni',Sgs,nu1)
         return mus,Sgs
     def log_partition(self,nus):
         d = self.dim 
         nu1 = nus[:,:d]
         nu2 = nus[:,d:].reshape((-1,d,d))        
-        a = scipy.linalg.block_diag(*nu2)
-        tmp = scipy.linalg.solve(a, nu1.reshape(-1)).reshape(nu1.shape)
-        t1 = -.25* np.einsum('ti,ti->t',nu1,tmp)
-        tmp = np.linalg.cholesky(-2*a)
-        t2 = -np.log(np.diag(tmp).reshape(-1,d)).sum(1)
+        inv = np.array(map(np.linalg.inv,nu2))
+        t1 = -.25* np.einsum('ti,tij,tj->t',nu1,inv,nu1)
+        t2 = -.5*np.array(map(np.linalg.slogdet,-2*nu2))[:,1]
         return t1+t2
 
 class NIW(ExponentialFamilyDistribution):
@@ -92,9 +94,7 @@ class NIW(ExponentialFamilyDistribution):
         psi = (l2 - 
             l1[:,:,np.newaxis]*l1[:,np.newaxis,:]/l3[:,np.newaxis,np.newaxis])
         
-        a = scipy.linalg.block_diag(*psi)
-        tmp = np.linalg.cholesky(a)
-        ld = 2*np.log(np.diag(tmp).reshape(-1,d)).sum(1)
+        ld = np.array(map(np.linalg.slogdet,psi))[:,1]
         
         if not nu.size==1:
             lmg = scipy.special.multigammaln(.5*nu,d)
@@ -114,17 +114,10 @@ class NIW(ExponentialFamilyDistribution):
         psi = (l2 - 
             l1[:,:,np.newaxis]*l1[:,np.newaxis,:]/l3[:,np.newaxis,np.newaxis])
         
-        a = scipy.linalg.block_diag(*psi)
-        ind = scipy.linalg.block_diag(*np.bool_(np.ones(psi.shape)))
-        
-        g1 = ((nu/l3)[:,np.newaxis]
-            *np.linalg.solve(a,l1.reshape(-1)).reshape(l1.shape))
-        
-        g2 = (-.5*nu[:,np.newaxis] 
-            *np.linalg.inv(a)[ind].reshape(l2.shape[0],-1) )
-        
-        tmp = np.linalg.cholesky(a)
-        ld = 2*np.log(np.diag(tmp).reshape(-1,d)).sum(1)
+        inv = np.array(map(np.linalg.inv,psi))
+        g1 = (nu/l3)[:,np.newaxis]* np.einsum('nij,nj->ni',inv,l1)
+        g2 = -.5*nu[:,np.newaxis] *inv.reshape(l2.shape[0],-1)
+        ld = np.array(map(np.linalg.slogdet,psi))[:,1]
 
         g3 = ( -.5 * d/l3 + .5 *d*np.log(2) - .5*ld + .5*self.multipsi(.5*nu,d)
             - .5/l3 * (g1*l1).sum(1)  )[:,np.newaxis]
@@ -160,8 +153,19 @@ class NIW(ExponentialFamilyDistribution):
         nu = np.concatenate([np.zeros(d*d + d), np.array([2*d+1])])
         return nu
         
+class StickBreakingProcess:
+    def ex_log_lengths(self,al,bt):
+        exlv = scipy.special.psi(al) - scipy.special.psi(al+bt)
+        exlvc = scipy.special.psi(bt) - scipy.special.psi(al+bt)
+        return exlv + np.concatenate([[0],np.cumsum(exlvc)[:-1]])
+
 class VDP():
-    def __init__(self,distr,alpha=1, w =1e-5, k=100):
+    def __init__(self,distr,alpha=1, w =1e-10, k=50,
+                tol = 1e-10,
+                max_iters = 100):
+        
+        self.max_iters = max_iters
+        self.tol = tol
         self.distr = distr
         self.alpha = alpha
         self.w = w
@@ -171,13 +175,8 @@ class VDP():
         self.al = np.ones(k)
         self.bt = self.alpha*np.ones(k)
         self.lbd = self.distr.conjugate_prior.GC_param()
-        self.tau = self.lbd[np.newaxis,:] * np.ones((k,1))
         
-        # needed for on-line learning. Not working
-        self.lbd0 = self.lbd.copy()
-        self.n = 0
-        
-    def batch_learn(self,data, max_iters=100):
+    def batch_learn(self,data,verbose=False):
         
         x = self.distr.sufficient_stats(data)
         n,d = x.shape
@@ -185,76 +184,59 @@ class VDP():
         
         self.lbd += x1.sum(0) / x1.shape[0] * self.w
         self.tau = self.lbd[np.newaxis,:] * np.ones((self.k,1))
-
-        for t in range(max_iters):
-            self.e_step(x1, sort=True)
-            self.m_step(x1)
-            print np.round(self.phi.sum(0)).astype(int)
-        return
-
-    def step(self,data): # for no-working online version.
-        x = self.distr.sufficient_stats(data)
-        dn = x.shape[0]
-        x1 = np.insert(x,x.shape[1],1,axis=1)
-
-        #dlbd = (x1.sum(0)*self.w/(self.n + dn) 
-        #    - dn/(self.n + dn)*(self.lbd - self.lbd0))
-
-        self.n += dn
-        #self.tau += dlbd
-        #self.lbd += dlbd
-
-        self.e_step(x1)
-
-        rf = self.phi.sum(0)/self.al
-        rf = 1.0/self.al
-        rf = 1.0/self.n * np.ones(self.al.shape)
-
-        self.tau -= (self.tau - self.lbd) * rf[:,np.newaxis]
-        self.tau += np.einsum('ni,nj->ij',self.phi, x1)
-
-        #print self.phi
-
-        self.al -= (self.al - 1.0) * rf
-        self.al += self.phi.sum(0)
         
-        self.bt -= (self.bt - self.alpha) * rf
-        self.bt += np.concatenate([
-                (np.cumsum(self.phi[:,:0:-1],axis=1)[:,::-1]).sum(0)
-                ,[0]
-            ])
-        print self.al
+        phi = np.random.rand(n*self.k).reshape((n,self.k))
+        phi /= phi.sum(1)[:,np.newaxis]
+
+        for t in range(self.max_iters):
+            phi_o = phi.copy()
+            self.m_step(x1,phi)
+            phi = self.e_step(x1, sort=True)
+            
+            diff = np.max(np.abs(phi_o - phi)) 
+            num_used_clusters = np.sum((self.al -1) > self.tol)
+            if verbose:
+                print str(num_used_clusters) + '\t' + str(diff)
+            if diff < self.tol:
+                break
+        return
 
     def e_step(self,x1, sort=False):
 
         grad = self.distr.conjugate_prior.grad_log_partition(self.tau)
-        self.phi = np.einsum('ki,ni->nk',grad,x1)
+        phi = np.einsum('ki,ni->nk',grad,x1)
 
-        al = self.al
-        bt = self.bt
-        exlv = scipy.special.psi(al) - scipy.special.psi(al+bt)
-        exlvc = scipy.special.psi(bt) - scipy.special.psi(al+bt)
-
-        self.extras = exlv + np.concatenate([[0],np.cumsum(exlvc)[:-1]])
-        self.phi += self.extras 
-        self.phi -= self.phi.max(1)[:,np.newaxis]
-        self.phi = np.exp(self.phi)
-        self.phi /= self.phi.sum(1)[:,np.newaxis]
+        self.ex_log_theta=StickBreakingProcess().ex_log_lengths(self.al,self.bt)
+        phi += self.ex_log_theta
+        phi -= phi.max(1)[:,np.newaxis]
+        phi = np.exp(phi)
+        phi /= phi.sum(1)[:,np.newaxis]
 
         if sort:
-            inds= np.argsort(-self.phi.sum(0))
-            self.phi =  self.phi[:,inds]
+            inds= np.argsort(-phi.sum(0))
+            phi =  phi[:,inds]
+        return phi
         
         #print self.phi.sum(0)
 
-    def m_step(self, x1):
+    def m_step(self, x1,phi):
 
-        self.tau = self.lbd[np.newaxis,:] + np.einsum('ni,nj->ij',self.phi, x1)
-        self.al = 1.0 + self.phi.sum(0)
+        self.tau = self.lbd[np.newaxis,:] + np.einsum('ni,nj->ij', phi, x1)
+        self.al = 1.0 + phi.sum(0)
         self.bt = self.alpha + np.concatenate([
-                (np.cumsum(self.phi[:,:0:-1],axis=1)[:,::-1]).sum(0)
+                (np.cumsum(phi[:,:0:-1],axis=1)[:,::-1]).sum(0)
                 ,[0]
             ])
+
+    def log_likelihood(self,data):
+        #TODO: do not compute this for empty clusters
+        x = self.distr.sufficient_stats(data)
+        ll = (self.ex_log_theta + self.distr.posterior_ll(x,self.tau))
+
+        mx = ll.max(1)
+        ll = mx + np.log(np.sum(np.exp(ll - mx[:,np.newaxis]),1))
+
+        return ll
 
 class Tests(unittest.TestCase):
     def test_gaussian(self):
@@ -352,25 +334,16 @@ class Tests(unittest.TestCase):
                         [0,0,10],
                         ])
 
-           
-        #plt.plot(data[0][:,0],data[0][:,2],'.')
-        #plt.show()
-
-        data = np.vstack([ gen_data(A,mu,n=900) for A,mu in zip(As,mus)])
+        n = 900
+        data = np.vstack([ gen_data(A,mu,n=n) for A,mu in zip(As,mus)])
             
-        prob = VDP(Gaussian(data.shape[1]),alpha = 10000, k =50, w=1e-3)
-        prob.batch_learn(data)
-
-        x = prob.distr.sufficient_stats(data)
-        n,d = x.shape
-        x1 = np.insert(x,x.shape[1],1,axis=1)
+        prob = VDP(Gaussian(data.shape[1]),k=10)
+        prob.batch_learn(data, verbose = False)
         
-        prob.lbd += x1.sum(0) / x1.shape[0] * prob.w
-        prob.tau = prob.lbd[np.newaxis,:] * np.ones((prob.k,1))
-
-
-        for i in range(10, data.shape[0]):
-            prob.step(data[i:i+1,:])
+        np.testing.assert_almost_equal((prob.al-1)[:3], n*np.ones(3))
+        
+        prob.log_likelihood(data)
+        
 
 if __name__ == '__main__':
     single_test = 'test_batch_vdp'
