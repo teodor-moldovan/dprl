@@ -123,7 +123,7 @@ class NIW(ExponentialFamilyDistribution):
         inv = np.array(map(np.linalg.inv,psi))
         g1 = (nu/l3)[:,np.newaxis]* np.einsum('nij,nj->ni',inv,l1)
         g2 = -.5*nu[:,np.newaxis] *inv.reshape(l2.shape[0],-1)
-        ld = np.array(map(np.linalg.slogdet,psi))[:,1]
+        ld = -np.array(map(np.linalg.slogdet,inv))[:,1]
 
         g3 = ( -.5 * d/l3
             - .5/l3 * (g1*l1).sum(1)  )[:,np.newaxis]
@@ -209,75 +209,83 @@ class VDP():
         n = x1.shape[0] 
         
         self.lbd += x1.sum(0) / x1[:,-1].sum() * self.w
-        self.tau = self.lbd[np.newaxis,:] * np.ones((self.k,1))
         
-        phi = np.random.rand(n*self.k).reshape((n,self.k))
-        phi /= phi.sum(1)[:,np.newaxis]
-
         for t in range(self.max_iters):
-            self.m_step(x1,phi)
-            phi_o = phi.copy()
-            phi = self.e_step(x1, sort=True)
+            if t > 0:
+                phi = self.e_step(x1)
+            else:
+                phi = np.random.rand(n*self.k).reshape((n,self.k))
+                phi /= phi.sum(1)[:,np.newaxis]
             
-            diff = np.sum(np.abs(phi_o - phi)) 
-            num_used_clusters = np.sum((self.al -1) > self.tol)
+            if t > 0:
+                old = self.al
+            self.m_step(x1,phi)
+            if t > 0:
+                diff = np.sum(np.abs(self.al - old))
+            
             if verbose:
                 print str(num_used_clusters) + '\t' + str(diff)
-            if diff < self.tol:
+            if t>0 and diff < self.tol:
                 break
         return
 
-    def e_step(self,x1, sort=True):
+    def e_step(self,x1):
 
+        
         grad = self.distr.conjugate_prior.grad_log_partition(self.tau)
+        
         phi = np.einsum('ki,ni->nk',grad,x1)
         
         # normally not necessary:
         phi /= x1[:,-1][:,np.newaxis]
 
-        
         # stick breaking process
-        ex_log_theta = (self.exlv 
-                + np.concatenate([[0],np.cumsum(self.exlvc)[:-1]]))
-
-        phi += ex_log_theta
-        phi -= phi.max(1)[:,np.newaxis]
-        phi = np.exp(phi)
-        phi /= phi.sum(1)[:,np.newaxis]
-        
-        # normally not necessary:
-        phi *= x1[:,-1][:,np.newaxis]
-
-        if sort:
-            inds= np.argsort(-phi.sum(0))
-            phi =  phi[:,inds]
-        return phi
-        
-        #print self.phi.sum(0)
-
-    def m_step(self, x1,phi):
-
-        self.tau = self.lbd[np.newaxis,:] + np.einsum('ni,nj->ij', phi, x1)
-        self.al = 1.0 + phi.sum(0)
-        self.bt = self.ex_alpha + np.concatenate([
-                (np.cumsum(phi[:,:0:-1],axis=1)[:,::-1]).sum(0)
-                ,[0]
-            ])
-
-        # stick breaking process
-        self.exlv  = (scipy.special.psi(self.al) 
-                    - scipy.special.psi(self.al + self.bt))
-        self.exlvc = (scipy.special.psi(self.bt) 
-                    - scipy.special.psi(self.al+self.bt))
+        tmp = scipy.special.psi(self.al + self.bt)
+        self.exlv  = (scipy.special.psi(self.al) - tmp)
+        self.exlvc = (scipy.special.psi(self.bt) - tmp)
         
         w = self.s + np.array(
                 [-1 + self.k,
                  -np.sum(self.exlvc[:-1])
                  ])
+
         self.ex_alpha = w[0]/w[1]
-        #print 'al: ', self.ex_alpha
 
+        ex_log_theta = (self.exlv 
+            + np.concatenate([[0],np.cumsum(self.exlvc)[:-1]]))
+        
+        # end stick breaking process
 
+        phi += ex_log_theta
+        phi -= phi.max(1)[:,np.newaxis]
+
+        
+        np.exp(phi,phi)
+        phi /= phi.sum(1)[:,np.newaxis]
+        
+        # normally not necessary:
+        phi *= x1[:,-1][:,np.newaxis]
+
+        return phi
+        
+    def m_step(self, x1,phi,sort=True):
+
+        self.tau = (self.lbd[np.newaxis,:] 
+            + np.einsum('ni,nj->ij', phi/ x1[:,-1][:,np.newaxis], x1))
+
+        psz = phi.sum(0)
+        
+        if sort:
+            ind = np.argsort(-psz) 
+            self.tau = self.tau[ind,:]
+            psz = psz[ind]
+        
+
+        self.al = 1.0 + psz
+        self.bt = self.ex_alpha + np.concatenate([
+                (np.cumsum(psz[:0:-1])[::-1])
+                ,[0]
+            ])
 
     def log_likelihood(self,data):
         #TODO: do not compute this for empty clusters
@@ -399,7 +407,7 @@ class Tests(unittest.TestCase):
         data = np.vstack([ gen_data(A,mu,n=n) for A,mu in zip(As,mus)])
         d = data.shape[1]
             
-        prob = VDP(Gaussian(d), k=10,w=1e-1)
+        prob = VDP(Gaussian(d), k=10,w=0.1)
         x = prob.sufficient_stats(data)
         prob.batch_learn(x, verbose = False)
         
@@ -408,17 +416,17 @@ class Tests(unittest.TestCase):
         #prob.log_likelihood(data)
         
 
-    def test_hierarchical_vdp(self):
+    def test_h_vdp(self):
 
         #np.random.seed(1)
         
-        x = np.mod(np.linspace(0,2*np.pi*7,1000),2*np.pi)
+        x = np.mod(np.linspace(0,2*np.pi*3,1000),2*np.pi)
         #x = np.random.random(1000)*np.pi*2
         data = np.vstack((x,np.sin(x),np.cos(x))).T
         
         d = data.shape[1]
 
-        if True:
+        if False:
             prob = VDP(Gaussian(d), 
                     k=40,w=1e-2,tol = 1e-3)
             x = prob.sufficient_stats(data)
@@ -431,7 +439,7 @@ class Tests(unittest.TestCase):
         xs = []
         for data in data_set:
             prob = VDP(Gaussian(d), 
-                    k=20,w=1e-1,tol = 1e-3)
+                    k=20,w=1e-2,tol = 1e-5)
             x = prob.sufficient_stats(data)
             prob.batch_learn(x, verbose = False)
             print prob.cluster_sizes()
@@ -441,7 +449,7 @@ class Tests(unittest.TestCase):
 
         x = np.vstack(xs)
         prob = VDP(Gaussian(d),
-                k=40,w=1e-2,tol = 1e-3)
+                k=40,w=1e-10,tol = 1e-6)
         prob.batch_learn(x, verbose = False)
         print prob.cluster_sizes()
         

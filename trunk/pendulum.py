@@ -86,7 +86,8 @@ class Clustering(learning.VDP):
         data[:,2] =  np.mod(data[:,2] + np.pi,4*np.pi)-np.pi
         return learning.VDP.sufficient_stats(self,data)
     def plot_clusters(self, n = 100):
-        nuE = self.distr.conjugate_prior.nat_param_inv(self.tau)
+        ind = (self.al>1.0)
+        nuE = self.distr.conjugate_prior.nat_param_inv(self.tau[ind,:])
         mus, Sgs, k, nu = nuE
         Sgs/=(k)[:,np.newaxis,np.newaxis]
         
@@ -118,11 +119,11 @@ class MDPtests(unittest.TestCase):
         plt.show()
     def test_clustering(self):
 
-        np.random.seed(5)
+        np.random.seed(7)
         a = Pendulum()
-        traj = a.random_traj(50)
+        traj = a.random_traj(20)
         
-        prob = Clustering(alpha = 1, k = 100, w = 1, tol = 1e-3)
+        prob = Clustering(k = 100, w = 1e-3, tol = 1e-5)
         prob.plot_traj(traj)
         x = prob.sufficient_stats(traj)
         prob.batch_learn(x, verbose = True)
@@ -133,10 +134,10 @@ class MDPtests(unittest.TestCase):
         
     def test_h_clustering(self):
 
-        np.random.seed(11) #10
+        np.random.seed(7) #10
         a = Pendulum()
-        trajo = a.random_traj(200)
-        np.random.seed(3)
+        trajo = a.random_traj(100)
+        np.random.seed(4)
         
         trajs = trajo.reshape(-1,100,trajo.shape[1])
         
@@ -145,7 +146,7 @@ class MDPtests(unittest.TestCase):
         for traj in trajs:
         
             #plt.clf()
-            prob = Clustering(k = 20, w = 1e-2, tol = 1e-6)
+            prob = Clustering(k = 25, w = 1e-3, tol = 1e-4)
             #prob.plot_traj(trajo)
             x = prob.sufficient_stats(traj)
             prob.batch_learn(x, verbose = False)
@@ -160,7 +161,7 @@ class MDPtests(unittest.TestCase):
 
         x = np.vstack(xs)
         print x.shape
-        prob = Clustering(k = 100, w = 1e-9, tol = 1e-6)
+        prob = Clustering(k = 100, w = 1e-3, tol = 1e-5)
         prob.batch_learn(x, verbose = True)
         print prob.cluster_sizes()
 
