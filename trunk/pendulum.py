@@ -136,7 +136,7 @@ class MDPtests(unittest.TestCase):
 
         np.random.seed(7) #10
         a = Pendulum()
-        trajo = a.random_traj(100)
+        trajo = a.random_traj(200)
         np.random.seed(4)
         
         trajs = trajo.reshape(-1,100,trajo.shape[1])
@@ -160,8 +160,13 @@ class MDPtests(unittest.TestCase):
             xs.append(xc)
 
         x = np.vstack(xs)
+        cPickle.dump((x,trajo),open('./pickles/tst.pkl','w'))
+
+    def test_h_clustering2(self):
+        (x,trajo) = cPickle.load(open('./pickles/tst.pkl','r'))
+        np.random.seed(4)
         print x.shape
-        prob = Clustering(k = 100, w = 1e-3, tol = 1e-5)
+        prob = Clustering(k = 100, w = 1e-10, tol = 1e-5)
         prob.batch_learn(x, verbose = True)
         print prob.cluster_sizes()
 
@@ -175,7 +180,7 @@ class MDPtests(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    single_test = 'test_h_clustering'
+    single_test = 'test_h_clustering2'
     if hasattr(MDPtests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(MDPtests(single_test))

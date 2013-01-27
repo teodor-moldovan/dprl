@@ -192,11 +192,8 @@ class VDP():
         self.k = k
         d = self.distr.sufficient_stats_dim()
 
-        #self.al = np.ones(k)
-        #self.bt = np.ones(k)
-        self.ex_alpha = 1.0
 
-        self.lbd = self.distr.conjugate_prior.GC_param()
+        self.prior = self.distr.conjugate_prior.GC_param()
         self.s = np.array([0.0,0])
         
     def sufficient_stats(self,data):
@@ -205,7 +202,7 @@ class VDP():
         x1 = np.insert(x1,x1.shape[1],1,axis=1)
         return x1
         
-    def batch_learn(self,x1,verbose=False):
+    def batch_learn_(self,x1,verbose=False):
         n = x1.shape[0] 
         
         self.lbd += x1.sum(0) / x1[:,-1].sum() * self.w
@@ -230,7 +227,6 @@ class VDP():
         return
 
     def e_step(self,x1):
-
         
         grad = self.distr.conjugate_prior.grad_log_partition(self.tau)
         
@@ -287,6 +283,81 @@ class VDP():
                 ,[0]
             ])
 
+    def batch_learn(self,x1,verbose=False, sort = True):
+        n = x1.shape[0] 
+        k = self.k
+        
+        wx = x1[:,-1]
+
+        lbd = self.prior + x1.sum(0) / wx.sum() * self.w
+        ex_alpha = 1.0
+        
+        phi = np.random.random(size=n*k).reshape((n,k))
+
+        for t in range(self.max_iters):
+
+            phi /= phi.sum(1)[:,np.newaxis]
+            # m step
+            tau = (lbd[np.newaxis,:] + np.einsum('ni,nj->ij', phi, x1))
+            psz = np.einsum('ni,n->i',phi,wx)
+
+            # stick breaking process
+            if sort:
+                ind = np.argsort(-psz) 
+                tau = tau[ind,:]
+                psz = psz[ind]
+            
+            if t > 0:
+                old = al
+
+            al = 1.0 + psz
+
+            if t > 0:
+                diff = np.sum(np.abs(al - old))
+
+            bt = ex_alpha + np.concatenate([
+                    (np.cumsum(psz[:0:-1])[::-1])
+                    ,[0]
+                ])
+
+            tmp = scipy.special.psi(al + bt)
+            exlv  = (scipy.special.psi(al) - tmp)
+            exlvc = (scipy.special.psi(bt) - tmp)
+
+            z = (exlv + np.concatenate([[0],np.cumsum(exlvc)[:-1]]))
+            np.exp(z,z)
+
+            w = self.s + np.array([-1 + k, -np.sum(exlvc[:-1])])
+            ex_alpha = w[0]/w[1]
+            
+            # end stick breaking process
+            # end m step
+
+
+
+            # e_step
+            grad = self.distr.conjugate_prior.grad_log_partition(tau)
+
+            np.einsum('ki,ni->nk',grad,x1,out=phi)
+            phi /= wx[:,np.newaxis]
+            #phi -= phi.max(1)[:,np.newaxis]
+            np.exp(phi,phi)
+            phi *= z[np.newaxis,:]
+            
+            
+            if t>0:
+                if verbose:
+                    print str(diff)
+                if diff < self.tol:
+                    break
+
+        self.al = al
+        self.bt = bt
+        self.tau = tau
+        self.lbd = lbd
+        return
+
+    # broken
     def log_likelihood(self,data):
         #TODO: do not compute this for empty clusters
         x = self.distr.sufficient_stats(data)
@@ -297,6 +368,7 @@ class VDP():
 
         return ll
 
+    # broken
     def cluster_sizes(self):
         return (self.al -1)
         
@@ -413,6 +485,7 @@ class Tests(unittest.TestCase):
         
         np.testing.assert_almost_equal((prob.al-1)[:3], n*np.ones(3))
         
+        print prob.al-1
         #prob.log_likelihood(data)
         
 
