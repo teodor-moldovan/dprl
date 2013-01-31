@@ -6,8 +6,10 @@ import scipy.integrate
 import matplotlib
 import matplotlib.pyplot as plt
 import cPickle
+import time
 
 import learning
+import planning
 
 class Pendulum:
     """Pendulum defined as in Deisenroth2009"""
@@ -58,7 +60,8 @@ class Pendulum:
             #us[i+1,:] = max(min(us[i+1,:],self.umax),self.umin )
 
         # t, x, x_dot, x_2dot, u
-        return np.hstack([ ts, xs[:,1:2], xs_d[:,1:2], xs_d[:,0:1], us, xs[:,2:3],xs_d[:,2:3]])
+        # return np.hstack([ ts, xs[:,1:2], xs_d[:,1:2], xs_d[:,0:1], us, xs[:,2:3],xs_d[:,2:3]])
+        return np.hstack([ xs_d[:,0:1], xs_d[:,1:2], xs[:,1:2], us])
 
     def random_traj(self,t,control_freq = 2): 
         
@@ -73,21 +76,26 @@ class Pendulum:
         traj = self.sim(x0,pi,t )
         return traj 
          
+    # broken
     def plot_traj(self,traj):
         plt.polar( traj[:,1], traj[:,0])
         plt.gca().set_theta_offset(np.pi/2)
         #plt.show()
 
+class Distr(learning.GaussianNIW):
+    def __init__(self):
+        learning.GaussianNIW.__init__(self,4)
+    def sufficient_stats(self,traj):
+        data = traj[:,:4]
+        data[:,2] =  np.mod(data[:,2] + np.pi,4*np.pi)-np.pi
+        return learning.GaussianNIW.sufficient_stats(self,data)
+        
 class Clustering(learning.VDP):
     def __init__(self,**kw):
-        learning.VDP.__init__(self, learning.Gaussian(4),**kw)
-    def sufficient_stats(self,traj):
-        data = traj[:,[3,2,1,4]]
-        data[:,2] =  np.mod(data[:,2] + np.pi,4*np.pi)-np.pi
-        return learning.VDP.sufficient_stats(self,data)
+        learning.VDP.__init__(self, Distr(),**kw)
     def plot_clusters(self, n = 100):
         ind = (self.al>1.0)
-        nuE = self.distr.conjugate_prior.nat_param_inv(self.tau[ind,:])
+        nuE = self.distr.prior.nat_param_inv(self.tau[ind,:])
         mus, Sgs, k, nu = nuE
         Sgs/=(k)[:,np.newaxis,np.newaxis]
         
@@ -107,9 +115,58 @@ class Clustering(learning.VDP):
             plt.plot(x[:,1],x[:,0],linewidth=sz*10)
 
     def plot_traj(self,traj):
-        data = traj[:,[3,2,1,4]]
+        data = traj[:,:4]
         data[:,2] =  np.mod(data[:,2] + np.pi,4*np.pi)-np.pi
         plt.plot(data[:,2],data[:,1],'.',alpha=.1)
+
+class Planner:
+    def __init__(self, model, start, end, dt):
+        self.model = model
+        self.start = start
+        self.end = end
+        self.dt = dt
+        self.dim = 4
+
+    def plan(self,h):
+        
+        nt = int(h/self.dt)
+        d = self.dim
+
+        qp = planning.PlannerQP(1,1,nt)
+        qp.put_dyn_constraint(self.dt)
+        qp.put_endpoints_constraint(self.start,self.end)
+
+        Q = np.zeros((nt,d,d))
+        Q[:,0,0] = -1.0
+        q = np.zeros((nt,d))
+        
+        qp.put_quad_objective(-Q,-q)
+        x = qp.solve()
+        x[:,-1]= 0
+
+        np.random.seed(5)
+        a = Pendulum()
+        x = a.random_traj(h)
+       
+        plt.ion()
+        for i in range(100):
+
+            plt.clf()
+            xt = self.model.distr.sufficient_stats(x)
+            
+            ll,q,Q = self.model.approx_ll_so_nat(x)
+            print np.sum(ll), np.max(ll)
+
+            qp.put_endpoints_constraint(self.start,self.end, x = x)
+            qp.put_quad_objective(-.5*Q,-q)
+            dx = qp.solve()
+            
+            x = x+dx
+
+            plt.scatter(x[:,2],x[:,1],c=x[:,3],linewidth=0)  # qdd, qd, q, u
+            self.model.plot_clusters()
+            plt.draw()
+            #x = x_new
 
 class MDPtests(unittest.TestCase):
     def test_rnd(self):
@@ -121,13 +178,14 @@ class MDPtests(unittest.TestCase):
 
         np.random.seed(7)
         a = Pendulum()
-        traj = a.random_traj(20)
+        traj = a.random_traj(200)
         
-        prob = Clustering(k = 100, w = 1e-3, tol = 1e-5)
+        prob = Clustering(k = 100, w = 1, tol = 1e-7) # w = 1e-3
         prob.plot_traj(traj)
-        x = prob.sufficient_stats(traj)
+        x = prob.distr.sufficient_stats(traj)
         prob.batch_learn(x, verbose = True)
 
+        cPickle.dump(prob,open('./pickles/batch_vdp.pkl','w'))
         prob.plot_clusters()
         plt.show()
         
@@ -148,7 +206,7 @@ class MDPtests(unittest.TestCase):
             #plt.clf()
             prob = Clustering(k = 25, w = 1e-3, tol = 1e-4)
             #prob.plot_traj(trajo)
-            x = prob.sufficient_stats(traj)
+            x = prob.distr.sufficient_stats(traj)
             prob.batch_learn(x, verbose = False)
             print prob.cluster_sizes()
 
@@ -164,7 +222,7 @@ class MDPtests(unittest.TestCase):
 
     def test_h_clustering2(self):
         (x,trajo) = cPickle.load(open('./pickles/tst.pkl','r'))
-        np.random.seed(4)
+        np.random.seed(8)
         print x.shape
         prob = Clustering(k = 100, w = 1e-10, tol = 1e-5)
         prob.batch_learn(x, verbose = True)
@@ -176,11 +234,59 @@ class MDPtests(unittest.TestCase):
         plt.ioff()
         plt.show()
             
+
+    def test_planning_low_level(self):
+        prob = cPickle.load(open('./pickles/batch_vdp.pkl','r'))
+
+        np.random.seed(1)
+        a = Pendulum()
+        traj = a.random_traj(2.5)
         
+        xt = prob.distr.sufficient_stats(traj)
 
+        d = prob.distr.prior.dim
 
+        llt, llg = prob.log_likelihood(xt,compute_grad=True, 
+                approx=True,cache = True)
+        Q = llg[:,d:-2].reshape(-1,d,d)
+        q = llg[:,:d]
+
+        h = 2.5 #2.37
+        dt = .01
+        nt = int(h/dt)
+
+        start = np.array([0,np.pi])
+        stop = np.array([0,0])  # should finally be [0,0]
+       
+        planner = planning.PlannerQP(1,1,nt)
+        
+        planner.put_dyn_constraint(dt)
+        planner.put_endpoints_constraint(start,stop)
+
+        planner.put_quad_objective(Q,q)
+        x = planner.solve()
+        print x.shape
+
+        plt.scatter(x[:,2],x[:,1], c=x[:,3])  # qdd, qd, q, u
+        plt.show()
+
+        
+    def test_planning(self):
+        model = cPickle.load(open('./pickles/batch_vdp.pkl','r'))
+
+        start = np.array([0,np.pi])
+        stop = np.array([0,0])  # should finally be [0,0]
+        dt = .01
+
+        planner = Planner(model, start,stop, dt)
+        x = planner.plan(5.0)
+
+        #plt.scatter(x[:,2],x[:,1], c=x[:,3])  # qdd, qd, q, u
+        #plt.show()
+
+        
 if __name__ == '__main__':
-    single_test = 'test_h_clustering2'
+    single_test = 'test_planning'
     if hasattr(MDPtests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(MDPtests(single_test))

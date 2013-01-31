@@ -3,7 +3,13 @@ import math
 import numpy as np
 import scipy.linalg
 import scipy.special
+import time
+if False:
+    import gpu
+    import pycuda
+    import pycuda.curandom
 
+#TODO: base measure assumed to be scalar. Needs to be fixed for generality.
 class ExponentialFamilyDistribution:
     """ f(x|nu) = h(x) exp( nu*x - A(nu) )
         h is the base measure
@@ -13,7 +19,12 @@ class ExponentialFamilyDistribution:
     """
     def log_base_measure(self,x):
         pass
+    def grad_log_base_measure(self,x):
+        pass
     def log_partition(self,nu):
+        pass
+
+    def grad_log_partition(self,nu):
         pass
 
     def log_likelihood(self,nus,xs):
@@ -22,25 +33,14 @@ class ExponentialFamilyDistribution:
             - self.log_partition(nus)[:,np.newaxis]  )
         
         
-    # todo: test
-    # todo: does not belong to this class
-    def posterior_ll(self,x,nu):
-        t1 = self.log_base_measure(x)
-        n = x.shape[0]
-        k,d = nu.shape
-        nu_p = (nu[np.newaxis,:,:] 
-            + np.insert(x,x.shape[1],1,axis=1)[:,np.newaxis,:])
-        prior = self.conjugate_prior
-        t2 = prior.log_partition(nu)
-        t3 = prior.log_partition(nu_p.reshape((-1,d))).reshape((n,k))
-        return t1[:,np.newaxis] - t2[np.newaxis,:] + t3
-
 class Gaussian(ExponentialFamilyDistribution):
     """Multivariate Gaussian distribution
     """
     def __init__(self,d):
         self.conjugate_prior = NIW(d)
         self.dim = d
+        self.lbm = math.log(2*np.pi)* (-d/2.0)
+
     def sufficient_stats(self,x):
         tmp = (x[:,np.newaxis,:]*x[:,:,np.newaxis]).reshape(x.shape[0],-1)
         return np.hstack((x,tmp))
@@ -49,7 +49,9 @@ class Gaussian(ExponentialFamilyDistribution):
         return d + d*d
     def log_base_measure(self,x):
         d = self.dim
-        return math.log(2*np.pi)* (-d/2.0) * np.ones(x.shape[0])
+        return self.lbm
+    def grad_log_base_measure(self,x):
+        return 0.0
     def nat_param(self,mus, Sgs):
         nu2 = np.array(map(np.linalg.inv,Sgs))
         nu1 = np.einsum('nij,nj->ni',nu2,mus)
@@ -80,12 +82,13 @@ class NIW(ExponentialFamilyDistribution):
     """
     def __init__(self,d):
         self.dim = d
+        self.lbm = math.log(2*np.pi)* (-d/2.0)
     def sufficient_stats_dim(self):
         d = self.dim
-        return d + d*d + 2
+        return d+d*d +2
+
     def log_base_measure(self,x):
-        d = self.dim
-        return math.log(2*np.pi)* (-d/2.0) * np.ones(x.shape[0])
+        return self.lbm
     def log_partition(self,nu):
         d = self.dim
         l1 = nu[:,:d]
@@ -133,6 +136,8 @@ class NIW(ExponentialFamilyDistribution):
 
         return np.hstack((g1,g2,g3,g4))
 
+    def grad_log_base_measure(self,x):
+        return 0.0
     def multipsi(self,a,d):
         res = np.zeros(a.shape)
         for i in range(d):
@@ -173,16 +178,83 @@ class NIW(ExponentialFamilyDistribution):
 
         return mu0, Psi,k,nu
 
-    # todo: does not belong to this class
-    def GC_param(self):
-        d = self.dim
-        nu = np.concatenate([np.zeros(d*d + d), np.array([0, 2*d+1])])
-        # should be 2*d+1
-        return nu
+class ConjugatePair:
+    def __init__(self,evidence_distr,prior_distr, prior_param):
+        self.evidence = evidence_distr
+        self.prior = prior_distr
+        self.prior_param = prior_param
+    def sufficient_stats(self,data):
+        pass
+    def posterior_ll(self,x,nu, compute_grad=False):
+        nu_p = (nu[np.newaxis,:,:] + x[:,np.newaxis,:])
+
+        n = x.shape[0]
+        k,d = nu.shape
+
+        t1 = self.evidence.log_base_measure(x)
+        t2 = self.prior.log_partition(nu)
+        t3 = self.prior.log_partition(nu_p.reshape((-1,d))).reshape((n,k))
+
+        ll = t1 - t2[np.newaxis,:] + t3 
+
+        if compute_grad:
+            gr = self.prior.grad_log_partition(nu_p.reshape((-1,d)))
+            gr = gr.reshape((n,k,d))
+            gr += self.evidence.grad_log_base_measure(x)
+            return ll,gr
+        else:
+            return ll
+
+    def posterior_ll_approx(self,x,nu, glp = None, compute_grad=False):
         
+        if glp is None:
+            glp = self.prior.grad_log_partition(nu)
+
+        ll = np.einsum('ki,ni->nk',glp,x)
+        ll += self.evidence.log_base_measure(x)
+
+        if compute_grad:
+            gr = glp[np.newaxis,:,:]
+            gr += self.evidence.grad_log_base_measure(x)
+            return ll,gr
+        else:
+            return ll
+
+    def sufficient_stats_dim(self):
+        return self.prior.sufficient_stats_dim()
+
+class GaussianNIW(ConjugatePair):
+    def __init__(self,d):
+        ConjugatePair.__init__(self,
+            Gaussian(d),
+            NIW(d),
+            np.concatenate([np.zeros(d*d + d), np.array([0, 2*d+1])])
+            )
+    def sufficient_stats(self,data):
+        x = self.evidence.sufficient_stats(data)
+        x1 = np.insert(x,x.shape[1],1,axis=1)
+        x1 = np.insert(x1,x1.shape[1],1,axis=1)
+        return x1
+
+    def approx_ll_so_nat(self,x, gpl):
+
+        d = x.shape[1]
+
+        Q = gpl[:,d:-2].reshape(-1,d,d)
+        q = gpl[:,:d]
+            
+        ll = np.einsum('kij,nj,ni->nk',Q,x,x) + np.einsum('kj,ni->nk',q,x)  
+        ll += self.evidence.log_base_measure(x)
+
+        gr = 2*np.einsum('kij,nj->nki',Q,x) + q[np.newaxis,:,:]        
+        hs = 2*Q[np.newaxis,:,:,:]
+
+
+        return ll,gr,hs
+
 class VDP():
     def __init__(self,distr, w =1, k=50,
-                tol = 1e-6,
+                tol = 1e-5,
                 max_iters = 10000):
         
         self.max_iters = max_iters
@@ -193,101 +265,15 @@ class VDP():
         d = self.distr.sufficient_stats_dim()
 
 
-        self.prior = self.distr.conjugate_prior.GC_param()
+        self.prior = self.distr.prior_param
         self.s = np.array([0.0,0])
         
-    def sufficient_stats(self,data):
-        x = self.distr.sufficient_stats(data)
-        x1 = np.insert(x,x.shape[1],1,axis=1)
-        x1 = np.insert(x1,x1.shape[1],1,axis=1)
-        return x1
-        
-    def batch_learn_(self,x1,verbose=False):
-        n = x1.shape[0] 
-        
-        self.lbd += x1.sum(0) / x1[:,-1].sum() * self.w
-        
-        for t in range(self.max_iters):
-            if t > 0:
-                phi = self.e_step(x1)
-            else:
-                phi = np.random.rand(n*self.k).reshape((n,self.k))
-                phi /= phi.sum(1)[:,np.newaxis]
-            
-            if t > 0:
-                old = self.al
-            self.m_step(x1,phi)
-            if t > 0:
-                diff = np.sum(np.abs(self.al - old))
-            
-            if verbose:
-                print str(num_used_clusters) + '\t' + str(diff)
-            if t>0 and diff < self.tol:
-                break
-        return
-
-    def e_step(self,x1):
-        
-        grad = self.distr.conjugate_prior.grad_log_partition(self.tau)
-        
-        phi = np.einsum('ki,ni->nk',grad,x1)
-        
-        # normally not necessary:
-        phi /= x1[:,-1][:,np.newaxis]
-
-        # stick breaking process
-        tmp = scipy.special.psi(self.al + self.bt)
-        self.exlv  = (scipy.special.psi(self.al) - tmp)
-        self.exlvc = (scipy.special.psi(self.bt) - tmp)
-        
-        w = self.s + np.array(
-                [-1 + self.k,
-                 -np.sum(self.exlvc[:-1])
-                 ])
-
-        self.ex_alpha = w[0]/w[1]
-
-        ex_log_theta = (self.exlv 
-            + np.concatenate([[0],np.cumsum(self.exlvc)[:-1]]))
-        
-        # end stick breaking process
-
-        phi += ex_log_theta
-        phi -= phi.max(1)[:,np.newaxis]
-
-        
-        np.exp(phi,phi)
-        phi /= phi.sum(1)[:,np.newaxis]
-        
-        # normally not necessary:
-        phi *= x1[:,-1][:,np.newaxis]
-
-        return phi
-        
-    def m_step(self, x1,phi,sort=True):
-
-        self.tau = (self.lbd[np.newaxis,:] 
-            + np.einsum('ni,nj->ij', phi/ x1[:,-1][:,np.newaxis], x1))
-
-        psz = phi.sum(0)
-        
-        if sort:
-            ind = np.argsort(-psz) 
-            self.tau = self.tau[ind,:]
-            psz = psz[ind]
-        
-
-        self.al = 1.0 + psz
-        self.bt = self.ex_alpha + np.concatenate([
-                (np.cumsum(psz[:0:-1])[::-1])
-                ,[0]
-            ])
-
-    def batch_learn(self,x1,verbose=False, sort = True):
+    def batch_learn_np(self,x1,verbose=False, sort = True):
         n = x1.shape[0] 
         k = self.k
         
         wx = x1[:,-1]
+        wt = wx.sum()
 
         lbd = self.prior + x1.sum(0) / wx.sum() * self.w
         ex_alpha = 1.0
@@ -324,8 +310,7 @@ class VDP():
             exlv  = (scipy.special.psi(al) - tmp)
             exlvc = (scipy.special.psi(bt) - tmp)
 
-            z = (exlv + np.concatenate([[0],np.cumsum(exlvc)[:-1]]))
-            np.exp(z,z)
+            elt = (exlv + np.concatenate([[0],np.cumsum(exlvc)[:-1]]))
 
             w = self.s + np.array([-1 + k, -np.sum(exlvc[:-1])])
             ex_alpha = w[0]/w[1]
@@ -336,19 +321,130 @@ class VDP():
 
 
             # e_step
-            grad = self.distr.conjugate_prior.grad_log_partition(tau)
-
+            grad = self.distr.prior.grad_log_partition(tau)
             np.einsum('ki,ni->nk',grad,x1,out=phi)
+
             phi /= wx[:,np.newaxis]
-            #phi -= phi.max(1)[:,np.newaxis]
+            phi += elt
+            phi -= phi.max(1)[:,np.newaxis]
             np.exp(phi,phi)
-            phi *= z[np.newaxis,:]
             
             
             if t>0:
                 if verbose:
                     print str(diff)
-                if diff < self.tol:
+                if diff < wt*self.tol:
+                    break
+
+        self.al = al
+        self.bt = bt
+        self.tau = tau
+        self.lbd = lbd
+        self.ex_log_theta = elt
+        self.grad_log_partition = grad
+        return
+
+    def batch_learn_gpu(self,x1,verbose=False, sort = True):
+        n,d = x1.shape
+        k = self.k 
+        wx = x1[:,-1]
+        
+        psz = np.float32(np.zeros((k)))
+        tau = np.float32(np.zeros((k,d)))
+
+        gen = pycuda.curandom.XORWOWRandomNumberGenerator()
+
+        x1_gpu = pycuda.gpuarray.to_gpu(np.float32(x1))
+        phi_gpu = gen.gen_uniform((n,k),np.float32)
+        wx_gpu = pycuda.gpuarray.to_gpu(np.float32(wx))
+
+        an_gpu = pycuda.gpuarray.empty((n),np.float32).fill(np.float32(1.0))
+        ak_gpu = pycuda.gpuarray.empty((k),np.float32).fill(np.float32(1.0))
+        zn_gpu = pycuda.gpuarray.empty((n),np.float32)
+        zk_gpu = pycuda.gpuarray.empty((k),np.float32)
+        zd_gpu = pycuda.gpuarray.empty((d),np.float32)
+        zkd_gpu = pycuda.gpuarray.empty((k,d),np.float32)
+
+        
+        gpu.dot(an_gpu,x1_gpu,zd_gpu)
+
+        wt = pycuda.gpuarray.sum(wx_gpu).get()
+        lbd = self.prior + (zd_gpu.get() 
+                / wt * self.w)
+
+        ex_alpha = 1.0
+        
+
+        for t in range(self.max_iters):
+
+            gpu.dot(phi_gpu,ak_gpu,transb='t',out=zn_gpu)
+            gpu.rcp(zn_gpu)
+            gpu.dot_dmm(phi_gpu,zn_gpu,phi_gpu)
+            
+            gpu.dot(phi_gpu,x1_gpu,transa='t', out=zkd_gpu )
+            gpu.dot(wx_gpu,phi_gpu, out=zk_gpu )
+            
+            # m step
+
+            zkd_gpu.get(tau)
+            zk_gpu.get(psz)
+            
+            tau += lbd[np.newaxis,:]
+
+            # stick breaking process
+            if sort:
+                ind = np.argsort(-psz) 
+                tau = tau[ind,:]
+                psz = psz[ind]
+            
+            if t > 0:
+                old = al
+
+            al = 1.0 + psz
+
+            if t > 0:
+                diff = np.sum(np.abs(al - old))
+
+            bt = ex_alpha + np.concatenate([
+                    (np.cumsum(psz[:0:-1])[::-1])
+                    ,[0]
+                ])
+
+            tmp = scipy.special.psi(al + bt)
+            exlv  = (scipy.special.psi(al) - tmp)
+            exlvc = (scipy.special.psi(bt) - tmp)
+
+            z = (exlv + np.concatenate([[0],np.cumsum(exlvc)[:-1]]))
+            np.exp(z,z)
+            z /= z.sum()
+
+            w = self.s + np.array([-1 + k, -np.sum(exlvc[:-1])])
+            ex_alpha = w[0]/w[1]
+            
+            # end stick breaking process
+            # end m step
+
+
+
+            # e_step
+            grad = self.distr.prior.grad_log_partition(tau)
+
+            zkd_gpu.set(np.float32(grad))
+            gpu.dot(x1_gpu,zkd_gpu,transb='t', out=phi_gpu)
+
+            gpu.rcp(wx_gpu)
+            gpu.dot_dmm(phi_gpu,wx_gpu,phi_gpu)
+
+            #gpu.sub_exp_k(phi_gpu, pycuda.gpuarray.max(phi_gpu).get())
+            gpu.sub_exp_k(phi_gpu, 0.0)
+            
+            zk_gpu.set(np.float32(z))
+            gpu.dot_mdm(phi_gpu,zk_gpu,phi_gpu)
+            
+            if t>0:
+                if verbose:
+                    print str(diff)
+                if diff < wt*self.tol:
                     break
 
         self.al = al
@@ -357,22 +453,58 @@ class VDP():
         self.lbd = lbd
         return
 
-    # broken
-    def log_likelihood(self,data):
-        #TODO: do not compute this for empty clusters
-        x = self.distr.sufficient_stats(data)
-        ll = (self.ex_log_theta + self.distr.posterior_ll(x,self.tau))
-
-        mx = ll.max(1)
-        ll = mx + np.log(np.sum(np.exp(ll - mx[:,np.newaxis]),1))
-
-        return ll
-
-    # broken
     def cluster_sizes(self):
         return (self.al -1)
         
         
+    # not correct. ex_log_theta is not log_ex_theta
+    def log_likelihood(self,x, compute_grad = False, approx=False):
+        
+        if not approx:
+            ll = self.distr.posterior_ll(x,self.tau, compute_grad)
+        else:
+            ll = self.distr.posterior_ll_approx(x,self.tau, 
+                    self.grad_log_partition, compute_grad)
+
+        if compute_grad: 
+            ll, gr = ll
+
+        #ll += self.ex_log_theta[np.newaxis,:] 
+        mx = ll.max(1)
+        ll -= mx[:,np.newaxis]
+        
+        llt = mx + np.log(np.sum(np.exp(ll),1))
+        if compute_grad:
+            llg = np.einsum('nk,nkd->nd',np.exp(ll),gr)
+            llg /= np.sum(np.exp(ll),1)[:,np.newaxis]
+            return llt, llg
+        else:
+            return llt
+
+    # not correct. same as above
+    def approx_ll_so_nat(self,x):
+        
+        llk, grk, hsk = self.distr.approx_ll_so_nat(x, self.grad_log_partition)
+
+        #llk += self.ex_log_theta[np.newaxis,:] 
+        mx = llk.max(1)
+        llk -= mx[:,np.newaxis]
+        
+        ll = mx + np.log(np.sum(np.exp(llk),1))
+        
+        pk = np.exp(llk)
+        pk /= np.sum(pk,1)[:,np.newaxis]
+        gr = np.einsum('nk,nki->ni',pk,grk)
+
+        #tsk = hsk + grk[:,:,np.newaxis,:]*grk[:,:,:,np.newaxis]
+        #hs = np.einsum('nk,nkij->nij' , pk, tsk)
+        #hs -= gr[:,np.newaxis,:]*gr[:,:,np.newaxis] 
+
+        hs = np.einsum('nk,nkij->nij' , pk, hsk)
+        
+        return ll,gr,hs
+
+    batch_learn = batch_learn_np
 class Tests(unittest.TestCase):
     def test_gaussian(self):
         k = 2
@@ -475,17 +607,17 @@ class Tests(unittest.TestCase):
                         [0,0,10],
                         ])
 
-        n = 900
+        n = 120
         data = np.vstack([ gen_data(A,mu,n=n) for A,mu in zip(As,mus)])
         d = data.shape[1]
             
-        prob = VDP(Gaussian(d), k=10,w=0.1)
+        prob = VDP(Gaussian(d), k=100,w=0.1)
         x = prob.sufficient_stats(data)
         prob.batch_learn(x, verbose = False)
         
-        np.testing.assert_almost_equal((prob.al-1)[:3], n*np.ones(3))
+        #np.testing.assert_almost_equal((prob.al-1)[:3], n*np.ones(3))
         
-        print prob.al-1
+        #print prob.al-1
         #prob.log_likelihood(data)
         
 
@@ -533,8 +665,80 @@ class Tests(unittest.TestCase):
         #prob.log_likelihood(data)
         
 
+    def test_ll(self):
+
+        np.random.seed(1)
+        def gen_data(A, mu, n=10):
+            xs = np.random.multivariate_normal(mu,np.eye(mu.size),size=n)
+            ys = (np.einsum('ij,j->i',A,mu)
+                + np.random.multivariate_normal(
+                        np.zeros(A.shape[0]),np.eye(A.shape[0]),size=n))
+            
+            return np.hstack((ys,xs))
+
+
+        As = np.array([[[1,2,5],[2,2,2]],
+                       [[-4,3,-1],[2,2,2]],
+                       [[-4,3,1],[-2,-2,-2]],
+                        ])
+        mus = np.array([[10,0,0],
+                        [0,10,0],
+                        [0,0,10],
+                        ])
+
+        n = 120
+        data = np.vstack([ gen_data(A,mu,n=n) for A,mu in zip(As,mus)])
+        d = data.shape[1]
+            
+        prob = VDP(GaussianNIW(d), k=30,w=0.1)
+
+        x = prob.distr.sufficient_stats(data)
+        prob.batch_learn(x, verbose = False)
+        
+        t1 = time.time()
+        llt_, llg_ = prob.log_likelihood(x,compute_grad=True,approx = False)
+        t2 = time.time()
+        llt, llg   = prob.log_likelihood(x,compute_grad=True,approx = True)
+        t3 = time.time()
+        print t2-t1
+        print t3-t2
+        
+
+    def test_ll_so(self):
+
+        np.random.seed(1)
+        def gen_data(A, mu, n=10):
+            xs = np.random.multivariate_normal(mu,np.eye(mu.size),size=n)
+            ys = (np.einsum('ij,j->i',A,mu)
+                + np.random.multivariate_normal(
+                        np.zeros(A.shape[0]),np.eye(A.shape[0]),size=n))
+            
+            return np.hstack((ys,xs))
+
+
+        As = np.array([[[1,2,5],[2,2,2]],
+                       [[-4,3,-1],[2,2,2]],
+                       [[-4,3,1],[-2,-2,-2]],
+                        ])
+        mus = np.array([[10,0,0],
+                        [0,10,0],
+                        [0,0,10],
+                        ])
+
+        n = 120
+        data = np.vstack([ gen_data(A,mu,n=n) for A,mu in zip(As,mus)])
+        d = data.shape[1]
+            
+        prob = VDP(GaussianNIW(d), k=30,w=0.1)
+
+        x = prob.distr.sufficient_stats(data)
+        prob.batch_learn(x, verbose = False)
+        
+        prob.approx_ll_so_nat(data)
+        
+        
 if __name__ == '__main__':
-    single_test = 'test_batch_vdp'
+    single_test = 'test_ll_so'
     if hasattr(Tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(Tests(single_test))
