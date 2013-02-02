@@ -9,7 +9,6 @@ if False:
     import pycuda
     import pycuda.curandom
 
-#TODO: base measure assumed to be scalar. Needs to be fixed for generality.
 class ExponentialFamilyDistribution:
     """ f(x|nu) = h(x) exp( nu*x - A(nu) )
         h is the base measure
@@ -17,20 +16,16 @@ class ExponentialFamilyDistribution:
         x are the sufficient statistics
         A is the log partition function
     """
-    def log_base_measure(self,x):
+    #TODO: base measure assumed to be scalar. Needs to be fixed for generality.
+    def log_base_measure(self,x, ret_ll_gr_hs = [True,False,False] ):
         pass
-    def grad_log_base_measure(self,x):
-        pass
-    def log_partition(self,nu):
-        pass
-
-    def grad_log_partition(self,nu):
+    def log_partition(self,nu, ret_ll_gr_hs = [True,False,False] ):
         pass
 
-    def log_likelihood(self,nus,xs):
-        return (np.einsum('ci,di->cd',nus,xs) 
-            + self.log_base_measure(xs)[np.newaxis,:]
-            - self.log_partition(nus)[:,np.newaxis]  )
+    def ll(self,xs,nus,ret_ll_gr_hs = [True,False,False]  ):
+        return ((np.einsum('ci,di->dc',nus,xs) 
+            + self.log_base_measure(xs)[0]
+            - self.log_partition(nus)[0][np.newaxis,:]  ),)
         
         
 class Gaussian(ExponentialFamilyDistribution):
@@ -47,18 +42,15 @@ class Gaussian(ExponentialFamilyDistribution):
     def sufficient_stats_dim(self):
         d = self.dim
         return d + d*d
-    def log_base_measure(self,x):
-        d = self.dim
-        return self.lbm
-    def grad_log_base_measure(self,x):
-        return 0.0
-    def nat_param(self,mus, Sgs):
+    def log_base_measure(self,x,ret_ll_gr_hs = [True,True,True]):
+        return (self.lbm, 0.0,0.0)
+    def usual2nat(self,mus, Sgs):
         nu2 = np.array(map(np.linalg.inv,Sgs))
         nu1 = np.einsum('nij,nj->ni',nu2,mus)
         nu = np.hstack((nu1,-.5*nu2.reshape(nu2.shape[0],-1)))
         return nu
         
-    def nat_param_inv(self,nus):
+    def nat2usual(self,nus):
         d = self.dim
         nu1 = nus[:,:d]
         nu2 = nus[:,d:].reshape((-1,d,d))        
@@ -66,13 +58,15 @@ class Gaussian(ExponentialFamilyDistribution):
         mus = np.einsum('nij,nj->ni',Sgs,nu1)
         return mus,Sgs
     def log_partition(self,nus):
+
+        # todo: implement gradient and hessian
         d = self.dim 
         nu1 = nus[:,:d]
         nu2 = nus[:,d:].reshape((-1,d,d))        
         inv = np.array(map(np.linalg.inv,nu2))
         t1 = -.25* np.einsum('ti,tij,tj->t',nu1,inv,nu1)
         t2 = -.5*np.array(map(np.linalg.slogdet,-2*nu2))[:,1]
-        return t1+t2
+        return (t1+t2,)
 
 class NIW(ExponentialFamilyDistribution):
     """ Normal Inverse Wishart distribution defined by
@@ -87,9 +81,16 @@ class NIW(ExponentialFamilyDistribution):
         d = self.dim
         return d+d*d +2
 
-    def log_base_measure(self,x):
-        return self.lbm
-    def log_partition(self,nu):
+    def log_base_measure(self,x,ret_ll_gr_hs = [True,True,True]):
+        return (self.lbm, 0.0,0.0)
+    def log_partition(self,nu, ret_ll_gr_hs= [True,False,False] ):
+        
+        # todo: implement hessian
+        rt = ret_ll_gr_hs
+        ll = None
+        gr = None
+        hs = None
+
         d = self.dim
         l1 = nu[:,:d]
         l2 = nu[:,d:-2].reshape(-1,d,d)
@@ -97,47 +98,39 @@ class NIW(ExponentialFamilyDistribution):
         l4 = nu[:,-1]
         
         nu = (l4-d-2).reshape(-1)
-
         psi = (l2 - 
             l1[:,:,np.newaxis]*l1[:,np.newaxis,:]/l3[:,np.newaxis,np.newaxis])
-        
+
         ld = np.array(map(np.linalg.slogdet,psi))[:,1]
-        
-        if not nu.size==1:
-            lmg = scipy.special.multigammaln(.5*nu,d)
-        else:
-            lmg = scipy.special.multigammaln(.5*nu[0],d)
 
-        al = -.5*d*np.log(l3) + .5*nu*(d * np.log(2) - ld ) + lmg
-        return al
+        if rt[0]:
+            if not nu.size==1:
+                lmg = scipy.special.multigammaln(.5*nu,d)
+            else:
+                lmg = scipy.special.multigammaln(.5*nu[0],d)
 
-    def grad_log_partition(self,nu):
-        d = self.dim
-        l1 = nu[:,:d]
-        l2 = nu[:,d:-2].reshape(-1,d,d)
-        l3 = nu[:,-2]
-        l4 = nu[:,-1]
-        
-        nu = (l4-d-2).reshape(-1)
+            al = -.5*d*np.log(l3) + .5*nu*(d * np.log(2) - ld ) + lmg
+            ll = al
 
-        psi = (l2 - 
-            l1[:,:,np.newaxis]*l1[:,np.newaxis,:]/l3[:,np.newaxis,np.newaxis])
-        
-        inv = np.array(map(np.linalg.inv,psi))
-        g1 = (nu/l3)[:,np.newaxis]* np.einsum('nij,nj->ni',inv,l1)
-        g2 = -.5*nu[:,np.newaxis] *inv.reshape(l2.shape[0],-1)
-        ld = -np.array(map(np.linalg.slogdet,inv))[:,1]
+        if rt[1]:
+            inv = np.array(map(np.linalg.inv,psi))
+            g1 = (nu/l3)[:,np.newaxis]* np.einsum('nij,nj->ni',inv,l1)
+            g2 = -.5*nu[:,np.newaxis] *inv.reshape(l2.shape[0],-1)
 
-        g3 = ( -.5 * d/l3
-            - .5/l3 * (g1*l1).sum(1)  )[:,np.newaxis]
+            g3 = ( -.5 * d/l3
+                - .5/l3 * (g1*l1).sum(1)  )[:,np.newaxis]
 
-        g4 = ( + .5 *d*np.log(2) - .5*ld + .5*self.multipsi(.5*nu,d)
-             )[:,np.newaxis]
+            g4 = ( + .5 *d*np.log(2) - .5*ld + .5*self.multipsi(.5*nu,d)
+                 )[:,np.newaxis]
 
-        return np.hstack((g1,g2,g3,g4))
+            gr = np.hstack((g1,g2,g3,g4))
 
-    def grad_log_base_measure(self,x):
-        return 0.0
+        if rt[2]:   
+            # not implemented
+            pass
+
+        return (ll,gr,hs)
+
     def multipsi(self,a,d):
         res = np.zeros(a.shape)
         for i in range(d):
@@ -155,7 +148,7 @@ class NIW(ExponentialFamilyDistribution):
         t2 = -.5*np.array(map(np.linalg.slogdet,Sgs))[:,1]
         return np.hstack((nu, t1[:,np.newaxis],t2[:,np.newaxis]))
 
-    def nat_param(self,mu0,Psi,k,nu):
+    def usual2nat(self,mu0,Psi,k,nu):
         l3 = k.reshape(-1,1)
         l4 = (nu+2+self.dim).reshape(-1,1)
         l1 = mu0*l3
@@ -163,7 +156,7 @@ class NIW(ExponentialFamilyDistribution):
 
         return np.hstack((l1,l2.reshape(l2.shape[0],-1),l3,l4 ))
 
-    def nat_param_inv(self,nu):
+    def nat2usual(self,nu):
 
         d = self.dim
         l1 = nu[:,:d]
@@ -174,7 +167,9 @@ class NIW(ExponentialFamilyDistribution):
         k = l3
         nu = l4 - 2 - d
         mu0 = l1/l3[:,np.newaxis]
-        Psi = l2 - l1[:,:,np.newaxis]*l1[:,np.newaxis,:]/l3[:,np.newaxis,np.newaxis]
+        
+        Psi = -l1[:,:,np.newaxis]*l1[:,np.newaxis,:]/l3[:,np.newaxis,np.newaxis]
+        Psi += l2
 
         return mu0, Psi,k,nu
 
@@ -185,50 +180,53 @@ class ConjugatePair:
         self.prior_param = prior_param
     def sufficient_stats(self,data):
         pass
-    def posterior_ll(self,x,nu, compute_grad=False):
-        nu_p = (nu[np.newaxis,:,:] + x[:,np.newaxis,:])
+    def posterior_ll(self,x,nu, ret_ll_gr_hs=[True,False,False],
+            usual_x=False):
+        
+        if usual_x:
+            x = self.sufficient_stats(x)
+        ll,gr,hs = (None,None,None)
 
         n = x.shape[0]
         k,d = nu.shape
 
-        t1 = self.evidence.log_base_measure(x)
-        t2 = self.prior.log_partition(nu)
-        t3 = self.prior.log_partition(nu_p.reshape((-1,d))).reshape((n,k))
-
-        ll = t1 - t2[np.newaxis,:] + t3 
-
-        if compute_grad:
-            gr = self.prior.grad_log_partition(nu_p.reshape((-1,d)))
-            gr = gr.reshape((n,k,d))
-            gr += self.evidence.grad_log_base_measure(x)
-            return ll,gr
-        else:
-            return ll
-
-    def posterior_ll_approx(self,x,nu, glp = None, compute_grad=False):
+        nu_p = (nu[np.newaxis,:,:] + x[:,np.newaxis,:])
         
-        if glp is None:
-            glp = self.prior.grad_log_partition(nu)
+        llk, grk, hsk =  self.prior.log_partition(nu_p.reshape((-1,d)),
+                        ret_ll_gr_hs)
+        
 
-        ll = np.einsum('ki,ni->nk',glp,x)
-        ll += self.evidence.log_base_measure(x)
+        if ret_ll_gr_hs[0]:
+            t1 = self.evidence.log_base_measure(x)[0]
+            t2 = self.prior.log_partition(nu)[0]
+            t3 = llk.reshape((n,k))
+            
+            ll = t1 - t2[np.newaxis,:] + t3 
 
-        if compute_grad:
-            gr = glp[np.newaxis,:,:]
-            gr += self.evidence.grad_log_base_measure(x)
-            return ll,gr
-        else:
-            return ll
+        if ret_ll_gr_hs[1]:
+
+            gr = grk.reshape((n,k,d))
+            gr += self.evidence.log_base_measure(x)[1]
+
+        if ret_ll_gr_hs[2]:
+            hs = hsk.reshape((n,k,d,d))
+            hs += self.evidence.log_base_measure(x)[2]
+        
+        return (ll,gr,hs)
+
 
     def sufficient_stats_dim(self):
         return self.prior.sufficient_stats_dim()
 
 class GaussianNIW(ConjugatePair):
+    #TODO: this is just a multivariate-T. Should have a separate class for it
     def __init__(self,d):
+        # old version used 2*d+1+2, this seems to work well
+        # 2*d + 1 was also a good choice but can't remember why
         ConjugatePair.__init__(self,
             Gaussian(d),
             NIW(d),
-            np.concatenate([np.zeros(d*d + d), np.array([0, 2*d+1])])
+            np.concatenate([np.zeros(d*d + d), np.array([0, 2*d+1+2])])
             )
     def sufficient_stats(self,data):
         x = self.evidence.sufficient_stats(data)
@@ -236,22 +234,78 @@ class GaussianNIW(ConjugatePair):
         x1 = np.insert(x1,x1.shape[1],1,axis=1)
         return x1
 
-    def approx_ll_so_nat(self,x, gpl):
+    def posterior_ll(self,x,nu,ret_ll_gr_hs=[True,False,False],
+            usual_x=False, slc=None):
 
-        d = x.shape[1]
+        #TODO: caching
+        if not usual_x:
+            if slc is None:
+                return ConjugatePair.posterior_ll(self,x,nu,
+                    ret_ll_gr_hs=ret_ll_gr_hs,usual_x=usual_x)
+            else:       
+                # not implemented
+                return (None,None,None)
 
-        Q = gpl[:,d:-2].reshape(-1,d,d)
-        q = gpl[:,:d]
-            
-        ll = np.einsum('kij,nj,ni->nk',Q,x,x) + np.einsum('kj,ni->nk',q,x)  
-        ll += self.evidence.log_base_measure(x)
+        rt = ret_ll_gr_hs
+        ll = None
+        gr = None
+        hs = None
+        wx = np.newaxis
 
-        gr = 2*np.einsum('kij,nj->nki',Q,x) + q[np.newaxis,:,:]        
-        hs = 2*Q[np.newaxis,:,:,:]
+        p = self.prior.dim 
+        (mu, psi,k,nu) = self.prior.nat2usual(nu)
+        
+        nu = nu-p+1
+        psi = psi*((k+1)/k/nu)[:,np.newaxis,np.newaxis]
 
 
-        return ll,gr,hs
+        #see ftp://ftp.ecn.purdue.edu/bethel/kotz_mvt.pdf page 15
 
+        if slc is not None:
+            ind = np.zeros(p)==1
+            ind[slc] = 1.0
+            ind = np.logical_not(ind)
+
+            psi[:,ind,:] = 0
+            psi[:,:,ind] = 0
+            psi[:,ind,ind] = 1.0
+            sgi = np.array(map(np.linalg.inv,psi))
+            sgi[:,ind,:] = 0
+            sgi[:,:,ind] = 0
+
+            p -= ind.sum()
+            #nu -= ind.sum()
+        else:
+            sgi = np.array(map(np.linalg.inv,psi))
+
+        # the only three lines depending on x
+        dx = x[:,wx,:] - mu[wx,:,:]
+        gr = np.einsum('kij,nkj->nki', sgi,dx)
+        al = 1 + np.einsum('nki,nki->nk', gr,dx)/nu
+
+        if rt[1] or rt[2]:
+            bt = -(nu+p)/al/nu
+
+        if rt[0]:   
+            ll2 = - .5*(nu+p)*np.log(al)
+            ll1 = (  scipy.special.gammaln( .5*(nu+p))
+                   - scipy.special.gammaln( .5*(nu)) 
+                   - .5*np.array(map(np.linalg.slogdet,psi))[:,1]
+                   - .5*p*np.log(nu)
+                   )
+            ll0 = - .5*p*np.log(np.pi)
+            ll = ll2 + ll1 + ll0
+
+        if rt[1]:   
+            gr = bt[:,:,wx]*gr
+
+        #TODO: test hessian
+        if rt[2]:
+            hs = bt[:,:,wx,wx]*sgi+gr[:,:,:,wx]*gr[:,:,wx,:]/(nu+p)[wx,:,wx,wx]
+        
+        return (ll,gr,hs)
+        
+        
 class VDP():
     def __init__(self,distr, w =1, k=50,
                 tol = 1e-5,
@@ -321,7 +375,7 @@ class VDP():
 
 
             # e_step
-            grad = self.distr.prior.grad_log_partition(tau)
+            grad = self.distr.prior.log_partition(tau,[False,True,False])[1]
             np.einsum('ki,ni->nk',grad,x1,out=phi)
 
             phi /= wx[:,np.newaxis]
@@ -340,8 +394,9 @@ class VDP():
         self.bt = bt
         self.tau = tau
         self.lbd = lbd
-        self.ex_log_theta = elt
-        self.grad_log_partition = grad
+        self.glp = grad
+        self.elt = elt
+
         return
 
     def batch_learn_gpu(self,x1,verbose=False, sort = True):
@@ -457,55 +512,82 @@ class VDP():
         return (self.al -1)
         
         
-    # not correct. ex_log_theta is not log_ex_theta
-    def log_likelihood(self,x, compute_grad = False, approx=False):
-        
-        if not approx:
-            ll = self.distr.posterior_ll(x,self.tau, compute_grad)
-        else:
-            ll = self.distr.posterior_ll_approx(x,self.tau, 
-                    self.grad_log_partition, compute_grad)
+    def ll(self,x, ret_ll_gr_hs = [True,False,False], **kwargs):
 
-        if compute_grad: 
-            ll, gr = ll
+        rt = ret_ll_gr_hs
+        llk,grk,hsk = self.distr.posterior_ll(x,self.tau,
+                [True,rt[1],rt[2]], **kwargs)
 
-        #ll += self.ex_log_theta[np.newaxis,:] 
-        mx = ll.max(1)
-        ll -= mx[:,np.newaxis]
-        
-        llt = mx + np.log(np.sum(np.exp(ll),1))
-        if compute_grad:
-            llg = np.einsum('nk,nkd->nd',np.exp(ll),gr)
-            llg /= np.sum(np.exp(ll),1)[:,np.newaxis]
-            return llt, llg
-        else:
-            return llt
+        ll = None
+        gr = None
+        hs = None
 
-    # not correct. same as above
-    def approx_ll_so_nat(self,x):
-        
-        llk, grk, hsk = self.distr.approx_ll_so_nat(x, self.grad_log_partition)
+        al = self.al
+        bt = self.bt
 
-        #llk += self.ex_log_theta[np.newaxis,:] 
-        mx = llk.max(1)
-        llk -= mx[:,np.newaxis]
-        
-        ll = mx + np.log(np.sum(np.exp(llk),1))
-        
-        pk = np.exp(llk)
-        pk /= np.sum(pk,1)[:,np.newaxis]
-        gr = np.einsum('nk,nki->ni',pk,grk)
+        tmp = np.log(al + bt)
+        exlv  = np.log(al) - tmp
+        exlvc = np.log(bt) - tmp
+        let = exlv + np.concatenate([[0],np.cumsum(exlvc)[:-1]])
 
-        #tsk = hsk + grk[:,:,np.newaxis,:]*grk[:,:,:,np.newaxis]
-        #hs = np.einsum('nk,nkij->nij' , pk, tsk)
-        #hs -= gr[:,np.newaxis,:]*gr[:,:,np.newaxis] 
+        llk +=let 
+        np.exp(llk,llk)
 
-        hs = np.einsum('nk,nkij->nij' , pk, hsk)
+        se = llk.sum(1)
         
-        return ll,gr,hs
+        if rt[0]:
+            ll = np.log(se)
+
+        if rt[1] or rt[2]:
+            p = llk/se[:,np.newaxis]
+            gr = np.einsum('nk,nki->ni',p,grk)
+        
+        if rt[2]:
+            hs1  = - gr[:,:,np.newaxis] * gr[:,np.newaxis,:]
+            hs2 = np.einsum('nk,nkij->nij',p, hsk)
+            hs3 = np.einsum('nk,nki,nkj->nij',p, grk, grk)
+
+            hs = hs1 + hs2 + hs3
+        
+        return (ll,gr,hs)
+
+
+    def resp(self,x, **kwargs):
+        llk,grk,hsk = self.distr.posterior_ll(x,self.tau,
+                [True,False,False], **kwargs)
+
+        al = self.al
+        bt = self.bt
+
+        tmp = np.log(al + bt)
+        exlv  = np.log(al) - tmp
+        exlvc = np.log(bt) - tmp
+        let = exlv + np.concatenate([[0],np.cumsum(exlvc)[:-1]])
+
+        llk +=let
+        llk -= llk.max(1)[:,np.newaxis] 
+        np.exp(llk,llk)
+        se = llk.sum(1)
+        p = llk/se[:,np.newaxis]
+
+        return p
+
+
+    def conditional_ll(self,x,cond):
+
+        ll , gr, hs = self.ll(x,[True,True,True], usual_x=True)
+        ll_ , gr_, hs_ = self.ll(x,[True,True,True], 
+                slc=cond, usual_x=True)
+        
+        ll -= ll_
+        gr -= gr_
+        hs -= hs_
+
+        return (ll,gr,hs)
 
     batch_learn = batch_learn_np
 class Tests(unittest.TestCase):
+    #TODO: hessians not tested
     def test_gaussian(self):
         k = 2
         d = Gaussian(k)
@@ -514,8 +596,8 @@ class Tests(unittest.TestCase):
         Sgs = np.random.sample((10,k,k))
         Sgs = np.einsum('tki,tkj->tij',Sgs,Sgs)
 
-        nu = d.nat_param(mus, Sgs)
-        mus_,Sgs_ = d.nat_param_inv(nu)
+        nu = d.usual2nat(mus, Sgs)
+        mus_,Sgs_ = d.nat2usual(nu)
         
         np.testing.assert_array_almost_equal(mus,mus_)
         np.testing.assert_array_almost_equal(Sgs,Sgs_)
@@ -523,7 +605,7 @@ class Tests(unittest.TestCase):
         data = np.random.sample((100,k))
         xs = d.sufficient_stats(data)
 
-        lls = d.log_likelihood(nu,xs)
+        lls = d.ll(xs,nu)[0]
         
         Sg = Sgs[0,:,:]
         mu = mus[0,:]
@@ -549,14 +631,14 @@ class Tests(unittest.TestCase):
         k = np.random.rand(10)*10
         nu = p - 1 + k
         
-        nus = d.nat_param(mu0,Psi,k,nu)
-        mu0_,Psi_,k_,nu_ = d.nat_param_inv(nus)
+        nus = d.usual2nat(mu0,Psi,k,nu)
+        mu0_,Psi_,k_,nu_ = d.nat2usual(nus)
         np.testing.assert_array_almost_equal(mu0_,mu0)
         np.testing.assert_array_almost_equal(Psi_,Psi)
         np.testing.assert_array_almost_equal(k_,k)
         np.testing.assert_array_almost_equal(nu_,nu)
             
-        lls = d.log_likelihood(nus,x)
+        lls = d.ll(x,nus)[0]
         
         mu0 = mu0[0,:]
         mu = mus[0,:]
@@ -578,13 +660,48 @@ class Tests(unittest.TestCase):
         nu1 = al*nus[1,:] -al *nus[0,:] + .5 *nus[0,:] + .5*nus[1,:]
         nu2 = al*nus[0,:] -al *nus[1,:] + .5 *nus[0,:] + .5*nus[1,:]
         
-        diff = (d.log_partition(nu2[np.newaxis,:])
-                - d.log_partition(nu1[np.newaxis,:]))[0]
+        diff = (d.log_partition(nu2[np.newaxis,:])[0]
+                - d.log_partition(nu1[np.newaxis,:])[0])[0]
             
-        jac = d.grad_log_partition(nus)
-        jac = d.grad_log_partition(.5 *nus[0:1,:] + .5*nus[1:2,:])
+        jac = d.log_partition(.5 *nus[0:1,:] + .5*nus[1:2,:],
+                [False,True,False])[1]
         self.assertAlmostEqual(diff, (jac.reshape(-1)*(nu2-nu1)).sum())
         
+
+    def test_gniw(self):
+        p = 2
+        d = GaussianNIW(p)
+
+        np.random.seed(1)
+        x  = np.random.randn(100,p)
+
+        mu0 = np.random.randn(10,p)
+        Psi = np.random.randn(10,p,p)
+        Psi = np.einsum('tki,tkj->tij',Psi,Psi)
+        k = np.random.rand(10)*10
+        nu = p - 1 + k
+        
+        nus = d.prior.usual2nat(mu0,Psi,k,nu)
+        print nus.shape
+
+        ll, gr, hs= ConjugatePair.posterior_ll(d,x,nus,
+                    [True,True,False],usual_x=True)
+        ll_,gr_,hs_= d.posterior_ll(x,nus,
+                    [True,True,True],usual_x=True)
+        np.testing.assert_array_almost_equal(ll,ll_)
+        
+        al = 1e-10
+        x1 = al*x[1,:] -al *x[0,:] + .5 *x[0,:] + .5*x[1,:]
+        x2 = al*x[0,:] -al *x[1,:] + .5 *x[0,:] + .5*x[1,:]
+        
+        diff = (d.posterior_ll(x2[np.newaxis,:],nus,usual_x=True)[0] - 
+                d.posterior_ll(x1[np.newaxis,:],nus,usual_x=True)[0])
+        jac = d.posterior_ll(.5 *x[0:1,:] + .5*x[1:2,:],nus,
+                [False,True,False], usual_x=True)[1]
+        diff_ = (jac *(x2-x1)[np.newaxis,np.newaxis,:]).sum(2)
+
+        np.testing.assert_array_almost_equal(diff,diff_)
+
 
     def test_batch_vdp(self):
 
@@ -611,8 +728,8 @@ class Tests(unittest.TestCase):
         data = np.vstack([ gen_data(A,mu,n=n) for A,mu in zip(As,mus)])
         d = data.shape[1]
             
-        prob = VDP(Gaussian(d), k=100,w=0.1)
-        x = prob.sufficient_stats(data)
+        prob = VDP(GaussianNIW(d), k=100,w=0.1)
+        x = prob.distr.sufficient_stats(data)
         prob.batch_learn(x, verbose = False)
         
         #np.testing.assert_almost_equal((prob.al-1)[:3], n*np.ones(3))
@@ -687,24 +804,31 @@ class Tests(unittest.TestCase):
                         ])
 
         n = 120
-        data = np.vstack([ gen_data(A,mu,n=n) for A,mu in zip(As,mus)])
-        d = data.shape[1]
+        x = np.vstack([ gen_data(A,mu,n=n) for A,mu in zip(As,mus)])
+        d = x.shape[1]
             
         prob = VDP(GaussianNIW(d), k=30,w=0.1)
 
-        x = prob.distr.sufficient_stats(data)
-        prob.batch_learn(x, verbose = False)
+        xt = prob.distr.sufficient_stats(x)
+        prob.batch_learn(xt, verbose = False)
         
-        t1 = time.time()
-        llt_, llg_ = prob.log_likelihood(x,compute_grad=True,approx = False)
-        t2 = time.time()
-        llt, llg   = prob.log_likelihood(x,compute_grad=True,approx = True)
-        t3 = time.time()
-        print t2-t1
-        print t3-t2
-        
+        ll , gr, hs = prob.ll(x,[True,True,True], usual_x=True)
 
-    def test_ll_so(self):
+        al = 1e-10
+        x1 = al*x[1,:] -al *x[0,:] + .5 *x[0,:] + .5*x[1,:]
+        x2 = al*x[0,:] -al *x[1,:] + .5 *x[0,:] + .5*x[1,:]
+        
+        diff = (prob.ll(x2[np.newaxis,:],usual_x=True)[0] - 
+                prob.ll(x1[np.newaxis,:],usual_x=True)[0])
+
+        jac = prob.ll(.5 *x[0:1,:] + .5*x[1:2,:],
+                [False,True,False], usual_x=True)[1]
+
+        diff_ = (jac *(x2-x1)[np.newaxis,np.newaxis,:]).sum(2)
+        np.testing.assert_array_almost_equal(diff,diff_[0])
+
+
+    def test_resp(self):
 
         np.random.seed(1)
         def gen_data(A, mu, n=10):
@@ -726,19 +850,34 @@ class Tests(unittest.TestCase):
                         ])
 
         n = 120
-        data = np.vstack([ gen_data(A,mu,n=n) for A,mu in zip(As,mus)])
-        d = data.shape[1]
+        x = np.vstack([ gen_data(A,mu,n=n) for A,mu in zip(As,mus)])
+        d = x.shape[1]
             
         prob = VDP(GaussianNIW(d), k=30,w=0.1)
 
-        x = prob.distr.sufficient_stats(data)
-        prob.batch_learn(x, verbose = False)
+        xt = prob.distr.sufficient_stats(x)
+        prob.batch_learn(xt, verbose = False)
         
-        prob.approx_ll_so_nat(data)
+        ps = prob.resp(x, usual_x=True,slc=[2,3,4])
+
+        grad = prob.distr.prior.log_partition(prob.tau,[False,True,False])[1]
+        print grad
+
+        ll1 = np.einsum('ki,ni->nk',prob.glp,xt)
+        mus,sgs = prob.distr.evidence.nat2usual(prob.glp[:,:-2])
+         
+        dx = x[:,np.newaxis,:] - mus[np.newaxis,:,:]
+        sgi = np.array(map(np.linalg.inv,sgs)) # this is the hessian
+        ll2 = -np.einsum('kij,nki,nkj->nk',.5*sgi,dx,dx)
         
         
+        gr = prob.glp[:,:d]
+        hs = prob.glp[:,d:d*(d+1)].reshape(-1,d,d)
+        ll3 = np.einsum('ki,ni->nk', gr,x) +np.einsum('kij,ni,nj->nk',hs,x,x)
+        
+
 if __name__ == '__main__':
-    single_test = 'test_ll_so'
+    single_test = 'test_gaussian'
     if hasattr(Tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(Tests(single_test))

@@ -95,7 +95,7 @@ class Clustering(learning.VDP):
         learning.VDP.__init__(self, Distr(),**kw)
     def plot_clusters(self, n = 100):
         ind = (self.al>1.0)
-        nuE = self.distr.prior.nat_param_inv(self.tau[ind,:])
+        nuE = self.distr.prior.nat2usual(self.tau[ind,:])
         mus, Sgs, k, nu = nuE
         Sgs/=(k)[:,np.newaxis,np.newaxis]
         
@@ -120,53 +120,116 @@ class Clustering(learning.VDP):
         plt.plot(data[:,2],data[:,1],'.',alpha=.1)
 
 class Planner:
-    def __init__(self, model, start, end, dt):
-        self.model = model
+    def __init__(self, start, end, dt):
+
         self.start = start
         self.end = end
         self.dt = dt
-        self.dim = 4
 
+        self.dim = 4
+        self.slc = np.array([1,2]) # could be 1,2,3 
+        
+    def parse_model(self,model):
+
+        self.model = model
+        self.slice_distr = learning.GaussianNIW(self.slc.size)
+        d = self.dim
+
+        # prior cluster sizes
+        elt = self.model.elt
+
+        # full model
+        glpf = self.model.glp
+
+        self.gr = glpf[:,:d]
+        self.hs = glpf[:,d:d*(d+1)].reshape(-1,d,d)
+        self.bm = glpf[:,-2:].sum(1) + elt
+
+        # slice:
+        slc = self.slc
+
+        nu = self.model.tau
+
+        l1 = nu[:,:d]
+        l2 = nu[:,d:-2].reshape(-1,d,d)
+        l3 = nu[:,-2:-1]
+        l4 = nu[:,-1:]  # should sub from this one
+        
+        l1 = l1[:,slc]
+        l2 = l2[:,slc,:][:,:,slc]
+        l4 -= slc.size
+        
+        nus = np.hstack([l1,l2.reshape(l2.shape[0],-1), l3, l4])
+        glps = self.slice_distr.prior.log_partition(nus, [False,True,False])[1]
+        d = self.slc.size
+
+        self.grs = glps[:,:d]
+        self.hss = glps[:,d:d*(d+1)].reshape(-1,d,d)
+        self.bms = glps[:,-2:].sum(1) + elt
+        
+        #done here
+
+
+    def f(self,x):
+
+        xs = x[:,self.slc]
+        lls = (np.einsum('kij,ni,nj->nk', self.hss,xs, xs)
+            + np.einsum('ki,ni->nk',self.grs, xs)
+            + self.bms[np.newaxis,:]  )
+
+        lls -= lls.max(1)[:,np.newaxis]
+        ps = np.exp(lls)
+        ps /= ps.sum(1)[:,np.newaxis]
+        
+        # exact but about 10 times slower:
+        #ps_ = self.model.resp(x, usual_x=True,slc=self.slc)
+        
+        hsm  = np.einsum('kij,nk->nij',self.hs,ps)            
+        grm  = np.einsum('ki,nk->ni',self.gr,ps)            
+        bmm  = np.einsum('k,nk->n',self.bm,ps)
+
+        llm = (np.einsum('nij,ni,nj->n', hsm,x, x)
+            + np.einsum('ni,ni->n',grm, x)
+            + bmm )
+
+        Q = 2*hsm
+        q = grm + np.einsum('nij,nj->ni',Q,x)
+        
+        return llm,q,Q
+        
     def plan(self,h):
         
         nt = int(h/self.dt)
-        d = self.dim
 
         qp = planning.PlannerQP(1,1,nt)
-        qp.put_dyn_constraint(self.dt)
-        qp.put_endpoints_constraint(self.start,self.end)
+        qp.dyn_constraint(self.dt)
 
-        Q = np.zeros((nt,d,d))
+        Q = np.zeros((nt,4,4))
         Q[:,0,0] = -1.0
-        q = np.zeros((nt,d))
-        
-        qp.put_quad_objective(-Q,-q)
+        q = np.zeros((nt,4))
+
+        qp.endpoints_constraint(self.start,self.end,1)
+        qp.quad_objective( -q,-Q)
         x = qp.solve()
-        x[:,-1]= 0
 
-        np.random.seed(5)
-        a = Pendulum()
-        x = a.random_traj(h)
-       
         plt.ion()
-        for i in range(100):
+        for i in range(1000):
+            ll,q,Q = self.f(x) 
+            #print np.sum(ll), np.min(ll)
 
-            plt.clf()
-            xt = self.model.distr.sufficient_stats(x)
-            
-            ll,q,Q = self.model.approx_ll_so_nat(x)
-            print np.sum(ll), np.max(ll)
+            # should maximize the min ll.
 
-            qp.put_endpoints_constraint(self.start,self.end, x = x)
-            qp.put_quad_objective(-.5*Q,-q)
+            qp.endpoints_constraint(self.start,self.end,1, x = x)
+            qp.quad_objective( -q,-Q)
             dx = qp.solve()
+            x += dx
             
-            x = x+dx
-
-            plt.scatter(x[:,2],x[:,1],c=x[:,3],linewidth=0)  # qdd, qd, q, u
-            self.model.plot_clusters()
-            plt.draw()
-            #x = x_new
+            if True:
+                plt.clf()
+                plt.scatter(x[:,2],x[:,1],c=x[:,3],linewidth=0)  # qdd, qd, q, u
+                self.model.plot_clusters()
+                plt.draw()
+                #x = x_new
 
 class MDPtests(unittest.TestCase):
     def test_rnd(self):
@@ -176,11 +239,11 @@ class MDPtests(unittest.TestCase):
         plt.show()
     def test_clustering(self):
 
-        np.random.seed(7)
+        np.random.seed(2)
         a = Pendulum()
         traj = a.random_traj(200)
         
-        prob = Clustering(k = 100, w = 1, tol = 1e-7) # w = 1e-3
+        prob = Clustering(k = 100, w = 1e-2, tol = 1e-7) # w = 1e-3
         prob.plot_traj(traj)
         x = prob.distr.sufficient_stats(traj)
         prob.batch_learn(x, verbose = True)
@@ -204,7 +267,7 @@ class MDPtests(unittest.TestCase):
         for traj in trajs:
         
             #plt.clf()
-            prob = Clustering(k = 25, w = 1e-3, tol = 1e-4)
+            prob = Clustering(k = 25, w = 1e-2, tol = 1e-5)
             #prob.plot_traj(trajo)
             x = prob.distr.sufficient_stats(traj)
             prob.batch_learn(x, verbose = False)
@@ -224,9 +287,11 @@ class MDPtests(unittest.TestCase):
         (x,trajo) = cPickle.load(open('./pickles/tst.pkl','r'))
         np.random.seed(8)
         print x.shape
-        prob = Clustering(k = 100, w = 1e-10, tol = 1e-5)
+        prob = Clustering(k = 100, w = 1e-10, tol = 1e-7)
         prob.batch_learn(x, verbose = True)
         print prob.cluster_sizes()
+
+        cPickle.dump(prob,open('./pickles/online_vdp.pkl','w'))
 
         plt.clf()
         prob.plot_traj(trajo)
@@ -278,8 +343,10 @@ class MDPtests(unittest.TestCase):
         stop = np.array([0,0])  # should finally be [0,0]
         dt = .01
 
-        planner = Planner(model, start,stop, dt)
-        x = planner.plan(5.0)
+        planner = Planner(start,stop, dt)
+        planner.parse_model(model)
+
+        x = planner.plan(2.2) # 5.0
 
         #plt.scatter(x[:,2],x[:,1], c=x[:,3])  # qdd, qd, q, u
         #plt.show()
