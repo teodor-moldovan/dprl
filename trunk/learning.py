@@ -4,10 +4,6 @@ import numpy as np
 import scipy.linalg
 import scipy.special
 import time
-if False:
-    import gpu
-    import pycuda
-    import pycuda.curandom
 
 class ExponentialFamilyDistribution:
     """ f(x|nu) = h(x) exp( nu*x - A(nu) )
@@ -274,7 +270,6 @@ class GaussianNIW(ConjugatePair):
             sgi[:,:,ind] = 0
 
             p -= ind.sum()
-            #nu -= ind.sum()
         else:
             sgi = np.array(map(np.linalg.inv,psi))
 
@@ -301,7 +296,8 @@ class GaussianNIW(ConjugatePair):
 
         #TODO: test hessian
         if rt[2]:
-            hs = bt[:,:,wx,wx]*sgi+gr[:,:,:,wx]*gr[:,:,wx,:]/(nu+p)[wx,:,wx,wx]
+            pass
+            #hs = bt[:,:,wx,wx]*sgi+gr[:,:,:,wx]*gr[:,:,wx,:]/(nu+p)[wx,:,wx,wx]
         
         return (ll,gr,hs)
         
@@ -397,115 +393,6 @@ class VDP():
         self.glp = grad
         self.elt = elt
 
-        return
-
-    def batch_learn_gpu(self,x1,verbose=False, sort = True):
-        n,d = x1.shape
-        k = self.k 
-        wx = x1[:,-1]
-        
-        psz = np.float32(np.zeros((k)))
-        tau = np.float32(np.zeros((k,d)))
-
-        gen = pycuda.curandom.XORWOWRandomNumberGenerator()
-
-        x1_gpu = pycuda.gpuarray.to_gpu(np.float32(x1))
-        phi_gpu = gen.gen_uniform((n,k),np.float32)
-        wx_gpu = pycuda.gpuarray.to_gpu(np.float32(wx))
-
-        an_gpu = pycuda.gpuarray.empty((n),np.float32).fill(np.float32(1.0))
-        ak_gpu = pycuda.gpuarray.empty((k),np.float32).fill(np.float32(1.0))
-        zn_gpu = pycuda.gpuarray.empty((n),np.float32)
-        zk_gpu = pycuda.gpuarray.empty((k),np.float32)
-        zd_gpu = pycuda.gpuarray.empty((d),np.float32)
-        zkd_gpu = pycuda.gpuarray.empty((k,d),np.float32)
-
-        
-        gpu.dot(an_gpu,x1_gpu,zd_gpu)
-
-        wt = pycuda.gpuarray.sum(wx_gpu).get()
-        lbd = self.prior + (zd_gpu.get() 
-                / wt * self.w)
-
-        ex_alpha = 1.0
-        
-
-        for t in range(self.max_iters):
-
-            gpu.dot(phi_gpu,ak_gpu,transb='t',out=zn_gpu)
-            gpu.rcp(zn_gpu)
-            gpu.dot_dmm(phi_gpu,zn_gpu,phi_gpu)
-            
-            gpu.dot(phi_gpu,x1_gpu,transa='t', out=zkd_gpu )
-            gpu.dot(wx_gpu,phi_gpu, out=zk_gpu )
-            
-            # m step
-
-            zkd_gpu.get(tau)
-            zk_gpu.get(psz)
-            
-            tau += lbd[np.newaxis,:]
-
-            # stick breaking process
-            if sort:
-                ind = np.argsort(-psz) 
-                tau = tau[ind,:]
-                psz = psz[ind]
-            
-            if t > 0:
-                old = al
-
-            al = 1.0 + psz
-
-            if t > 0:
-                diff = np.sum(np.abs(al - old))
-
-            bt = ex_alpha + np.concatenate([
-                    (np.cumsum(psz[:0:-1])[::-1])
-                    ,[0]
-                ])
-
-            tmp = scipy.special.psi(al + bt)
-            exlv  = (scipy.special.psi(al) - tmp)
-            exlvc = (scipy.special.psi(bt) - tmp)
-
-            z = (exlv + np.concatenate([[0],np.cumsum(exlvc)[:-1]]))
-            np.exp(z,z)
-            z /= z.sum()
-
-            w = self.s + np.array([-1 + k, -np.sum(exlvc[:-1])])
-            ex_alpha = w[0]/w[1]
-            
-            # end stick breaking process
-            # end m step
-
-
-
-            # e_step
-            grad = self.distr.prior.grad_log_partition(tau)
-
-            zkd_gpu.set(np.float32(grad))
-            gpu.dot(x1_gpu,zkd_gpu,transb='t', out=phi_gpu)
-
-            gpu.rcp(wx_gpu)
-            gpu.dot_dmm(phi_gpu,wx_gpu,phi_gpu)
-
-            #gpu.sub_exp_k(phi_gpu, pycuda.gpuarray.max(phi_gpu).get())
-            gpu.sub_exp_k(phi_gpu, 0.0)
-            
-            zk_gpu.set(np.float32(z))
-            gpu.dot_mdm(phi_gpu,zk_gpu,phi_gpu)
-            
-            if t>0:
-                if verbose:
-                    print str(diff)
-                if diff < wt*self.tol:
-                    break
-
-        self.al = al
-        self.bt = bt
-        self.tau = tau
-        self.lbd = lbd
         return
 
     def cluster_sizes(self):
