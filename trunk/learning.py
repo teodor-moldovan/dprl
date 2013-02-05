@@ -302,7 +302,7 @@ class GaussianNIW(ConjugatePair):
         return (ll,gr,hs)
         
         
-class VDP():
+class VDP:
     def __init__(self,distr, w =1, k=50,
                 tol = 1e-5,
                 max_iters = 10000):
@@ -318,7 +318,7 @@ class VDP():
         self.prior = self.distr.prior_param
         self.s = np.array([0.0,0])
         
-    def batch_learn_np(self,x1,verbose=False, sort = True):
+    def batch_learn(self,x1,verbose=False, sort = True):
         n = x1.shape[0] 
         k = self.k
         
@@ -367,7 +367,6 @@ class VDP():
             
             # end stick breaking process
             # end m step
-
 
 
             # e_step
@@ -472,7 +471,61 @@ class VDP():
 
         return (ll,gr,hs)
 
-    batch_learn = batch_learn_np
+class HVDP:
+    def __init__(self, distr, w=.1, k = 25, tol=1e-3, max_items = 100):
+        self.distr = distr
+        self.w = w
+        self.wm =w
+        self.k = k
+        self.tol = tol
+        self.max_n = max_items
+
+        self.xs = []
+        self.vdps = []
+        self.dim = self.distr.sufficient_stats_dim()
+        
+    def put(self,r,s=0):
+
+        if s<len(self.xs):
+            ar = np.vstack((self.xs[s],r))
+        else:
+            ar = r
+            self.xs.append(None)
+        
+        mn = self.max_n*(s+1)
+
+        pcs = ar.shape[0] / mn
+        self.xs[s] = ar[pcs*mn:,:]
+
+        if s<len(self.vdps):
+            proc = self.vdps[s]
+        else:
+            if s>0:
+                w = self.wm
+            else:
+                w = self.w
+            
+            proc = VDP(self.distr, w, self.k*(s+1), self.tol)
+            self.vdps.append(proc)
+
+        if pcs==0:
+            return        
+
+        for x in np.split(ar[:pcs*self.max_n,:],pcs):
+            proc.batch_learn(x,verbose=False)
+            xc = proc.tau - proc.lbd[np.newaxis,:]
+            xc = xc[xc[:,-1]>1e-5]
+            self.put(xc,s+1)
+
+    def get_model(self):
+
+        proc = VDP(self.distr, self.wm, self.k*(len(self.xs)), self.tol)
+        proc.batch_learn(np.vstack(self.xs))
+        #print proc.al.sum()
+        return proc
+        
+        
+
 class Tests(unittest.TestCase):
     #TODO: hessians not tested
     def test_gaussian(self):
@@ -636,9 +689,9 @@ class Tests(unittest.TestCase):
         d = data.shape[1]
 
         if False:
-            prob = VDP(Gaussian(d), 
+            prob = VDP(GaussianNIW(d), 
                     k=40,w=1e-2,tol = 1e-3)
-            x = prob.sufficient_stats(data)
+            x = prob.distr.sufficient_stats(data)
             prob.batch_learn(x, verbose = False)
             print prob.cluster_sizes()
 
@@ -647,9 +700,9 @@ class Tests(unittest.TestCase):
         
         xs = []
         for data in data_set:
-            prob = VDP(Gaussian(d), 
-                    k=20,w=1e-2,tol = 1e-5)
-            x = prob.sufficient_stats(data)
+            prob = VDP(GaussianNIW(d), 
+                    k=20,w=1e-2,tol = 1e-3)
+            x = prob.distr.sufficient_stats(data)
             prob.batch_learn(x, verbose = False)
             print prob.cluster_sizes()
 
@@ -657,7 +710,7 @@ class Tests(unittest.TestCase):
             xs.append(xc[xc[:,-1]>1e-6])
 
         x = np.vstack(xs)
-        prob = VDP(Gaussian(d),
+        prob = VDP(GaussianNIW(d),
                 k=40,w=1e-10,tol = 1e-6)
         prob.batch_learn(x, verbose = False)
         print prob.cluster_sizes()
@@ -763,8 +816,21 @@ class Tests(unittest.TestCase):
         ll3 = np.einsum('ki,ni->nk', gr,x) +np.einsum('kij,ni,nj->nk',hs,x,x)
         
 
+    def test_multiproc(self):
+        
+        hvdp = HVDP(GaussianNIW(3), w=1e-2, k = 20, tol=1e-3, max_items = 100 )
+        
+        for t in range(1000):
+            x = np.mod(np.linspace(0,2*np.pi*3,134),2*np.pi)
+            t1 = time.time()
+            data = np.vstack((x,np.sin(x),np.cos(x))).T
+            hvdp.put(hvdp.distr.sufficient_stats(data))
+            hvdp.get_model()
+            print time.time()-t1
+
+
 if __name__ == '__main__':
-    single_test = 'test_gaussian'
+    single_test = 'test_multiproc'
     if hasattr(Tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(Tests(single_test))

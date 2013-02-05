@@ -63,7 +63,7 @@ class Pendulum:
         # return np.hstack([ ts, xs[:,1:2], xs_d[:,1:2], xs_d[:,0:1], us, xs[:,2:3],xs_d[:,2:3]])
         return np.hstack([ xs_d[:,0:1], xs_d[:,1:2], xs[:,1:2], us])
 
-    def random_traj(self,t,control_freq = 2): 
+    def random_traj(self,t,control_freq = 2,x0=None): 
         
         t = max(t,control_freq)
         ts = np.linspace(0.0,t, t*control_freq)
@@ -72,7 +72,9 @@ class Pendulum:
 
         pi = lambda t,x: np.interp(t, ts, us)
         
-        x0 = np.array((0.0,np.pi,0.0))    
+        if x0 is None:
+            x0 = np.array((0.0,np.pi,0.0))    
+
         traj = self.sim(x0,pi,t )
         return traj 
          
@@ -213,7 +215,7 @@ class Planner:
         x = qp.solve()
 
         plt.ion()
-        for i in range(1000):
+        for i in range(30):
             ll,q,Q = self.f(x) 
             #print np.sum(ll), np.min(ll)
 
@@ -224,12 +226,35 @@ class Planner:
             dx = qp.solve()
             x += dx
             
-            if True:
+            if False:
                 plt.clf()
                 plt.scatter(x[:,2],x[:,1],c=x[:,3],linewidth=0)  # qdd, qd, q, u
                 self.model.plot_clusters()
                 plt.draw()
                 #x = x_new
+        return x,np.sum(ll)
+
+
+def plot_clusters(mdl, n = 100):
+        ind = (mdl.al>1.0)
+        nuE = mdl.distr.prior.nat2usual(mdl.tau[ind,:])
+        mus, Sgs, k, nu = nuE
+        Sgs/=(k)[:,np.newaxis,np.newaxis]
+        
+        szs = mdl.cluster_sizes()
+        szs /= szs.sum()
+         
+        for mu, Sg,sz in zip(mus[:,1:3],Sgs[:,1:3,1:3],szs):
+
+            w,V = np.linalg.eig(Sg)
+            V =  np.array(np.matrix(V)*np.matrix(np.diag(np.sqrt(w))))
+
+            sn = np.sin(np.linspace(0,2*np.pi,n))
+            cs = np.cos(np.linspace(0,2*np.pi,n))
+            
+            x = V[:,1]*cs[:,np.newaxis] + V[:,0]*sn[:,np.newaxis]
+            x += mu
+            plt.plot(x[:,1],x[:,0],linewidth=sz*10)
 
 class MDPtests(unittest.TestCase):
     def test_rnd(self):
@@ -283,11 +308,26 @@ class MDPtests(unittest.TestCase):
         x = np.vstack(xs)
         cPickle.dump((x,trajo),open('./pickles/tst.pkl','w'))
 
+    def test_h_clus(self):
+
+        np.random.seed(7) #10
+        a = Pendulum()
+        traj = a.random_traj(200)
+        np.random.seed(4)
+        
+        hvdp = learning.HVDP(Distr(), 
+                w=1e-3, k = 25, tol=1e-4, max_items = 100 )
+        
+        hvdp.put(hvdp.distr.sufficient_stats(traj))
+        plot_clusters(hvdp.get_model())
+        plt.show()
+        
+
     def test_h_clustering2(self):
         (x,trajo) = cPickle.load(open('./pickles/tst.pkl','r'))
         np.random.seed(8)
         print x.shape
-        prob = Clustering(k = 100, w = 1e-10, tol = 1e-7)
+        prob = Clustering(k = 100, w = 1e-2, tol = 1e-3)
         prob.batch_learn(x, verbose = True)
         print prob.cluster_sizes()
 
@@ -345,15 +385,63 @@ class MDPtests(unittest.TestCase):
 
         planner = Planner(start,stop, dt)
         planner.parse_model(model)
-
         x = planner.plan(2.2) # 5.0
 
         #plt.scatter(x[:,2],x[:,1], c=x[:,3])  # qdd, qd, q, u
         #plt.show()
 
         
+    def test_online_modelling(self):
+        
+        np.random.seed(3)
+        a = Pendulum()
+
+        hvdp = learning.HVDP(Distr(), 
+                w=1e-3, k = 25, tol=1e-2, max_items = 100 )
+
+        stop = np.array([0,0])  # should finally be [0,0]
+        dt = .01
+
+
+
+        traj = a.random_traj(1.0)
+        
+        plt.ion()
+        for it in range(1000):
+            plt.clf()
+
+            start = traj[-1,1:4]
+            hvdp.put(hvdp.distr.sufficient_stats(traj))
+            model = hvdp.get_model()
+
+            plot_clusters(model)
+
+            planner = Planner(start[:2],stop, dt)
+            planner.parse_model(model)
+
+            ll = -float('inf')
+            x = None
+            tt = None
+            for t in [.1,.2,.5,.7, 1.0,1.2,1.5,1.7,2.0,2.2,2.5]:
+                x_,ll_ = planner.plan(t) # 5.0
+                if ll_>ll:
+                    ll=ll_
+                    x=x_
+                    tt = t
+            print tt
+                
+
+            plt.scatter(x[:,2],x[:,1], c=x[:,3])  # qdd, qd, q, u
+
+
+            pi = lambda tc,xc: x[int(tc/dt),3]
+            traj = a.sim(start,pi,.05)
+
+            plt.draw()
+            
+
 if __name__ == '__main__':
-    single_test = 'test_planning'
+    single_test = 'test_online_modelling'
     if hasattr(MDPtests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(MDPtests(single_test))
