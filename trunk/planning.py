@@ -81,7 +81,7 @@ class PlannerQP:
 
         A = -(I - St)*Prj/dt - Prj*Sd
         
-        #A = A[:-2*nx,:]
+        A = A[:-2*nx,:]
         a = A.tocoo()
 
         ai,aj,ad = a.row,a.col,a.data
@@ -158,7 +158,7 @@ class PlannerQP:
 
         task.putobjsense(mosek.objsense.minimize)
 
-    def endpoints_constraint(self,xi,xf,n, x = None):
+    def endpoints_constraint(self,xi,xf, x = None):
         task = self.task
 
         task.putboundlist(  mosek.accmode.var,
@@ -182,9 +182,9 @@ class PlannerQP:
                 [mosek.boundkey.fx]*i.size,
                 vs,vs )
 
-        i = self.iv_lastn_dxx(n)
+        i = self.iv_last_dxx
         
-        vs = np.tile(xf,n)
+        vs = xf
         if not x is None:
             vs = vs - x.reshape(-1)[i]
 
@@ -193,12 +193,11 @@ class PlannerQP:
                 [mosek.boundkey.fx]*i.size,
                 vs,vs )
 
-        j = self.ic_lastn_dyn(n)
-
-        task.putboundlist(  mosek.accmode.con,
-                j, 
-                [mosek.boundkey.fr]*j.size,
-                np.zeros(j.size),np.zeros(j.size) )
+        #j = self.ic_lastn_dyn(n)
+        #task.putboundlist(  mosek.accmode.con,
+        #        j, 
+        #        [mosek.boundkey.fr]*j.size,
+        #        np.zeros(j.size),np.zeros(j.size) )
 
         # hack
         # not general

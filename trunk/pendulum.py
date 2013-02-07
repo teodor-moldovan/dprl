@@ -7,6 +7,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import cPickle
 import time
+import scipy.optimize
 
 import learning
 import planning
@@ -65,7 +66,7 @@ class Pendulum:
 
     def random_traj(self,t,control_freq = 2,x0=None): 
         
-        t = max(t,control_freq)
+        t = max(t,2.0/control_freq)
         ts = np.linspace(0.0,t, t*control_freq)
         us = ((numpy.random.uniform(size = ts.size))
                 *(self.umax-self.umin)+self.umin )
@@ -122,35 +123,33 @@ class Clustering(learning.VDP):
         plt.plot(data[:,2],data[:,1],'.',alpha=.1)
 
 class Planner:
-    def __init__(self, start, end, dt):
+    def __init__(self, dt,h_max):
 
-        self.start = start
-        self.end = end
         self.dt = dt
 
         self.dim = 4
-        self.slc = np.array([1,2]) # could be 1,2,3 
+        self.sl1 = np.array([1,2]) # could be 1,2,3 
+        self.sl2 = np.array([1,2,3]) # could be 1,2,3 
+
+        self.tols = 1e-5 
+        self.max_iters = 30
+
+        self.x = None
+        self.no = int(h_max/dt)
         
-    def parse_model(self,model):
+    def niw_slice(self, nu,slc=None, glp = None):
 
-        self.model = model
-        self.slice_distr = learning.GaussianNIW(self.slc.size)
         d = self.dim
+        n = nu.shape[0]
 
-        # prior cluster sizes
-        elt = self.model.elt
+        if (not glp is None) and (slc is None):
+            gr = glp[:,:d]
+            hs = glp[:,d:d*(d+1)].reshape(-1,d,d)
+            bm = glp[:,-2:].sum(1)
+            return (gr,hs,bm)
+            
 
-        # full model
-        glpf = self.model.glp
-
-        self.gr = glpf[:,:d]
-        self.hs = glpf[:,d:d*(d+1)].reshape(-1,d,d)
-        self.bm = glpf[:,-2:].sum(1) + elt
-
-        # slice:
-        slc = self.slc
-
-        nu = self.model.tau
+        slice_distr = learning.GaussianNIW(slc.size)
 
         l1 = nu[:,:d]
         l2 = nu[:,d:-2].reshape(-1,d,d)
@@ -162,21 +161,53 @@ class Planner:
         l4 -= slc.size
         
         nus = np.hstack([l1,l2.reshape(l2.shape[0],-1), l3, l4])
-        glps = self.slice_distr.prior.log_partition(nus, [False,True,False])[1]
-        d = self.slc.size
+        glps = slice_distr.prior.log_partition(nus, [False,True,False])[1]
+        
+        gr = np.zeros((n,d))
+        hs = np.zeros((n,d*d))
+        bm = np.zeros((n))
 
-        self.grs = glps[:,:d]
-        self.hss = glps[:,d:d*(d+1)].reshape(-1,d,d)
-        self.bms = glps[:,-2:].sum(1) + elt
+        ds = slc.size
+        slc_ =(slc[np.newaxis,:] + slc[:,np.newaxis]*d).reshape(-1)
+        
+        gr[:,slc] = glps[:,:ds]
+        hs[:,slc_] = glps[:,ds:ds*(ds+1)]
+        hs = hs.reshape(-1,d,d)
+        bm[:] = glps[:,-2:].sum(1)
+
+        return (gr,hs,bm)
+        
+    def parse_model(self,model):
+
+        self.model = model
+        d = self.dim
+
+        # prior cluster sizes
+        elt = self.model.elt
+
+        # full model
+        gr, hs, bm = self.niw_slice(self.model.tau, None, self.model.glp)
+        gr1, hs1, bm1 = self.niw_slice(self.model.tau, self.sl2)
+
+        self.gr = gr - gr1
+        self.hs = hs - hs1
+        self.bm = bm - bm1 + elt
+
+        # slice:
+        
+        gr, hs, bm = self.niw_slice(self.model.tau, self.sl1)
+        
+        self.grs = gr
+        self.hss = hs
+        self.bms = bm + elt
         
         #done here
 
 
-    def f(self,x):
+    def ll(self,x):
 
-        xs = x[:,self.slc]
-        lls = (np.einsum('kij,ni,nj->nk', self.hss,xs, xs)
-            + np.einsum('ki,ni->nk',self.grs, xs)
+        lls = (np.einsum('kij,ni,nj->nk', self.hss,x, x)
+            + np.einsum('ki,ni->nk',self.grs, x)
             + self.bms[np.newaxis,:]  )
 
         lls -= lls.max(1)[:,np.newaxis]
@@ -199,41 +230,122 @@ class Planner:
         
         return llm,q,Q
         
-    def plan(self,h):
-        
-        nt = int(h/self.dt)
+    def plan_inner(self,nt):
 
         qp = planning.PlannerQP(1,1,nt)
         qp.dyn_constraint(self.dt)
-
         Q = np.zeros((nt,4,4))
         Q[:,0,0] = -1.0
         q = np.zeros((nt,4))
 
-        qp.endpoints_constraint(self.start,self.end,1)
+        qp.endpoints_constraint(self.start,self.end)
         qp.quad_objective( -q,-Q)
+
         x = qp.solve()
 
-        plt.ion()
-        for i in range(30):
-            ll,q,Q = self.f(x) 
-            #print np.sum(ll), np.min(ll)
+        lls = None
 
+        #plt.ion()
+        for i in range(self.max_iters):
+
+            ll,q,Q = self.ll(x)             
+            lls_ = ll.sum()
+            if not lls is None:
+                if (abs(lls_-lls) < self.tols*max(abs(lls),abs(lls_))):
+                    break
+            lls = lls_
+
+            #print np.sum(ll), np.min(ll)
             # should maximize the min ll.
 
-            qp.endpoints_constraint(self.start,self.end,1, x = x)
+            qp.endpoints_constraint(self.start,self.end, x = x)
             qp.quad_objective( -q,-Q)
             dx = qp.solve()
-            x += dx
             
+            def f(a):
+                ll,q,Q = self.ll(x+a*dx)
+                return -ll.sum()
+            a = scipy.optimize.fminbound(f,0.0,1.0,xtol=1e-3)
+            x += a*dx
+            
+            #print lls 
+
             if False:
                 plt.clf()
                 plt.scatter(x[:,2],x[:,1],c=x[:,3],linewidth=0)  # qdd, qd, q, u
                 self.model.plot_clusters()
                 plt.draw()
                 #x = x_new
-        return x,np.sum(ll)
+        
+        if i>=self.max_iters:
+            print 'MI reached'
+        return lls_,x
 
+
+    def plan_(self,model,start,end):
+        self.start = start
+        self.end = end
+        self.parse_model(model)
+        
+        
+        ni = max(self.no-3.0,10)
+        nu = self.no+3.0
+
+        cache={}
+
+        def f(i):
+            nt = int(i)
+            if cache.has_key(nt):
+                ll,x = cache[nt]
+            else:
+                ll,x = self.plan_inner(nt)
+                cache[nt] = (ll,x)
+            return -ll# + i*10000
+        
+        io = scipy.optimize.fminbound(f, ni,nu, xtol = .1)
+        no = int(io)
+        self.no = no
+        ll,x = cache[no]
+        print no,ll
+        return x 
+
+    def plan(self,model,start,end,just_one=False):
+
+        self.start = start
+        self.end = end
+        self.parse_model(model)        
+        
+        if just_one:
+            lls,x = self.plan_inner(self.no)
+            return x
+            
+        
+        cx = {}
+        cll ={}
+        def f(nn):
+            if cll.has_key(nn):
+                return cll[nn]
+            lls,x = self.plan_inner(nn)
+            cll[nn],cx[nn] = lls.sum(),x
+            return cll[nn]
+        
+        n = self.no
+        
+        for it in range(1):
+            if f(n+1)>f(n-1):
+                d = +1
+            else:
+                d = -1
+            
+            for inc in range(5):
+                df = d*(2**(inc))
+                if f(max(n+2*df,10)) <= f(max(n+df,10)):
+                    break
+            n = max(n+df,10)
+            
+        self.no = n
+
+        return cx[self.no]
 
 def plot_clusters(mdl, n = 100):
         ind = (mdl.al>1.0)
@@ -383,28 +495,27 @@ class MDPtests(unittest.TestCase):
         stop = np.array([0,0])  # should finally be [0,0]
         dt = .01
 
-        planner = Planner(start,stop, dt)
-        planner.parse_model(model)
-        x = planner.plan(2.2) # 5.0
+        planner = Planner(dt, 5.0)
+        x = planner.plan(model,start,stop,just_one=False)
 
-        #plt.scatter(x[:,2],x[:,1], c=x[:,3])  # qdd, qd, q, u
-        #plt.show()
+        plt.scatter(x[:,2],x[:,1], c=x[:,3])  # qdd, qd, q, u
+        plt.show()
 
         
     def test_online_modelling(self):
         
-        np.random.seed(3)
+        np.random.seed(12) # 8,11,12 are interesting
         a = Pendulum()
 
         hvdp = learning.HVDP(Distr(), 
-                w=1e-3, k = 25, tol=1e-2, max_items = 100 )
+                w=.1, k = 25, tol=1e-4, max_items = 1000 )
 
         stop = np.array([0,0])  # should finally be [0,0]
-        dt = .01
+        dt = .05
+        dts = .05
+        planner = Planner(dt,2.5)
 
-
-
-        traj = a.random_traj(1.0)
+        traj = a.random_traj(2.0)
         
         plt.ion()
         for it in range(1000):
@@ -416,26 +527,13 @@ class MDPtests(unittest.TestCase):
 
             plot_clusters(model)
 
-            planner = Planner(start[:2],stop, dt)
-            planner.parse_model(model)
+            x = planner.plan(model,start[:2],stop,)
+            plt.scatter(x[:,2],x[:,1], c=x[:,3],linewidth=0)  # qdd, qd, q, u
+        
 
-            ll = -float('inf')
-            x = None
-            tt = None
-            for t in [.1,.2,.5,.7, 1.0,1.2,1.5,1.7,2.0,2.2,2.5]:
-                x_,ll_ = planner.plan(t) # 5.0
-                if ll_>ll:
-                    ll=ll_
-                    x=x_
-                    tt = t
-            print tt
-                
-
-            plt.scatter(x[:,2],x[:,1], c=x[:,3])  # qdd, qd, q, u
-
-
+            #print x[0,1:3] - start[:2]
             pi = lambda tc,xc: x[int(tc/dt),3]
-            traj = a.sim(start,pi,.05)
+            traj = a.sim(start,pi,dts)
 
             plt.draw()
             

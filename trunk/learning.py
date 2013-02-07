@@ -475,7 +475,7 @@ class HVDP:
     def __init__(self, distr, w=.1, k = 25, tol=1e-3, max_items = 100):
         self.distr = distr
         self.w = w
-        self.wm =w
+        self.wm = w
         self.k = k
         self.tol = tol
         self.max_n = max_items
@@ -519,8 +519,9 @@ class HVDP:
 
     def get_model(self):
 
+        np.random.seed(1)
         proc = VDP(self.distr, self.wm, self.k*(len(self.xs)), self.tol)
-        proc.batch_learn(np.vstack(self.xs))
+        proc.batch_learn(np.vstack(self.xs[::-1]))
         #print proc.al.sum()
         return proc
         
