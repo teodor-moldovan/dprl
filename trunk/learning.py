@@ -5,6 +5,7 @@ import scipy.linalg
 import scipy.special
 import time
 
+#TODO: gradient and hessian information not currently used except for grad log likelihood for the NIW distribution. Consider removing extra info.
 class ExponentialFamilyDistribution:
     """ f(x|nu) = h(x) exp( nu*x - A(nu) )
         h is the base measure

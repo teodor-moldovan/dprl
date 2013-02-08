@@ -6,6 +6,8 @@ import warnings
 import time
 import matplotlib.pyplot as plt
 
+import learning
+
 mosek_env = mosek.Env()
 mosek_env.init()
 
@@ -158,7 +160,7 @@ class PlannerQP:
 
         task.putobjsense(mosek.objsense.minimize)
 
-    def endpoints_constraint(self,xi,xf, x = None):
+    def endpoints_constraint(self,xi,xf,um,uM, x = None):
         task = self.task
 
         task.putboundlist(  mosek.accmode.var,
@@ -203,31 +205,25 @@ class PlannerQP:
         # not general
 
         iu =  self.iv_u
+        um = np.tile(um,self.nt)
+        uM = np.tile(uM,self.nt)
         
         if not x is None:
             task.putboundlist(  mosek.accmode.var,
                 iu, 
                 [mosek.boundkey.ra]*iu.size,
-                -5*np.ones(iu.size) - x.reshape(-1)[iu],
-                 5*np.ones(iu.size) - x.reshape(-1)[iu] )
+                um - x.reshape(-1)[iu],
+                uM - x.reshape(-1)[iu] )
 
         else:
             task.putboundlist(  mosek.accmode.var,
                 iu, 
                 [mosek.boundkey.ra]*iu.size,
-                -5*np.ones(iu.size),5*np.ones(iu.size) )
+                um,uM )
 
         # end hack
 
         return
-
-    def optimize(self, h ):
-
-        task = self.task
-        task.putobjsense(mosek.objsense.minimize)
-        task.putclist(self.iv_ddxdxxu, h.reshape(-1))
-
-        return self.solve()
 
     def solve(self):
 
@@ -275,6 +271,211 @@ class PlannerQP:
         xr = xx.reshape(self.nt, -1)
         return xr
 
+
+
+class Planner:
+    def __init__(self, dt,h_max, nx, nu, um, uM ): 
+        self.um = um
+        self.uM = uM
+        self.dt = dt
+
+        self.dim = 3*nx+nu
+        self.nx = nx
+        self.nu = nu
+        
+        self.ind_dxx = np.arange(nx,nx+2*nx)
+        self.ind_ddx = np.arange(0,nx)
+        self.ind_dxxu = np.arange(nx,nx+2*nx+nu)
+
+        self.tols = 1e-5 
+        self.max_iters = 30
+
+        self.x = None
+        self.no = int(h_max/dt)
+        
+    def niw_slice(self, nu,slc=None, glp = None):
+
+        d = self.dim
+        n = nu.shape[0]
+
+        if (not glp is None) and (slc is None):
+            gr = glp[:,:d]
+            hs = glp[:,d:d*(d+1)].reshape(-1,d,d)
+            bm = glp[:,-2:].sum(1)
+            return (gr,hs,bm)
+            
+
+        slice_distr = learning.GaussianNIW(slc.size)
+
+        l1 = nu[:,:d]
+        l2 = nu[:,d:-2].reshape(-1,d,d)
+        l3 = nu[:,-2:-1]
+        l4 = nu[:,-1:]  # should sub from this one
+        
+        l1 = l1[:,slc]
+        l2 = l2[:,slc,:][:,:,slc]
+        l4 -= slc.size
+        
+        nus = np.hstack([l1,l2.reshape(l2.shape[0],-1), l3, l4])
+        glps = slice_distr.prior.log_partition(nus, [False,True,False])[1]
+        
+        gr = np.zeros((n,d))
+        hs = np.zeros((n,d*d))
+        bm = np.zeros((n))
+
+        ds = slc.size
+        slc_ =(slc[np.newaxis,:] + slc[:,np.newaxis]*d).reshape(-1)
+        
+        gr[:,slc] = glps[:,:ds]
+        hs[:,slc_] = glps[:,ds:ds*(ds+1)]
+        hs = hs.reshape(-1,d,d)
+        bm[:] = glps[:,-2:].sum(1)
+
+        return (gr,hs,bm)
+        
+    def parse_model(self,model):
+
+        self.model = model
+        d = self.dim
+
+        # prior cluster sizes
+        elt = self.model.elt
+
+        # full model
+        gr, hs, bm = self.niw_slice(self.model.tau, None, self.model.glp)
+        gr1, hs1, bm1 = self.niw_slice(self.model.tau, self.ind_dxxu)
+
+        self.gr = gr - gr1
+        self.hs = hs - hs1
+        self.bm = bm - bm1 + elt
+
+        # slice:
+        
+        gr, hs, bm = self.niw_slice(self.model.tau, self.ind_dxx)
+        
+        self.grs = gr
+        self.hss = hs
+        self.bms = bm + elt
+        
+        #done here
+
+
+    def ll(self,x):
+
+        lls = (np.einsum('kij,ni,nj->nk', self.hss,x, x)
+            + np.einsum('ki,ni->nk',self.grs, x)
+            + self.bms[np.newaxis,:]  )
+
+        lls -= lls.max(1)[:,np.newaxis]
+        ps = np.exp(lls)
+        ps /= ps.sum(1)[:,np.newaxis]
+        
+        # exact but about 10 times slower:
+        #ps_ = self.model.resp(x, usual_x=True,slc=self.slc)
+        
+        hsm  = np.einsum('kij,nk->nij',self.hs,ps)            
+        grm  = np.einsum('ki,nk->ni',self.gr,ps)            
+        bmm  = np.einsum('k,nk->n',self.bm,ps)
+
+        llm = (np.einsum('nij,ni,nj->n', hsm,x, x)
+            + np.einsum('ni,ni->n',grm, x)
+            + bmm )
+
+        Q = 2*hsm
+        q = grm + np.einsum('nij,nj->ni',Q,x)
+        
+        return llm,q,Q
+        
+    def plan_inner(self,nt):
+
+        qp = PlannerQP(self.nx,self.nu,nt)
+        qp.dyn_constraint(self.dt)
+        Q = np.zeros((nt,self.dim,self.dim))
+        Q[:,self.ind_ddx,self.ind_ddx] = -1.0
+        q = np.zeros((nt,self.dim))
+
+        qp.endpoints_constraint(self.start,self.end,self.um,self.uM)
+        qp.quad_objective( -q,-Q)
+
+        x = qp.solve()
+
+        lls = None
+
+        #plt.ion()
+        for i in range(self.max_iters):
+
+            ll,q,Q = self.ll(x)             
+            lls_ = ll.sum()
+            if not lls is None:
+                if (abs(lls_-lls) < self.tols*max(abs(lls),abs(lls_))):
+                    break
+            lls = lls_
+
+            #print np.sum(ll), np.min(ll)
+            # should maximize the min ll.
+
+            qp.endpoints_constraint(self.start,self.end, self.um,self.uM,x = x)
+            qp.quad_objective( -q,-Q)
+            dx = qp.solve()
+            
+            def f(a):
+                ll,q,Q = self.ll(x+a*dx)
+                return -ll.sum()
+            a = scipy.optimize.fminbound(f,0.0,1.0,xtol=1e-3)
+            x += a*dx
+            
+            #print lls 
+
+            if False:
+                plt.clf()
+                plt.scatter(x[:,2],x[:,1],c=x[:,3],linewidth=0)  # qdd, qd, q, u
+                self.model.plot_clusters()
+                plt.draw()
+                #x = x_new
+        
+        if i>=self.max_iters:
+            print 'MI reached'
+        return lls_,x
+
+
+    def plan(self,model,start,end,just_one=False):
+
+        self.start = start
+        self.end = end
+        self.parse_model(model)        
+        
+        if just_one:
+            lls,x = self.plan_inner(self.no)
+            return x
+            
+        
+        cx = {}
+        cll ={}
+        def f(nn):
+            if cll.has_key(nn):
+                return cll[nn]
+            lls,x = self.plan_inner(nn)
+            cll[nn],cx[nn] = lls.sum(),x
+            return cll[nn]
+        
+        n = self.no
+        
+        for it in range(1):
+            if f(n+1)>f(n-1):
+                d = +1
+            else:
+                d = -1
+            
+            for inc in range(10):
+                df = d*(2**(inc))
+                if f(max(n+2*df,10)) <= f(max(n+df,10)):
+                    break
+            n = max(n+df,10)
+            
+        self.no = n
+        print n*self.dt
+
+        return cx[self.no]
 
 class PlanningTests(unittest.TestCase):
     def test_min_acc(self):
