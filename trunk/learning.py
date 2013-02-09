@@ -303,6 +303,53 @@ class GaussianNIW(ConjugatePair):
         return (ll,gr,hs)
         
         
+
+    def partition(self, nu,slc=None, glp = None, orig_shape=True):
+        #TODO: write a test for this
+
+        d = self.prior.dim
+        n = nu.shape[0]
+
+        if (not glp is None) and (slc is None):
+            gr = glp[:,:d]
+            hs = glp[:,d:d*(d+1)].reshape(-1,d,d)
+            bm = glp[:,-2:].sum(1)
+            return (gr,hs,bm)
+            
+
+        slice_distr = GaussianNIW(slc.size)
+
+        l1 = nu[:,:d]
+        l2 = nu[:,d:-2].reshape(-1,d,d)
+        l3 = nu[:,-2:-1]
+        l4 = nu[:,-1:]  # should sub from this one
+        
+        l1 = l1[:,slc]
+        l2 = l2[:,slc,:][:,:,slc]
+        l4 -= slc.size
+        
+        nus = np.hstack([l1,l2.reshape(l2.shape[0],-1), l3, l4])
+        glps = slice_distr.prior.log_partition(nus, [False,True,False])[1]
+        
+        if orig_shape:
+            gr = np.zeros((n,d))
+            hs = np.zeros((n,d*d))
+            bm = np.zeros((n))
+
+            ds = slc.size
+            slc_ =(slc[np.newaxis,:] + slc[:,np.newaxis]*d).reshape(-1)
+            
+            gr[:,slc] = glps[:,:ds]
+            hs[:,slc_] = glps[:,ds:ds*(ds+1)]
+            hs = hs.reshape(-1,d,d)
+            bm[:] = glps[:,-2:].sum(1)
+        else:
+            gr = glps[:,:ds]
+            hs = glps[:,ds:ds*(ds+1)].reshape(-1,ds,ds)
+            bm = glps[:,-2:].sum(1)
+
+        return (gr,hs,bm)
+        
 class VDP:
     def __init__(self,distr, w =1, k=50,
                 tol = 1e-5,
@@ -472,7 +519,7 @@ class VDP:
 
         return (ll,gr,hs)
 
-class HVDP:
+class OnlineVDP:
     def __init__(self, distr, w=.1, k = 25, tol=1e-3, max_items = 100):
         self.distr = distr
         self.w = w
@@ -680,50 +727,6 @@ class Tests(unittest.TestCase):
         #prob.log_likelihood(data)
         
 
-    def test_h_vdp(self):
-
-        #np.random.seed(1)
-        
-        x = np.mod(np.linspace(0,2*np.pi*3,1000),2*np.pi)
-        #x = np.random.random(1000)*np.pi*2
-        data = np.vstack((x,np.sin(x),np.cos(x))).T
-        
-        d = data.shape[1]
-
-        if False:
-            prob = VDP(GaussianNIW(d), 
-                    k=40,w=1e-2,tol = 1e-3)
-            x = prob.distr.sufficient_stats(data)
-            prob.batch_learn(x, verbose = False)
-            print prob.cluster_sizes()
-
-
-        data_set = data.reshape(10,data.shape[0]/10,data.shape[1])
-        
-        xs = []
-        for data in data_set:
-            prob = VDP(GaussianNIW(d), 
-                    k=20,w=1e-2,tol = 1e-3)
-            x = prob.distr.sufficient_stats(data)
-            prob.batch_learn(x, verbose = False)
-            print prob.cluster_sizes()
-
-            xc =  prob.tau - prob.lbd[np.newaxis,:]
-            xs.append(xc[xc[:,-1]>1e-6])
-
-        x = np.vstack(xs)
-        prob = VDP(GaussianNIW(d),
-                k=40,w=1e-10,tol = 1e-6)
-        prob.batch_learn(x, verbose = False)
-        print prob.cluster_sizes()
-        
-
-       
-        #np.testing.assert_almost_equal((prob.al-1)[:3], n*np.ones(3))
-        
-        #prob.log_likelihood(data)
-        
-
     def test_ll(self):
 
         np.random.seed(1)
@@ -818,9 +821,9 @@ class Tests(unittest.TestCase):
         ll3 = np.einsum('ki,ni->nk', gr,x) +np.einsum('kij,ni,nj->nk',hs,x,x)
         
 
-    def test_multiproc(self):
+    def test_online_vdp(self):
         
-        hvdp = HVDP(GaussianNIW(3), w=1e-2, k = 20, tol=1e-3, max_items = 100 )
+        hvdp = OnlineVDP(GaussianNIW(3), w=1e-2, k = 20, tol=1e-3, max_items = 100 )
         
         for t in range(1000):
             x = np.mod(np.linspace(0,2*np.pi*3,134),2*np.pi)

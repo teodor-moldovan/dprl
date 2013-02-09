@@ -5,6 +5,7 @@ import scipy.sparse
 import warnings
 import time
 import matplotlib.pyplot as plt
+import scipy.optimize
 
 import learning
 
@@ -293,46 +294,6 @@ class Planner:
         self.x = None
         self.no = int(h_max/dt)
         
-    def niw_slice(self, nu,slc=None, glp = None):
-
-        d = self.dim
-        n = nu.shape[0]
-
-        if (not glp is None) and (slc is None):
-            gr = glp[:,:d]
-            hs = glp[:,d:d*(d+1)].reshape(-1,d,d)
-            bm = glp[:,-2:].sum(1)
-            return (gr,hs,bm)
-            
-
-        slice_distr = learning.GaussianNIW(slc.size)
-
-        l1 = nu[:,:d]
-        l2 = nu[:,d:-2].reshape(-1,d,d)
-        l3 = nu[:,-2:-1]
-        l4 = nu[:,-1:]  # should sub from this one
-        
-        l1 = l1[:,slc]
-        l2 = l2[:,slc,:][:,:,slc]
-        l4 -= slc.size
-        
-        nus = np.hstack([l1,l2.reshape(l2.shape[0],-1), l3, l4])
-        glps = slice_distr.prior.log_partition(nus, [False,True,False])[1]
-        
-        gr = np.zeros((n,d))
-        hs = np.zeros((n,d*d))
-        bm = np.zeros((n))
-
-        ds = slc.size
-        slc_ =(slc[np.newaxis,:] + slc[:,np.newaxis]*d).reshape(-1)
-        
-        gr[:,slc] = glps[:,:ds]
-        hs[:,slc_] = glps[:,ds:ds*(ds+1)]
-        hs = hs.reshape(-1,d,d)
-        bm[:] = glps[:,-2:].sum(1)
-
-        return (gr,hs,bm)
-        
     def parse_model(self,model):
 
         self.model = model
@@ -342,8 +303,8 @@ class Planner:
         elt = self.model.elt
 
         # full model
-        gr, hs, bm = self.niw_slice(self.model.tau, None, self.model.glp)
-        gr1, hs1, bm1 = self.niw_slice(self.model.tau, self.ind_dxxu)
+        gr, hs, bm = model.distr.partition(model.tau, None, model.glp)
+        gr1, hs1, bm1 = model.distr.partition(model.tau, self.ind_dxxu)
 
         self.gr = gr - gr1
         self.hs = hs - hs1
@@ -351,7 +312,7 @@ class Planner:
 
         # slice:
         
-        gr, hs, bm = self.niw_slice(self.model.tau, self.ind_dxx)
+        gr, hs, bm = model.distr.partition(model.tau, self.ind_dxx)
         
         self.grs = gr
         self.hss = hs
