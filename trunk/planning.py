@@ -7,8 +7,6 @@ import time
 import matplotlib.pyplot as plt
 import scipy.optimize
 
-import learning
-
 mosek_env = mosek.Env()
 mosek_env.init()
 
@@ -287,8 +285,9 @@ class Planner:
         self.ind_dxx = np.arange(nx,nx+2*nx)
         self.ind_ddx = np.arange(0,nx)
         self.ind_dxxu = np.arange(nx,nx+2*nx+nu)
+        self.ind_u = np.arange(3*nx,3*nx+nu)
 
-        self.tols = 1e-5 
+        self.tols = 1e-6 
         self.max_iters = 30
 
         self.x = None
@@ -307,8 +306,8 @@ class Planner:
         gr1, hs1, bm1 = model.distr.partition(model.tau, self.ind_dxxu)
 
         self.gr = gr - gr1
-        self.hs = hs - hs1
-        self.bm = bm - bm1 + elt
+        self.hs = hs - hs1 
+        self.bm = bm - bm1#  + elt
 
         # slice:
         
@@ -319,7 +318,6 @@ class Planner:
         self.bms = bm + elt
         
         #done here
-
 
     def ll(self,x):
 
@@ -333,11 +331,11 @@ class Planner:
         
         # exact but about 10 times slower:
         #ps_ = self.model.resp(x, usual_x=True,slc=self.slc)
-        
+
         hsm  = np.einsum('kij,nk->nij',self.hs,ps)            
         grm  = np.einsum('ki,nk->ni',self.gr,ps)            
         bmm  = np.einsum('k,nk->n',self.bm,ps)
-
+        
         llm = (np.einsum('nij,ni,nj->n', hsm,x, x)
             + np.einsum('ni,ni->n',grm, x)
             + bmm )
@@ -351,6 +349,7 @@ class Planner:
 
         qp = PlannerQP(self.nx,self.nu,nt)
         qp.dyn_constraint(self.dt)
+        
         Q = np.zeros((nt,self.dim,self.dim))
         Q[:,self.ind_ddx,self.ind_ddx] = -1.0
         q = np.zeros((nt,self.dim))
@@ -408,11 +407,11 @@ class Planner:
         if just_one:
             lls,x = self.plan_inner(self.no)
             return x
-            
         
         cx = {}
         cll ={}
         def f(nn):
+            nn = max(nn,3)
             if cll.has_key(nn):
                 return cll[nn]
             lls,x = self.plan_inner(nn)
@@ -420,30 +419,33 @@ class Planner:
             return cll[nn]
         
         n = self.no
-        
-        for it in range(1):
+        for it in range(2):
             if f(n+1)>f(n-1):
                 d = +1
             else:
                 d = -1
             
-            for inc in range(10):
+            for inc in range(5):
                 df = d*(2**(inc))
                 if f(max(n+2*df,10)) <= f(max(n+df,10)):
                     break
             n = max(n+df,10)
             
-        self.no = n
-        print n*self.dt
+        #self.no = n
 
-        return cx[self.no]
+        #n = scipy.optimize.fmin(f,self.no,xtol=1.0)[0]
+        #n = int(n)
+        
+        print n*self.dt#,n,self.no
+        self.no=n
+
+        return cx[n]
 
 class PlanningTests(unittest.TestCase):
     def test_min_acc(self):
         
-        h = 2.5 #2.37
-        dt = .001
-        nt = int(h/dt)
+        dt = .1
+        nt = 20
 
         start = np.array([0,np.pi])
         stop = np.array([0.1,0])  # should finally be [0,0]
@@ -454,13 +456,13 @@ class PlanningTests(unittest.TestCase):
         Q[:,0,0] = 1.0
         q = np.zeros((nt,4))
 
-        planner.put_dyn_constraint(dt)
-        planner.put_endpoints_constraint(start,stop)
+        planner.dyn_constraint(dt)
+        planner.endpoints_constraint(start,stop,np.array([-5]),np.array([5]))
 
-        planner.put_min_quad_objective(Q,q)
+        planner.quad_objective(q,Q)
 
         x = planner.solve()
-
+        
         plt.scatter(x[:,2],x[:,1], c=x[:,3])  # qdd, qd, q, u
         plt.show()
 
