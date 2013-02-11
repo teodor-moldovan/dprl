@@ -305,7 +305,7 @@ class GaussianNIW(ConjugatePair):
         
         
 
-    def partition_simple(self, nu,slc=None, glp = None):
+    def partition(self, nu,slc=None, glp = None):
         #TODO: write a test for this
 
         d = self.prior.dim
@@ -334,26 +334,6 @@ class GaussianNIW(ConjugatePair):
         gr = glps[:,:ds]
         hs = glps[:,ds:ds*(ds+1)].reshape(-1,ds,ds)
         bm = glps[:,-2:].sum(1)
-
-        return (gr,hs,bm)
-        
-    def partition(self, nu,slc=None, glp=None):
-        (gro,hso,bm) = self.partition_simple(nu,slc,glp=glp)
-        if slc is None:
-            return (gro,hso,bm)
-            
-        d = self.prior.dim
-        n = nu.shape[0]
-
-        gr = np.zeros((n,d))
-        hs = np.zeros((n,d*d))
-
-        ds = slc.size
-        slc_ =(slc[np.newaxis,:] + slc[:,np.newaxis]*d).reshape(-1)
-        
-        gr[:,slc] = gro
-        hs[:,slc_] = hso.reshape(n,-1)
-        hs = hs.reshape(-1,d,d)
 
         return (gr,hs,bm)
         

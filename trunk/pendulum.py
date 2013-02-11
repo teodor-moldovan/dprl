@@ -154,7 +154,7 @@ class MDPtests(unittest.TestCase):
             
 
 if __name__ == '__main__':
-    single_test = 'test_planning'
+    single_test = 'test_online'
     if hasattr(MDPtests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(MDPtests(single_test))
