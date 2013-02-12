@@ -1,5 +1,5 @@
 import unittest
-from math import sin, cos
+from math import sin, cos, floor
 import numpy as np
 import numpy.random 
 import matplotlib
@@ -74,8 +74,8 @@ class Distr(learning.GaussianNIW):
 
 
 class Planner(planning.Planner):
-    def __init__(self,dt,h_max):        
-        planning.Planner.__init__(self,dt,h_max,
+    def __init__(self,dt,hi,h_max):        
+        planning.Planner.__init__(self,dt,hi,h_max,
                 2,1,np.array([-10]), np.array([+10]))
 
 class ReducedDistr(learning.GaussianNIW):
@@ -93,8 +93,8 @@ class ReducedDistr(learning.GaussianNIW):
         #learning.GaussianNIW.plot(self,nu,szs,slc=np.array([3,5]),**kwargs)
 
 class ReducedPlanner(planning.Planner):
-    def __init__(self,dt,h_max):        
-        planning.Planner.__init__(self,dt,h_max,
+    def __init__(self,dt,hi,h_max):        
+        planning.Planner.__init__(self,dt,hi,h_max,
                 2,1,np.array([-10]), np.array([+10]))
        
         self.ind_dxx = np.array([2,4])
@@ -149,6 +149,60 @@ class Tests(unittest.TestCase):
         
     def test_online(self):
         
+        seed = int(np.random.random()*1000)
+        #seed = 1
+        np.random.seed(seed) 
+        a = CartPole()
+
+        hvdp = learning.OnlineVDP(ReducedDistr(), 
+                w=.01, k = 30, tol=1e-4, max_items = 1000 )
+
+        stop =  np.array([0,0,0,0])
+        dt = .01
+        dts = .01
+
+        planner = ReducedPlanner(dt,.8,3.0)
+        traj = a.random_traj(.8, control_freq = 100)
+        
+        fl = open('./pickles/cartpole_online_'+str(seed)+'.pkl','wb') 
+        #plt.ion()
+
+        nss = 0
+        for it in range(10000):
+            plt.clf()
+            #plt.xlim([-.5*np.pi, 2*np.pi])
+            #plt.ylim([-10, 6])
+
+            ss = hvdp.distr.sufficient_stats(traj)
+            hvdp.put(ss[:-1,:]) 
+            model = hvdp.get_model()
+            #model.plot_clusters()
+
+
+            start = traj[-1,2:6]
+            start[2] =  np.mod(start[2] + 2*np.pi,4*np.pi)-2*np.pi
+
+            if np.linalg.norm(start-stop) < .1:
+                nss += 1
+                if nss>50:
+                    break
+        
+            x,ll,cst, t = planner.plan(model,start,stop)
+            print t, ll,cst
+
+            #a.plot(x,linewidth=0)
+
+            #print x[0,2:6] - start
+            pi = lambda tc,xc: x[int(floor(tc/dt)),6]
+            traj = a.sim(start,pi,dts)
+
+            cPickle.dump((None,traj,None,ll,cst,t ),fl)
+
+            #plt.draw()
+            
+
+    def test_online_hotstart(self):
+        
         np.random.seed(1) 
         a = CartPole()
 
@@ -159,11 +213,17 @@ class Tests(unittest.TestCase):
         dt = .01
         dts = .01
 
-        planner = ReducedPlanner(dt,.5)
-        traj = a.random_traj(.8, control_freq = 100)
-        
+        planner = ReducedPlanner(dt,.8)
+
+        fl = open('./pickles/cartpole_online_models.pkl','rb') 
+        while True:
+            try:
+                hvdp,traj,x,ll,cst,t = cPickle.load(fl)
+            except:
+                break
+
         plt.ion()
-        for it in range(1000):
+        for it in range(10000):
             plt.clf()
             #plt.xlim([-.5*np.pi, 2*np.pi])
             #plt.ylim([-10, 6])
@@ -173,15 +233,19 @@ class Tests(unittest.TestCase):
             model = hvdp.get_model()
             model.plot_clusters()
 
+
             start = traj[-1,2:6]
             start[2] =  np.mod(start[2] + 2*np.pi,4*np.pi)-2*np.pi
-        
-            x = planner.plan(model,start,stop)
 
+        
+            x,ll,cst, t = planner.plan(model,start,stop)
+            print t, ll,cst
+
+            #cPickle.dump((model,x,ll,cst,t ),models_file)
             a.plot(x,linewidth=0)
 
             #print x[0,2:6] - start
-            pi = lambda tc,xc: x[int(tc/dt),6]
+            pi = lambda tc,xc: x[int(floor(tc/dt)),6]
             traj = a.sim(start,pi,dts)
 
             plt.draw()

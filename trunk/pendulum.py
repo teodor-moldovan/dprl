@@ -39,7 +39,7 @@ class Pendulum(simulation.Simulation):
 
     def plot_traj(self,traj):
         data = traj[:,:4]
-        data[:,2] =  np.mod(data[:,2] + np.pi,4*np.pi)-np.pi
+        data[:,2] =  np.mod(data[:,2] + 2*np.pi,4*np.pi)-2*np.pi
         plt.plot(data[:,2],data[:,1],'.',alpha=.1)
 
 class Distr(learning.GaussianNIW):
@@ -47,15 +47,15 @@ class Distr(learning.GaussianNIW):
         learning.GaussianNIW.__init__(self,4)
     def sufficient_stats(self,traj):
         data = traj.copy()
-        data[:,2] =  np.mod(data[:,2] + np.pi,4*np.pi)-np.pi
+        data[:,2] =  np.mod(data[:,2] + 2*np.pi,4*np.pi)-2*np.pi
         return learning.GaussianNIW.sufficient_stats(self,data)
         
     def plot(self, nu, szs, **kwargs):
         learning.GaussianNIW.plot(self,nu,szs,slc=np.array([1,2]),**kwargs)
 
 class Planner(planning.Planner):
-    def __init__(self,dt,h_max):        
-        planning.Planner.__init__(self,dt,h_max,
+    def __init__(self,dt,hi,h_max):        
+        planning.Planner.__init__(self,dt,hi,h_max,
                 1,1,np.array([-5]), np.array([+5]))
 
 
@@ -112,20 +112,25 @@ class MDPtests(unittest.TestCase):
         
     def test_online(self):
         
-        np.random.seed(12) # 8,11,12 are interesting
+        seed = int(np.random.random()*1000)
+
+        np.random.seed(seed) # 11,12 works
         a = Pendulum()
 
         hvdp = learning.OnlineVDP(Distr(), 
-                w=.01, k = 25, tol=1e-4, max_items = 1000 )
+                w=.01, k = 30, tol=1e-4, max_items = 1000 )
 
         stop = np.array([0,0])  # should finally be [0,0]
         dt = .05
         dts = .05
-        planner = Planner(dt,1.8)
+        planner = Planner(dt,2.0,4.0)
 
         traj = a.random_traj(2.0, control_freq = 5.0)
+
+        fl = open('./pickles/pendulum_online_'+str(seed)+'.pkl','wb') 
         
-        plt.ion()
+        #plt.ion()
+        nss = 0
         for it in range(1000):
             plt.clf()
             #plt.xlim([-.5*np.pi, 2*np.pi])
@@ -135,20 +140,28 @@ class MDPtests(unittest.TestCase):
             hvdp.put(ss[1:,:])
             model = hvdp.get_model()
 
-            model.plot_clusters()
+            #model.plot_clusters()
 
             start = ss[-1,1:3]
-            x = planner.plan(model,start,stop,)
+            if np.linalg.norm(start-stop) < .1:
+                nss += 1
+                if nss>50:
+                    break
+
+            x,ll,cst, t  = planner.plan(model,start,stop,)
+            print t,ll
 
             if False:
                 x[:,3] += 2*np.random.random(x.shape[0])
                 x[:,3] = np.maximum(-5.0,np.minimum(5.0,x[:,3]))
 
-            plt.scatter(x[:,2],x[:,1], c=x[:,3],linewidth=0)  # qdd, qd, q, u
+            #plt.scatter(x[:,2],x[:,1], c=x[:,3],linewidth=0)  # qdd, qd, q, u
 
             #print x[0,1:3] - start[:2]
             pi = lambda tc,xc: np.interp(tc, dt*np.arange(x.shape[0]), x[:,3] )
             traj = a.sim(start,pi,dts)
+
+            cPickle.dump((None,traj,None,ll,cst,t ),fl)
 
             plt.draw()
             

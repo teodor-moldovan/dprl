@@ -318,7 +318,7 @@ class PlannerQP:
 
 
 class Planner:
-    def __init__(self, dt,h_max, nx, nu, um, uM ): 
+    def __init__(self, dt,h_init,h_max, nx, nu, um, uM ): 
         self.um = um
         self.uM = uM
         self.dt = dt
@@ -342,7 +342,8 @@ class Planner:
         self.max_iters = 1000
 
         self.x = None
-        self.no = int(h_max/dt)
+        self.no = int(h_init/dt)
+        self.h_max = h_max
         
     def partition(self, model,slc, slcd, glp=None):
         
@@ -550,16 +551,23 @@ class Planner:
         if just_one:
             lls,x = self.plan_inner(self.no)
             return x
+
+        nM = int(self.h_max/self.dt)
+        nm = 3
         
         cx = {}
         cll ={}
         def f(nn):
-            nn = max(nn,3)
+            nn = min(max(nn,nm),nM)
             if cll.has_key(nn):
                 return cll[nn]
             lls,x = self.plan_inner(nn)
             cll[nn],cx[nn] = lls.sum(),x
-            return cll[nn]
+            if cll[nn]<0:
+                return cll[nn]
+            else:
+                print 'Here'
+                return -(cll[nn])
         
         n = self.no
         for it in range(3):
@@ -573,17 +581,11 @@ class Planner:
                 if f(n+2*df) <= f(n+df):
                     break
             n = n+df
-            
-        #self.no = n
 
-        #n = scipy.optimize.fmin(f,self.no,xtol=1.0)[0]
-        #n = int(n)
-        
-        print f(n)
-        print n*self.dt#,n,self.no
-        self.no=n
+        n_ = min(max(n,nm),nM)
+        self.no=n_
 
-        return cx[n]
+        return cx[n_], cll[n_], f(n),  n_*self.dt
 
 class PlanningTests(unittest.TestCase):
     def test_min_acc(self):
