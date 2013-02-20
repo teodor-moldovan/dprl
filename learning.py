@@ -3,6 +3,7 @@ import math
 import numpy as np
 import scipy.linalg
 import scipy.special
+import matplotlib.pyplot as plt
 import time
 
 #TODO: gradient and hessian information not currently used except for grad log likelihood for the NIW distribution. Consider removing extra info.
@@ -223,7 +224,7 @@ class GaussianNIW(ConjugatePair):
         ConjugatePair.__init__(self,
             Gaussian(d),
             NIW(d),
-            np.concatenate([np.zeros(d*d + d), np.array([0, 2*d+1+2])])
+            np.concatenate([np.zeros(d*d + d), np.array([0, 2*d+1])])
             )
     def sufficient_stats(self,data):
         x = self.evidence.sufficient_stats(data)
@@ -304,11 +305,10 @@ class GaussianNIW(ConjugatePair):
         
         
 
-    def partition(self, nu,slc=None, glp = None, orig_shape=True):
+    def partition(self, nu,slc=None, glp = None):
         #TODO: write a test for this
 
         d = self.prior.dim
-        n = nu.shape[0]
 
         if (not glp is None) and (slc is None):
             gr = glp[:,:d]
@@ -316,8 +316,8 @@ class GaussianNIW(ConjugatePair):
             bm = glp[:,-2:].sum(1)
             return (gr,hs,bm)
             
-
-        slice_distr = GaussianNIW(slc.size)
+        ds = slc.size
+        slice_distr = GaussianNIW(ds)
 
         l1 = nu[:,:d]
         l2 = nu[:,d:-2].reshape(-1,d,d)
@@ -326,30 +326,40 @@ class GaussianNIW(ConjugatePair):
         
         l1 = l1[:,slc]
         l2 = l2[:,slc,:][:,:,slc]
-        l4 -= slc.size
+        l4 = l4 - 2*(d-ds)
         
         nus = np.hstack([l1,l2.reshape(l2.shape[0],-1), l3, l4])
         glps = slice_distr.prior.log_partition(nus, [False,True,False])[1]
         
-        if orig_shape:
-            gr = np.zeros((n,d))
-            hs = np.zeros((n,d*d))
-            bm = np.zeros((n))
-
-            ds = slc.size
-            slc_ =(slc[np.newaxis,:] + slc[:,np.newaxis]*d).reshape(-1)
-            
-            gr[:,slc] = glps[:,:ds]
-            hs[:,slc_] = glps[:,ds:ds*(ds+1)]
-            hs = hs.reshape(-1,d,d)
-            bm[:] = glps[:,-2:].sum(1)
-        else:
-            gr = glps[:,:ds]
-            hs = glps[:,ds:ds*(ds+1)].reshape(-1,ds,ds)
-            bm = glps[:,-2:].sum(1)
+        gr = glps[:,:ds]
+        hs = glps[:,ds:ds*(ds+1)].reshape(-1,ds,ds)
+        bm = glps[:,-2:].sum(1)
 
         return (gr,hs,bm)
         
+    def plot(self, nu, szs, slc,n = 100,):
+
+        nuE = self.prior.nat2usual(nu[szs>0,:])
+        d = self.prior.dim
+        mus, Sgs, k, nu = nuE
+
+        # plot the mode of the distribution
+        Sgs/=(k + slc.size  + 1)[:,np.newaxis,np.newaxis]
+        
+        szs /= szs.sum()
+         
+        for mu, Sg,sz in zip(mus[:,slc],Sgs[:,slc,:][:,:,slc],szs):
+
+            w,V = np.linalg.eig(Sg)
+            V =  np.array(np.matrix(V)*np.matrix(np.diag(np.sqrt(w))))
+
+            sn = np.sin(np.linspace(0,2*np.pi,n))
+            cs = np.cos(np.linspace(0,2*np.pi,n))
+            
+            x = V[:,1]*cs[:,np.newaxis] + V[:,0]*sn[:,np.newaxis]
+            x += mu
+            plt.plot(x[:,1],x[:,0],linewidth=sz*10)
+
 class VDP:
     def __init__(self,distr, w =1, k=50,
                 tol = 1e-5,
@@ -518,6 +528,10 @@ class VDP:
         hs -= hs_
 
         return (ll,gr,hs)
+
+    def plot_clusters(self,**kwargs):
+        sz = self.cluster_sizes()
+        self.distr.plot(self.tau, sz, **kwargs)
 
 class OnlineVDP:
     def __init__(self, distr, w=.1, k = 25, tol=1e-3, max_items = 100):
@@ -835,7 +849,7 @@ class Tests(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    single_test = 'test_multiproc'
+    single_test = 'test_niw'
     if hasattr(Tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(Tests(single_test))
