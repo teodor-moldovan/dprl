@@ -37,10 +37,10 @@ class Pendulum(simulation.Simulation):
         return np.array([th_dd])
 
 
-    def plot_traj(self,traj):
+    def plot_traj(self,traj,**kwargs):
         data = traj[:,:4]
         data[:,2] =  np.mod(data[:,2] + 2*np.pi,4*np.pi)-2*np.pi
-        plt.plot(data[:,2],data[:,1],'.',alpha=.1)
+        plt.scatter(data[:,2],data[:,1],c=data[:,3],**kwargs)
 
 class Distr(learning.GaussianNIW):
     def __init__(self):
@@ -106,6 +106,7 @@ class MDPtests(unittest.TestCase):
         planner = Planner(dt, 2.0)
         x = planner.plan(model,start,stop,just_one=False)
 
+        
         plt.scatter(x[:,2],x[:,1], c=x[:,3])  # qdd, qd, q, u
         plt.show()
 
@@ -123,7 +124,7 @@ class MDPtests(unittest.TestCase):
         stop = np.array([0,0])  # should finally be [0,0]
         dt = .05
         dts = .05
-        planner = Planner(dt,2.0,4.0)
+        planner = Planner(dt,2.0,3.0)
 
         traj = a.random_traj(2.0, control_freq = 5.0)
 
@@ -131,8 +132,8 @@ class MDPtests(unittest.TestCase):
         
         #plt.ion()
         nss = 0
-        for it in range(1000):
-            plt.clf()
+        for it in range(10000):
+            #plt.clf()
             #plt.xlim([-.5*np.pi, 2*np.pi])
             #plt.ylim([-10, 6])
 
@@ -163,7 +164,7 @@ class MDPtests(unittest.TestCase):
 
             cPickle.dump((None,traj,None,ll,cst,t ),fl)
 
-            plt.draw()
+            #plt.draw()
             
 
 if __name__ == '__main__':
