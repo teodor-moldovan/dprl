@@ -3,7 +3,7 @@ from math import sin, cos, floor
 import numpy as np
 import numpy.random 
 import matplotlib
-matplotlib.use('pdf')
+#matplotlib.use('pdf')
 import matplotlib.pyplot as plt
 import cPickle
 
@@ -76,8 +76,8 @@ class Distr(learning.GaussianNIW):
 
 
 class Planner(planning.Planner):
-    def __init__(self,dt,hi,h_max):        
-        planning.Planner.__init__(self,dt,hi,h_max,
+    def __init__(self,dt,hi):        
+        planning.Planner.__init__(self,dt,hi,
                 2,1,np.array([-10]), np.array([+10]))
 
 class ReducedDistr(learning.GaussianNIW):
@@ -95,10 +95,9 @@ class ReducedDistr(learning.GaussianNIW):
         #learning.GaussianNIW.plot(self,nu,szs,slc=np.array([3,5]),**kwargs)
 
 class ReducedPlanner(planning.Planner):
-    def __init__(self,dt,hi,h_max,stop_ranges):        
-        planning.Planner.__init__(self,dt,hi,h_max,
-                2,1,np.array([-10]), np.array([+10]),
-                stop_ranges)
+    def __init__(self,dt,hi):        
+        planning.Planner.__init__(self,dt,hi,
+                2,1,np.array([-10]), np.array([+10]))
        
         self.ind_dxx = np.array([2,4])
         self.ind_dxxu = np.array([2,4,6])
@@ -372,74 +371,55 @@ class Tests(unittest.TestCase):
     def test_online2(self):
         
         seed = int(np.random.random()*1000)
-        #seed = 65 # 32
+        seed = 32 # 32
         np.random.seed(seed) 
         a = CartPole()
 
         hvdp = learning.OnlineVDP(ReducedDistr(), 
-                w=.001, k = 80, tol=1e-4, max_items = 1000 )
+                w=.01, k = 80, tol=1e-4, max_items = 1000 )
 
         stop =  np.array([0,0,0,0])
-        stop_ranges =  np.array([
-                        [0,0,0,0], 
-                        ]
-                    )
         dt = .01
         dts = .01
 
-        planner = ReducedPlanner(dt,.8,4.0,stop_ranges) # should be 3.0
+        planner = ReducedPlanner(dt,.4) # should be 3.0
         traj = a.random_traj(2, control_freq = 50)
         
-        if False:
-            fl = open('./pickles/src.pkl','rb') 
-            cnt = 0
-            while True:
-                try:
-                    hvdp,traj,x,ll,cst,t = cPickle.load(fl)
-                    if cnt>1330:#>730:
-                        break
-                    cnt+=1
-                except:
-                    break
-
-
-        fl = open('./pickles/restarts/cartpole_online_'+str(seed)+'.pkl','wb') 
-        #plt.ion()
+        #fl = open('./pickles/restarts/cartpole_online_'+str(seed)+'.pkl','wb') 
+        plt.ion()
 
         nss = 0
         for it in range(10000):
-            #plt.clf()
-            #plt.xlim([-.5*np.pi, 2*np.pi])
-            #plt.ylim([-10, 6])
+            plt.clf()
+            plt.xlim([-.5*np.pi, 2*np.pi])
+            plt.ylim([-10, 6])
 
             ss = hvdp.distr.sufficient_stats(traj)
             hvdp.put(ss[:-1,:]) 
-            model = hvdp.get_model()
-            #model.plot_clusters()
-            
-            if it % 200 == 0:
-                start = a.x0
-            else:
-                start = traj[-1,2:6]
-                start[2] =  np.mod(start[2] + 2*np.pi,4*np.pi)-2*np.pi
 
+            start = traj[-1,2:6]
+            start[2] =  np.mod(start[2] + 2*np.pi,4*np.pi)-2*np.pi
+
+            model = hvdp.get_model()
+            model.plot_clusters()
+            
             if np.linalg.norm(start-stop) < .1:
                 nss += 1
                 if nss>50:
                     break 
-            x,ll,cst, t = planner.plan(model,start,stop)
-            print t, ll,cst
 
-            #a.plot(x,linewidth=0)
+            x = planner.plan(model,start,stop)
+
+            a.plot(x,linewidth=0)
 
             #print x[0,2:6] - start
             pi = lambda tc,xc: np.interp(tc, dt*np.arange(x.shape[0]), x[:,6])
             traj = a.sim(start,pi,dts)
+            
             #print  traj[0,[4,5]], x[0,[4,5]]
+            #cPickle.dump((None,traj,None,ll,cst,t ),fl)
 
-            cPickle.dump((None,traj,None,ll,cst,t ),fl)
-
-            #plt.draw()
+            plt.draw()
             
 
 if __name__ == '__main__':

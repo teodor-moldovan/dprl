@@ -202,11 +202,10 @@ class PlannerQP:
                             ind_c, 
                             [mosek.boundkey.up]*ind_c.size, 
                             -b,-b)
-
         return 
 
 
-    def endpoints_constraint(self,xi,xf,um,uM, stop_range=None,x = None):
+    def endpoints_constraint(self,xi,xf,um,uM,x = None):
         task = self.task
 
         task.putboundlist(  mosek.accmode.var,
@@ -264,30 +263,13 @@ class PlannerQP:
                 [mosek.boundkey.ra]*iu.size,
                 um,uM )
 
-        # hack
-        # not general
-        if not stop_range is None:
-
-
-            if not x is None:
-                iu = self.iv_last_dxx
-                ls = stop_range
-
-                task.putboundlist(  mosek.accmode.var,
-                        iu, 
-                        [mosek.boundkey.ra]*iu.size,
-                        -ls - x.reshape(-1)[iu],
-                         ls - x.reshape(-1)[iu] )
-
-            # end hack
-
         return
 
     def solve(self):
 
         task = self.task
 
-        #task.putintparam(mosek.iparam.intpnt_scaling,mosek.scalingtype.none);
+        task.putintparam(mosek.iparam.intpnt_scaling,mosek.scalingtype.none);
 
         # solve
 
@@ -333,7 +315,7 @@ class PlannerQP:
 
 
 class Planner:
-    def __init__(self, dt,h_init,h_max, nx, nu, um, uM,stop_ranges ): 
+    def __init__(self, dt,h_init, nx, nu, um, uM): 
         self.um = um
         self.uM = uM
         self.dt = dt
@@ -353,34 +335,37 @@ class Planner:
         self.ind_ddx = np.arange(0,nx)
         self.ind_u = np.arange(3*nx,3*nx+nu)
 
-        self.tols = .01 
+        self.tols = 1e-7 
         self.max_iters = 1000
 
         self.x = None
         self.no = int(h_init/dt)
-        self.nM = int(h_max/dt)
+        self.noo=self.no
         
-        self.stop_ranges=stop_ranges
-
-        
-    def partition(self, model,slc, slcd, glp=None):
-        
-        (gro,hso,bm) = model.distr.partition(model.tau,slcd,glp=glp)
-        if slc is None:
-            return (gro,hso,bm)
-            
+    def partition(self, model,slc, slcd, ci_mode=False):
+         
         d = self.dim
         n = model.tau.shape[0]
+
+        if model.distr.prior.dim==slcd.size:
+            glp = model.glp
+        else:
+            glp = model.distr.partition(model.tau,slcd)
 
         gr = np.zeros((n,d))
         hs = np.zeros((n,d*d))
 
-        ds = slc.size
         slc_ =(slc[np.newaxis,:] + slc[:,np.newaxis]*d).reshape(-1)
         
-        gr[:,slc] = gro
-        hs[:,slc_] = hso.reshape(n,-1)
+        gr[:,slc] = glp[:,:slcd.size]
+        hs[:,slc_] = glp[:,slcd.size:-2]
         hs = hs.reshape(-1,d,d)
+
+
+        if ci_mode:
+            bm = glp[:,-2] 
+        else:
+            bm = glp[:,-2:].sum(1) 
 
         return (gr,hs,bm)
         
@@ -395,18 +380,27 @@ class Planner:
         # full model
         gr, hs, bm = self.partition(model, self.ind_ddxdxxu,
                                            self.dind_ddxdxxu,
-                                     model.glp)
+                                    ci_mode=True)
         gr1, hs1, bm1 = self.partition(model, self.ind_dxxu,
-                                         self.dind_dxxu)
-
+                                         self.dind_dxxu,
+                                    ci_mode=True)
         self.gr = gr - gr1
         self.hs = hs - hs1 
         self.bm = bm - bm1#  + elt
+        
+        def psd_fix(m):
+            w,v = np.linalg.eig(m)
+            v = np.real(v)
+            w = np.real(w)
+            w[w>0] = 0 #-1e-10
+            return np.dot(v*w,v.T)
 
+        self.hs = np.array(map(psd_fix,self.hs))
+            
         # slice:
         
-        gr2, hs2, bm2 = self.partition(model, self.ind_dxxu,
-                         self.dind_dxxu)
+        gr2, hs2, bm2 = self.partition(model, self.ind_dxx,
+                         self.dind_dxx)
         
         self.grs = gr2
         self.hss = hs2
@@ -433,12 +427,15 @@ class Planner:
         
         llm = (np.einsum('nij,ni,nj->n', hsm,x, x)
             + np.einsum('ni,ni->n',grm, x)
-            + bmm )
-
-        Q = 2*hsm
-        q = grm + np.einsum('nij,nj->ni',Q,x)
+            + bmm)
         
-        return llm,q,Q
+        hsm =2*hsm
+        grm = grm + np.einsum('nij,nj->ni',hsm,x)
+        
+        r = llm.max()/(llm.max()-llm.min())
+        if r>0 and True:
+            print "ll not PSD ", r
+        return llm,grm,hsm
         
     def plan_inner_sum(self,nt):
 
@@ -470,11 +467,8 @@ class Planner:
                     break
             lls = lls_
 
-            #print np.sum(ll), np.min(ll)
-            # should maximize the min ll.
-
             qp.endpoints_constraint(self.start,self.end, 
-                    self.um,self.uM,self.stop_range,x = x)
+                    self.um,self.uM,x = x)
 
             #qp.min_quad_objective(-ll,-q,-Q)
             qp.quad_objective(-q,-Q)
@@ -485,12 +479,11 @@ class Planner:
                     ll__,q__,Q__ = self.ll(x+a*dx)
                     return -ll__.sum()
                 a = scipy.optimize.golden(f,brack=[0.0,1.0],tol=1e-3)
+                a = min(max(0.0,a),1.0)
                 x += a*dx
             else:
                 x += dx
-                
             #print lls#,a
-
         
             if False:
                 plt.ion()
@@ -499,11 +492,11 @@ class Planner:
                 #self.model.plot_clusters()
                 plt.draw()
                 #x = x_new
-        
+
         if i>=self.max_iters-1:
             print 'MI reached'
 
-        return -np.abs(-ll.sum()),x
+        return lls_,x
 
 
     def plan_inner_min(self,nt):
@@ -527,31 +520,37 @@ class Planner:
         for i in range(self.max_iters):
 
             ll,q,Q = self.ll(x)             
+            
+            # psd fix
+
             lls_ = ll.min()
             if not lls is None:
                 if (abs(lls_-lls) < self.tols*max(abs(lls_),abs(lls))):
                     break
             lls = lls_
 
+            #plt.plot(ll)
+            #plt.show()
+
             #print np.sum(ll), np.min(ll)
             # should maximize the min ll.
 
             qp.endpoints_constraint(self.start,self.end, 
-                    self.um,self.uM,self.stop_range,x = x)
+                    self.um,self.uM,x = x)
+
             qp.min_quad_objective(-ll,-q,-Q)
-            #qp.quad_objective(-q,-Q)
             dx = qp.solve()
             
             if True:
                 def f(a):
                     ll,q,Q = self.ll(x+a*dx)
                     return -ll.min()
-                a = scipy.optimize.golden(f,brack=[0.0,1.0],tol=1e-3)
+                a = scipy.optimize.golden(f,brack=[0.0,1.0],tol=1e-1)
+                a = min(max(a,0.0),1.0)
                 x += a*dx
             else:
                 x += dx
                 
-        
             if False:
                 plt.ion()
                 plt.clf()
@@ -564,7 +563,7 @@ class Planner:
             print 'MI reached'
 
         
-        return -abs(-ll.sum()),x
+        return lls,x
 
 
     plan_inner = plan_inner_sum
@@ -574,38 +573,30 @@ class Planner:
         self.end = end
         self.parse_model(model)        
         
-        df = start-end
-        self.stop_range = self.stop_ranges[0]
-        for sr in self.stop_ranges:
-            if np.all(np.logical_and((df<sr),(df>-sr))):
-                self.stop_range = sr
-
         if just_one:
             lls,x = self.plan_inner(self.no)
+            print lls
             return x
 
-        nM = self.nM
         nm = 3
         
         cx = {}
         cll ={}
         def f(nn):
-            nn = min(max(nn,nm),nM)
+            nn = max(nn,nm)
             if not cll.has_key(nn):
-                try:
-                    lls,x = self.plan_inner(nn)
-                except:# MyException:
-                    lls = -float('inf')
-                    x = None
-                cll[nn],cx[nn] = lls,x
+                lls,x = self.plan_inner(nn)
+                tmp = lls
+                #if nn>70:
+                tmp -= nn
+                cll[nn],cx[nn] = tmp,x
             return cll[nn]
-            #if cll[nn]<0:
-            #    return cll[nn]
-            #else:
-            #    print 'Here'
-            #    return -(cll[nn])
         
+        
+        if f(self.noo) > f(self.no):
+            self.no = self.noo 
         n = self.no
+
         for it in range(10):
             if f(n+1)>f(n):
                 d = +1
@@ -619,11 +610,12 @@ class Planner:
                     break
             n = n+df
 
-        n_ = min(max(n,nm),nM)
-        self.no = n_
+        n_ = max(n,nm)
+        print n_,cll[n_]
+        self.no = n_-1
         #self.x = cx[n_]
 
-        return cx[n_], cll[n_], f(n),  n_*self.dt
+        return cx[n_] #, cll[n_], f(n),  n_*self.dt
 
 class PlanningTests(unittest.TestCase):
     def test_min_acc(self):

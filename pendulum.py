@@ -54,8 +54,8 @@ class Distr(learning.GaussianNIW):
         learning.GaussianNIW.plot(self,nu,szs,slc=np.array([1,2]),**kwargs)
 
 class Planner(planning.Planner):
-    def __init__(self,dt,hi,h_max):        
-        planning.Planner.__init__(self,dt,hi,h_max,
+    def __init__(self,dt,hi):        
+        planning.Planner.__init__(self,dt,hi,
                 1,1,np.array([-5]), np.array([+5]))
 
 
@@ -76,7 +76,7 @@ class MDPtests(unittest.TestCase):
         x = prob.distr.sufficient_stats(traj)
         prob.batch_learn(x, verbose = True)
 
-        cPickle.dump(prob,open('./pickles/batch_vdp.pkl','w'))
+        cPickle.dump(prob,open('./pickles/pendulum/batch_vdp.pkl','w'))
         prob.plot_clusters()
         plt.show()
         
@@ -97,15 +97,14 @@ class MDPtests(unittest.TestCase):
         
 
     def test_planning(self):
-        model = cPickle.load(open('./pickles/batch_vdp.pkl','r'))
+        model = cPickle.load(open('./pickles/pendulum/batch_vdp.pkl','r'))
 
         start = np.array([0,np.pi])
         stop = np.array([0,0])  # should finally be [0,0]
         dt = .01
 
-        planner = Planner(dt, 2.0)
+        planner = Planner(dt, 3.0)
         x = planner.plan(model,start,stop,just_one=False)
-
         
         plt.scatter(x[:,2],x[:,1], c=x[:,3])  # qdd, qd, q, u
         plt.show()
@@ -116,24 +115,25 @@ class MDPtests(unittest.TestCase):
         seed = int(np.random.random()*1000)
 
         np.random.seed(seed) # 11,12 works
+        np.random.seed(5) # 11,12 works
         a = Pendulum()
 
         hvdp = learning.OnlineVDP(Distr(), 
-                w=.01, k = 30, tol=1e-4, max_items = 1000 )
+                w=.1, k = 30, tol=1e-4, max_items = 1000 )
 
         stop = np.array([0,0])  # should finally be [0,0]
         dt = .05
         dts = .05
-        planner = Planner(dt,2.0,3.0)
+        planner = Planner(dt,2.3)
 
         traj = a.random_traj(2.0, control_freq = 5.0)
 
-        fl = open('./pickles/pendulum_online_'+str(seed)+'.pkl','wb') 
+        #fl = open('./pickles/pendulum_online_'+str(seed)+'.pkl','wb') 
         
-        #plt.ion()
+        plt.ion()
         nss = 0
         for it in range(10000):
-            #plt.clf()
+            plt.clf()
             #plt.xlim([-.5*np.pi, 2*np.pi])
             #plt.ylim([-10, 6])
 
@@ -141,7 +141,7 @@ class MDPtests(unittest.TestCase):
             hvdp.put(ss[1:,:])
             model = hvdp.get_model()
 
-            #model.plot_clusters()
+            model.plot_clusters()
 
             start = ss[-1,1:3]
             if np.linalg.norm(start-stop) < .1:
@@ -149,22 +149,22 @@ class MDPtests(unittest.TestCase):
                 if nss>50:
                     break
 
-            x,ll,cst, t  = planner.plan(model,start,stop,)
-            print t,ll
+            x  = planner.plan(model,start,stop)
+            #print t,ll
 
             if False:
                 x[:,3] += 2*np.random.random(x.shape[0])
                 x[:,3] = np.maximum(-5.0,np.minimum(5.0,x[:,3]))
 
-            #plt.scatter(x[:,2],x[:,1], c=x[:,3],linewidth=0)  # qdd, qd, q, u
+            plt.scatter(x[:,2],x[:,1], c=x[:,3],linewidth=0)  # qdd, qd, q, u
 
             #print x[0,1:3] - start[:2]
             pi = lambda tc,xc: np.interp(tc, dt*np.arange(x.shape[0]), x[:,3] )
             traj = a.sim(start,pi,dts)
 
-            cPickle.dump((None,traj,None,ll,cst,t ),fl)
+            #cPickle.dump((None,traj,None,ll,cst,t ),fl)
 
-            #plt.draw()
+            plt.draw()
             
 
 if __name__ == '__main__':

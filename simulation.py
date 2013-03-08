@@ -8,8 +8,8 @@ class Simulation:
         nx = self.nx
         nu = self.nu
 
-        t += 1.0/self.sample_freq
-        ts = np.linspace(0,t,t*self.sample_freq)
+        n = t*self.sample_freq+1
+        ts = np.arange(n)/self.sample_freq
         
         x = np.zeros((ts.size, 3*nx + nu))
        
@@ -17,7 +17,7 @@ class Simulation:
 
         x[:,nx:nx+2*nx] = scipy.integrate.odeint(f,x0, ts,)
 
-        for t,i in zip(ts, np.arange(0,t*self.sample_freq)):
+        for t,i in zip(ts, np.arange(n)):
             x[i,3*nx:] = pi(t,x[i,nx:nx+2*nx])
             x[i,0:nx] = self.f(x[i,nx:nx+2*nx], x[i,3*nx:]).reshape(-1)
 

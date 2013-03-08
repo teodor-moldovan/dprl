@@ -20,6 +20,7 @@ class ExponentialFamilyDistribution:
     def log_partition(self,nu, ret_ll_gr_hs = [True,False,False] ):
         pass
 
+    #TODO: derivatives not implemented. Consider removing
     def ll(self,xs,nus,ret_ll_gr_hs = [True,False,False]  ):
         return ((np.einsum('ci,di->dc',nus,xs) 
             + self.log_base_measure(xs)[0]
@@ -30,9 +31,10 @@ class Gaussian(ExponentialFamilyDistribution):
     """Multivariate Gaussian distribution
     """
     def __init__(self,d):
-        self.conjugate_prior = NIW(d)
         self.dim = d
         self.lbm = math.log(2*np.pi)* (-d/2.0)
+        self.inv = np.linalg.inv
+        self.slogdet = np.linalg.slogdet
 
     def sufficient_stats(self,x):
         tmp = (x[:,np.newaxis,:]*x[:,:,np.newaxis]).reshape(x.shape[0],-1)
@@ -43,7 +45,7 @@ class Gaussian(ExponentialFamilyDistribution):
     def log_base_measure(self,x,ret_ll_gr_hs = [True,True,True]):
         return (self.lbm, 0.0,0.0)
     def usual2nat(self,mus, Sgs):
-        nu2 = np.array(map(np.linalg.inv,Sgs))
+        nu2 = np.array(map(self.inv,Sgs))
         nu1 = np.einsum('nij,nj->ni',nu2,mus)
         nu = np.hstack((nu1,-.5*nu2.reshape(nu2.shape[0],-1)))
         return nu
@@ -52,7 +54,7 @@ class Gaussian(ExponentialFamilyDistribution):
         d = self.dim
         nu1 = nus[:,:d]
         nu2 = nus[:,d:].reshape((-1,d,d))        
-        Sgs = np.array(map(np.linalg.inv,-2.0*nu2))
+        Sgs = np.array(map(self.inv,-2.0*nu2))
         mus = np.einsum('nij,nj->ni',Sgs,nu1)
         return mus,Sgs
     def log_partition(self,nus):
@@ -61,10 +63,12 @@ class Gaussian(ExponentialFamilyDistribution):
         d = self.dim 
         nu1 = nus[:,:d]
         nu2 = nus[:,d:].reshape((-1,d,d))        
-        inv = np.array(map(np.linalg.inv,nu2))
+        inv = np.array(map(self.inv,nu2))
         t1 = -.25* np.einsum('ti,tij,tj->t',nu1,inv,nu1)
-        t2 = -.5*np.array(map(np.linalg.slogdet,-2*nu2))[:,1]
+        t2 = -.5*np.array(map(self.slogdet,-2*nu2))[:,1]
         return (t1+t2,)
+
+
 
 class NIW(ExponentialFamilyDistribution):
     """ Normal Inverse Wishart distribution defined by
@@ -305,17 +309,12 @@ class GaussianNIW(ConjugatePair):
         
         
 
-    def partition(self, nu,slc=None, glp = None):
+    # todo: remove:
+    def partition(self, nu,slc):
         #TODO: write a test for this
 
         d = self.prior.dim
 
-        if (not glp is None) and (slc is None):
-            gr = glp[:,:d]
-            hs = glp[:,d:d*(d+1)].reshape(-1,d,d)
-            bm = glp[:,-2:].sum(1)
-            return (gr,hs,bm)
-            
         ds = slc.size
         slice_distr = GaussianNIW(ds)
 
@@ -323,19 +322,15 @@ class GaussianNIW(ConjugatePair):
         l2 = nu[:,d:-2].reshape(-1,d,d)
         l3 = nu[:,-2:-1]
         l4 = nu[:,-1:]  # should sub from this one
-        
+
         l1 = l1[:,slc]
         l2 = l2[:,slc,:][:,:,slc]
-        l4 = l4 - 2*(d-ds)
+        l4 = l4 - (d-ds)
         
         nus = np.hstack([l1,l2.reshape(l2.shape[0],-1), l3, l4])
         glps = slice_distr.prior.log_partition(nus, [False,True,False])[1]
-        
-        gr = glps[:,:ds]
-        hs = glps[:,ds:ds*(ds+1)].reshape(-1,ds,ds)
-        bm = glps[:,-2:].sum(1)
 
-        return (gr,hs,bm)
+        return glps
         
     def plot(self, nu, szs, slc,n = 100,):
 
@@ -592,7 +587,7 @@ class OnlineVDP:
 class Tests(unittest.TestCase):
     #TODO: hessians not tested
     def test_gaussian(self):
-        k = 2
+        k = 4
         d = Gaussian(k)
 
         mus = np.random.sample((10,k))
@@ -617,9 +612,8 @@ class Tests(unittest.TestCase):
                 -.5* ((mu-x)*scipy.linalg.solve(Sg,(mu-x))).sum()  )
         self.assertAlmostEqual(ll, lls[0,0])
         
-
     def test_niw(self):
-        p = 2
+        p = 3
         d = NIW(p)
 
         mus = np.random.randn(100,p)
@@ -640,6 +634,15 @@ class Tests(unittest.TestCase):
         np.testing.assert_array_almost_equal(Psi_,Psi)
         np.testing.assert_array_almost_equal(k_,k)
         np.testing.assert_array_almost_equal(nu_,nu)
+
+
+        jac = d.log_partition(nus,
+                [False,True,False])[1]
+        eSgi = -2*jac[:,p:p*(p+1)].reshape(-1,p,p)
+        Psii = np.array(map(np.linalg.inv, Psi))
+        eSgi_ = Psii*(nu)[:,np.newaxis,np.newaxis]
+        
+        np.testing.assert_array_almost_equal(eSgi,eSgi_)
             
         lls = d.ll(x,nus)[0]
         
@@ -685,7 +688,6 @@ class Tests(unittest.TestCase):
         nu = p - 1 + k
         
         nus = d.prior.usual2nat(mu0,Psi,k,nu)
-        print nus.shape
 
         ll, gr, hs= ConjugatePair.posterior_ll(d,x,nus,
                     [True,True,False],usual_x=True)
@@ -846,7 +848,6 @@ class Tests(unittest.TestCase):
             hvdp.put(hvdp.distr.sufficient_stats(data))
             hvdp.get_model()
             print time.time()-t1
-
 
 if __name__ == '__main__':
     single_test = 'test_niw'
