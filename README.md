@@ -4,5 +4,4 @@
 # Other approaches to look into
 http://www.playfulmachines.com/
 
-# References
 [Blei2006]: http://projecteuclid.org/euclid.ba/1340371077 "Blei, David M., and Michael I. Jordan. 2006. Variational Inference for Dirichlet Process Mixtures."
