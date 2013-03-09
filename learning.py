@@ -356,9 +356,17 @@ class GaussianNIW(ConjugatePair):
             plt.plot(x[:,1],x[:,0],linewidth=sz*10)
 
 class VDP:
-    def __init__(self,distr, w =1, k=50,
+    """ Variational Dirichlet Process clustering algorithm."""
+    def __init__(self,distr, w = .1, k=50,
                 tol = 1e-5,
                 max_iters = 10000):
+        """
+        Args:
+            distr -- likelihood-prior distribution pair governing clusters
+            w -- positive prior weight. The prior has as much influence as w data points.
+            k -- the maximum number of clusters.
+            tol -- convergence tolerance
+        """
         
         self.max_iters = max_iters
         self.tol = tol
@@ -733,14 +741,14 @@ class Tests(unittest.TestCase):
         data = np.vstack([ gen_data(A,mu,n=n) for A,mu in zip(As,mus)])
         d = data.shape[1]
             
-        prob = VDP(GaussianNIW(d), k=100,w=0.1)
+        prob = VDP(GaussianNIW(d), k=50,w=.4)
         x = prob.distr.sufficient_stats(data)
         prob.batch_learn(x, verbose = False)
         
-        #np.testing.assert_almost_equal((prob.al-1)[:3], n*np.ones(3))
+        np.testing.assert_almost_equal((prob.al-1)[:3], n*np.ones(3))
         
-        #print prob.al-1
-        #prob.log_likelihood(data)
+        # Log likelihood of training data under model
+        print prob.ll(x)[0].sum()
         
 
     def test_ll(self):
@@ -850,7 +858,7 @@ class Tests(unittest.TestCase):
             print time.time()-t1
 
 if __name__ == '__main__':
-    single_test = 'test_niw'
+    single_test = 'test_batch_vdp'
     if hasattr(Tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(Tests(single_test))
