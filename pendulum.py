@@ -103,8 +103,8 @@ class MDPtests(unittest.TestCase):
         stop = np.array([0,0])  # should finally be [0,0]
         dt = .01
 
-        planner = Planner(dt, 3.0)
-        x = planner.plan(model,start,stop,just_one=False)
+        planner = Planner(dt, 4.1)
+        x = planner.plan(model,start,stop,just_one=True)
         
         plt.scatter(x[:,2],x[:,1], c=x[:,3])  # qdd, qd, q, u
         plt.show()
@@ -168,7 +168,7 @@ class MDPtests(unittest.TestCase):
             
 
 if __name__ == '__main__':
-    single_test = 'test_online'
+    single_test = 'test_planning'
     if hasattr(MDPtests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(MDPtests(single_test))

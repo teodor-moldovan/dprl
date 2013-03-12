@@ -269,7 +269,8 @@ class PlannerQP:
 
         task = self.task
 
-        task.putintparam(mosek.iparam.intpnt_scaling,mosek.scalingtype.none);
+        # task.putintparam(mosek.iparam.intpnt_scaling,mosek.scalingtype.none);
+        task.putdouparam(mosek.dparam.check_convexity_rel_tol,1e-5);
 
         # solve
 
@@ -282,7 +283,7 @@ class PlannerQP:
                 task._Task__progress_cb=None
                 task._Task__stream_cb=None
                 print solsta, prosta
-                raise MyException
+                #raise MyException
 
         t0 = time.time()
         solve_b()
@@ -342,15 +343,14 @@ class Planner:
         self.no = int(h_init/dt)
         self.noo=self.no
         
-    def partition(self, model,slc, slcd, ci_mode=False):
+    def partition(self, tau,distr,slc, slcd, ci_mode=False):
          
         d = self.dim
-        n = model.tau.shape[0]
+        n = tau.shape[0]
 
-        if model.distr.prior.dim==slcd.size:
-            glp = model.glp
-        else:
-            glp = model.distr.partition(model.tau,slcd)
+        slice_distr,nus = distr.partition(tau,slcd)
+        glp = slice_distr.prior.log_partition(nus, [False,True,False],
+                no_k_grad=ci_mode)[1]
 
         gr = np.zeros((n,d))
         hs = np.zeros((n,d*d))
@@ -377,29 +377,7 @@ class Planner:
         # prior cluster sizes
         elt = self.model.elt
 
-        # full model
-        gr, hs, bm = self.partition(model, self.ind_ddxdxxu,
-                                           self.dind_ddxdxxu,
-                                    ci_mode=True)
-        gr1, hs1, bm1 = self.partition(model, self.ind_dxxu,
-                                         self.dind_dxxu,
-                                    ci_mode=True)
-        self.gr = gr - gr1
-        self.hs = hs - hs1 
-        self.bm = bm - bm1#  + elt
-        
-        def psd_fix(m):
-            w,v = np.linalg.eig(m)
-            v = np.real(v)
-            w = np.real(w)
-            w[w>0] = 0 #-1e-10
-            return np.dot(v*w,v.T)
-
-        self.hs = np.array(map(psd_fix,self.hs))
-            
-        # slice:
-        
-        gr2, hs2, bm2 = self.partition(model, self.ind_dxx,
+        gr2, hs2, bm2 = self.partition(model.tau,model.distr, self.ind_dxx,
                          self.dind_dxx)
         
         self.grs = gr2
@@ -408,7 +386,74 @@ class Planner:
         
         #done here
 
-    def ll(self,x):
+    def parse_model_old(self,model):
+
+        self.model = model
+        d = self.dim
+
+        # prior cluster sizes
+        elt = self.model.elt
+
+        # full model
+        gr, hs, bm = self.partition(model.tau,model.distr, self.ind_ddxdxxu,
+                                           self.dind_ddxdxxu,
+                                    ci_mode=True)
+        gr1, hs1, bm1 = self.partition(model.tau,model.distr, self.ind_dxxu,
+                                         self.dind_dxxu,
+                                    ci_mode=True)
+        self.gr = gr - gr1
+        self.hs = hs - hs1 
+        self.bm = bm - bm1#  + elt
+        
+        # slice:
+        
+        gr2, hs2, bm2 = self.partition(model.tau,model.distr, self.ind_dxx,
+                         self.dind_dxx)
+        
+        self.grs = gr2
+        self.hss = hs2
+        self.bms = bm2 + elt
+        
+        #done here
+
+    def ll_true(self,x):
+
+        lls = (np.einsum('kij,ni,nj->nk', self.hss,x, x)
+            + np.einsum('ki,ni->nk',self.grs, x)
+            + self.bms[np.newaxis,:]  )
+
+        lls -= lls.max(1)[:,np.newaxis]
+        ps = np.exp(lls)
+        ps /= ps.sum(1)[:,np.newaxis]
+        
+        # exact but about 10 times slower:
+        #ps_ = self.model.resp(x, usual_x=True,slc=self.slc)
+        
+        tau = np.einsum('nk,ki->ni',ps,self.model.tau)
+
+        gr, hs, bm = self.partition(tau,self.model.distr, self.ind_ddxdxxu,
+                                           self.dind_ddxdxxu,
+                                    ci_mode=True)
+        gr1, hs1, bm1 = self.partition(tau,self.model.distr, self.ind_dxxu,
+                                         self.dind_dxxu,
+                                    ci_mode=True)
+        grm = gr - gr1
+        hsm = hs - hs1 
+        bmm = bm - bm1#  + elt
+        
+        llm = (np.einsum('nij,ni,nj->n', hsm,x, x)
+            + np.einsum('ni,ni->n',grm, x)
+            + bmm)
+        
+        hsm =2*hsm
+        grm = grm + np.einsum('nij,nj->ni',hsm,x)
+        
+        r = llm.max()/(llm.max()-llm.min())
+        if r>0 and True:
+            print "ll not PSD ", r
+        return llm,grm,hsm
+        
+    def ll_fast(self,x):
 
         lls = (np.einsum('kij,ni,nj->nk', self.hss,x, x)
             + np.einsum('ki,ni->nk',self.grs, x)
@@ -545,7 +590,7 @@ class Planner:
                 def f(a):
                     ll,q,Q = self.ll(x+a*dx)
                     return -ll.min()
-                a = scipy.optimize.golden(f,brack=[0.0,1.0],tol=1e-1)
+                a = scipy.optimize.golden(f,brack=[0.0,1.0],tol=1e-3)
                 a = min(max(a,0.0),1.0)
                 x += a*dx
             else:
@@ -567,6 +612,7 @@ class Planner:
 
 
     plan_inner = plan_inner_sum
+    ll = ll_true
     def plan(self,model,start,end,just_one=False):
 
         self.start = start
@@ -587,7 +633,6 @@ class Planner:
             if not cll.has_key(nn):
                 lls,x = self.plan_inner(nn)
                 tmp = lls
-                #if nn>70:
                 tmp -= nn
                 cll[nn],cx[nn] = tmp,x
             return cll[nn]
@@ -612,7 +657,7 @@ class Planner:
 
         n_ = max(n,nm)
         print n_,cll[n_]
-        self.no = n_-1
+        self.no = n_
         #self.x = cx[n_]
 
         return cx[n_] #, cll[n_], f(n),  n_*self.dt

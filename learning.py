@@ -85,7 +85,8 @@ class NIW(ExponentialFamilyDistribution):
 
     def log_base_measure(self,x,ret_ll_gr_hs = [True,True,True]):
         return (self.lbm, 0.0,0.0)
-    def log_partition(self,nu, ret_ll_gr_hs= [True,False,False] ):
+    def log_partition(self,nu, ret_ll_gr_hs= [True,False,False],
+                no_k_grad=False ):
         
         # todo: implement hessian
         rt = ret_ll_gr_hs
@@ -103,7 +104,8 @@ class NIW(ExponentialFamilyDistribution):
         psi = (l2 - 
             l1[:,:,np.newaxis]*l1[:,np.newaxis,:]/l3[:,np.newaxis,np.newaxis])
 
-        ld = np.array(map(np.linalg.slogdet,psi))[:,1]
+        if not no_k_grad:
+            ld = np.array(map(np.linalg.slogdet,psi))[:,1]
 
         if rt[0]:
             if not nu.size==1:
@@ -122,8 +124,12 @@ class NIW(ExponentialFamilyDistribution):
             g3 = ( -.5 * d/l3
                 - .5/l3 * (g1*l1).sum(1)  )[:,np.newaxis]
 
-            g4 = ( + .5 *d*np.log(2) - .5*ld + .5*self.multipsi(.5*nu,d)
-                 )[:,np.newaxis]
+            if not no_k_grad:
+                g4 = ( + .5 *d*np.log(2) - .5*ld + .5*self.multipsi(.5*nu,d)
+                     )[:,np.newaxis]
+            else:
+                g4 = np.zeros((nu.shape[0],1))
+                
 
             gr = np.hstack((g1,g2,g3,g4))
 
@@ -325,12 +331,11 @@ class GaussianNIW(ConjugatePair):
 
         l1 = l1[:,slc]
         l2 = l2[:,slc,:][:,:,slc]
-        l4 = l4 - (d-ds)
+        l4 = l4 - (d-ds) #TODO: either *2 or *1. not sure which
         
         nus = np.hstack([l1,l2.reshape(l2.shape[0],-1), l3, l4])
-        glps = slice_distr.prior.log_partition(nus, [False,True,False])[1]
 
-        return glps
+        return slice_distr,nus
         
     def plot(self, nu, szs, slc,n = 100,):
 

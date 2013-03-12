@@ -371,7 +371,7 @@ class Tests(unittest.TestCase):
     def test_online2(self):
         
         seed = int(np.random.random()*1000)
-        seed = 32 # 32
+        #seed = 34 # works: 32
         np.random.seed(seed) 
         a = CartPole()
 
@@ -380,19 +380,19 @@ class Tests(unittest.TestCase):
 
         stop =  np.array([0,0,0,0])
         dt = .01
-        dts = .01
+        dts = .1
 
         planner = ReducedPlanner(dt,.4) # should be 3.0
         traj = a.random_traj(2, control_freq = 50)
         
-        #fl = open('./pickles/restarts/cartpole_online_'+str(seed)+'.pkl','wb') 
-        plt.ion()
+        fl = open('./pickles/cartpole/online_'+str(seed)+'.pkl','wb') 
+        #plt.ion()
 
         nss = 0
         for it in range(10000):
-            plt.clf()
-            plt.xlim([-.5*np.pi, 2*np.pi])
-            plt.ylim([-10, 6])
+            #plt.clf()
+            #plt.xlim([-.5*np.pi, 2*np.pi])
+            #plt.ylim([-10, 6])
 
             ss = hvdp.distr.sufficient_stats(traj)
             hvdp.put(ss[:-1,:]) 
@@ -401,7 +401,7 @@ class Tests(unittest.TestCase):
             start[2] =  np.mod(start[2] + 2*np.pi,4*np.pi)-2*np.pi
 
             model = hvdp.get_model()
-            model.plot_clusters()
+            #model.plot_clusters()
             
             if np.linalg.norm(start-stop) < .1:
                 nss += 1
@@ -410,14 +410,14 @@ class Tests(unittest.TestCase):
 
             x = planner.plan(model,start,stop)
 
-            a.plot(x,linewidth=0)
+            #a.plot(x,linewidth=0)
 
             #print x[0,2:6] - start
             pi = lambda tc,xc: np.interp(tc, dt*np.arange(x.shape[0]), x[:,6])
-            traj = a.sim(start,pi,dts)
+            traj = a.sim(start,pi,.2*x.shape[0]*dt)
             
             #print  traj[0,[4,5]], x[0,[4,5]]
-            #cPickle.dump((None,traj,None,ll,cst,t ),fl)
+            cPickle.dump((None,traj,None,None,None,None ),fl)
 
             plt.draw()
             
