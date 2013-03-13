@@ -633,7 +633,7 @@ class Planner:
             if not cll.has_key(nn):
                 lls,x = self.plan_inner(nn)
                 tmp = lls
-                tmp -= nn
+                #tmp -= nn
                 cll[nn],cx[nn] = tmp,x
             return cll[nn]
         

@@ -380,7 +380,7 @@ class Tests(unittest.TestCase):
 
         stop =  np.array([0,0,0,0])
         dt = .01
-        dts = .1
+        dts = .01
 
         planner = ReducedPlanner(dt,.4) # should be 3.0
         traj = a.random_traj(2, control_freq = 50)
@@ -414,12 +414,12 @@ class Tests(unittest.TestCase):
 
             #print x[0,2:6] - start
             pi = lambda tc,xc: np.interp(tc, dt*np.arange(x.shape[0]), x[:,6])
-            traj = a.sim(start,pi,.2*x.shape[0]*dt)
+            traj = a.sim(start,pi,dts)
             
             #print  traj[0,[4,5]], x[0,[4,5]]
             cPickle.dump((None,traj,None,None,None,None ),fl)
 
-            plt.draw()
+            #plt.draw()
             
 
 if __name__ == '__main__':
