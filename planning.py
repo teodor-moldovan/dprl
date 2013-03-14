@@ -336,7 +336,7 @@ class Planner:
         self.ind_ddx = np.arange(0,nx)
         self.ind_u = np.arange(3*nx,3*nx+nu)
 
-        self.tols = 1e-7 
+        self.tols = 1e-5 
         self.max_iters = 1000
 
         self.x = None
@@ -500,17 +500,18 @@ class Planner:
         else:
             x = self.x
 
-        lls = None
+        ll = None
 
         #plt.ion()
         for i in range(self.max_iters):
 
-            ll,q,Q = self.ll(x)             
-            lls_ = ll.sum()
-            if not lls is None:
-                if (abs(lls_-lls) < self.tols*max(abs(lls_),abs(lls))):
+            ll_,q,Q = self.ll(x)             
+            if not ll is None:
+                if np.all(np.abs(ll_-ll) < self.tols*np.maximum(
+                            np.abs(ll_),
+                            np.abs(ll)) ):
                     break
-            lls = lls_
+            ll = ll_
 
             qp.endpoints_constraint(self.start,self.end, 
                     self.um,self.uM,x = x)
@@ -541,9 +542,10 @@ class Planner:
         if i>=self.max_iters-1:
             print 'MI reached'
 
-        return lls_,x
+        return ll_,x
 
 
+    #TODO no longer analogous to sum version.
     def plan_inner_min(self,nt):
 
         qp = PlannerQP(self.nx,self.nu,nt)
@@ -631,8 +633,8 @@ class Planner:
         def f(nn):
             nn = max(nn,nm)
             if not cll.has_key(nn):
-                lls,x = self.plan_inner(nn)
-                tmp = lls
+                ll,x = self.plan_inner(nn)
+                tmp = ll.sum()
                 #tmp -= nn
                 cll[nn],cx[nn] = tmp,x
             return cll[nn]
