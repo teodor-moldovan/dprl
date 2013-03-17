@@ -76,7 +76,7 @@ class MDPtests(unittest.TestCase):
         x = prob.distr.sufficient_stats(traj)
         prob.batch_learn(x, verbose = True)
 
-        cPickle.dump(prob,open('./pickles/pendulum/batch_vdp.pkl','w'))
+        cPickle.dump(prob,open('../data/pendulum/batch_vdp.pkl','w'))
         prob.plot_clusters()
         plt.show()
         
@@ -97,7 +97,7 @@ class MDPtests(unittest.TestCase):
         
 
     def test_planning(self):
-        model = cPickle.load(open('./pickles/pendulum/batch_vdp.pkl','r'))
+        model = cPickle.load(open('../data/pendulum/batch_vdp.pkl','r'))
 
         start = np.array([0,np.pi])
         stop = np.array([0,0])  # should finally be [0,0]

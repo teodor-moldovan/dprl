@@ -95,53 +95,6 @@ class PlannerQP:
 
 
         return
-    # should remove
-    def l2_ball_constraint(self,l):
-        task = self.task
-        iv = self.iv_ddxdxxu
-        ind_c = self.ic_ball_constraint
-        
-        
-        task.putqconk(ind_c, iv,iv, 2*np.ones(iv.size))
-        
-        ub = l
-
-        task.putboundlist(  mosek.accmode.con,
-                [ind_c], 
-                [mosek.boundkey.up],
-                [ub],[ub] )
-        return 
-
-    # should remove
-    def lQ_ball_constraint(self,Q,l):
-        task = self.task
-        iv = self.iv_ddxdxxu
-        ind_c = self.ic_ball_constraint
-        
-        nv = 3*self.nx+self.nu
-        nt = self.nt
-
-        i,j = np.meshgrid(np.arange(nv), np.arange(nv))
-        i =  i[np.newaxis,...] + nv*np.arange(nt)[:,np.newaxis,np.newaxis]
-        j =  j[np.newaxis,...] + nv*np.arange(nt)[:,np.newaxis,np.newaxis]
-
-        i = i.reshape(-1)
-        j = j.reshape(-1)
-        d = Q.reshape(-1)
-        ind = (i>=j)
-       
-        task.putqconk(ind_c, i[ind],j[ind], 2*d[ind])
-        
-        ub = l
-
-        task.putboundlist(  mosek.accmode.con,
-                [ind_c], 
-                [mosek.boundkey.up],
-                [ub],[ub] )
-
-        return 
-
-
     def quad_objective(self,c,Q):
         task = self.task
         iv = self.iv_ddxdxxu
@@ -328,16 +281,17 @@ class Planner:
         self.ind_dxx = np.arange(nx,nx+2*nx)
         self.ind_dxxu = np.arange(nx,nx+2*nx+nu)
         self.ind_ddxdxxu = np.arange(3*nx+nu)
+        self.ind_ddx = np.arange(0,nx)
 
         self.dind_dxx = self.ind_dxx
         self.dind_dxxu = self.ind_dxxu
         self.dind_ddxdxxu = self.ind_ddxdxxu
+        self.dind_ddx = self.ind_ddx
 
-        self.ind_ddx = np.arange(0,nx)
         self.ind_u = np.arange(3*nx,3*nx+nu)
 
-        self.tols = 1e-5 
-        self.max_iters = 1000
+        self.tols = 1e-6
+        self.max_iters = 100
 
         self.x = None
         self.no = int(h_init/dt)
@@ -374,6 +328,10 @@ class Planner:
         self.model = model
         d = self.dim
 
+        Prj = np.zeros((self.dind_ddxdxxu.size, d))
+        Prj[self.dind_ddxdxxu,self.ind_ddxdxxu] = 1
+
+
         # prior cluster sizes
         elt = self.model.elt
 
@@ -384,102 +342,55 @@ class Planner:
         self.hss = hs2
         self.bms = bm2 + elt
         
+
+        # conditionals
+
+        mu,Psi,n,nu = model.distr.prior.nat2usual(model.tau)
+
+        i2 = self.dind_dxxu
+        i1 = self.dind_ddx
+
+        A,B,D = Psi[:,i1,:][:,:,i1], Psi[:,i1,:][:,:,i2], Psi[:,i2,:][:,:,i2]
+
+        Di = np.array(map(np.linalg.inv,D))
+        Li = A-np.einsum('nij,njk,nlk->nil',B,Di,B)
+        
+        cf = nu*n/(n+1)
+        L = cf[:,np.newaxis,np.newaxis]*np.array(map(np.linalg.inv,Li))
+        P = np.einsum('njk,nkl->njl',B,Di)
+        
+        P = np.insert(P,np.zeros(i1.size),np.zeros(i1.size),axis=2)
+        P = np.eye(P.shape[1],P.shape[2])[np.newaxis,:,:]-P
+        P = np.einsum('nij,jk->nik',P,Prj)
+        mu = np.einsum('nj,jk->nk',mu,Prj)
+
+        self.mu = mu
+        self.P = P       
+        self.L = L        
+
         #done here
 
-    def parse_model_old(self,model):
-
-        self.model = model
-        d = self.dim
-
-        # prior cluster sizes
-        elt = self.model.elt
-
-        # full model
-        gr, hs, bm = self.partition(model.tau,model.distr, self.ind_ddxdxxu,
-                                           self.dind_ddxdxxu,
-                                    ci_mode=True)
-        gr1, hs1, bm1 = self.partition(model.tau,model.distr, self.ind_dxxu,
-                                         self.dind_dxxu,
-                                    ci_mode=True)
-        self.gr = gr - gr1
-        self.hs = hs - hs1 
-        self.bm = bm - bm1#  + elt
+    def ll(self,x):
         
-        # slice:
-        
-        gr2, hs2, bm2 = self.partition(model.tau,model.distr, self.ind_dxx,
-                         self.dind_dxx)
-        
-        self.grs = gr2
-        self.hss = hs2
-        self.bms = bm2 + elt
-        
-        #done here
-
-    def ll_true(self,x):
-
-        lls = (np.einsum('kij,ni,nj->nk', self.hss,x, x)
-            + np.einsum('ki,ni->nk',self.grs, x)
-            + self.bms[np.newaxis,:]  )
+        lls = ( np.einsum('nkj,nj->nk', np.einsum('ni,kij->nkj', x,self.hss),x )
+                + np.einsum('ki,ni->nk',self.grs, x)
+                + self.bms[np.newaxis,:]  )
 
         lls -= lls.max(1)[:,np.newaxis]
         ps = np.exp(lls)
         ps /= ps.sum(1)[:,np.newaxis]
         
-        # exact but about 10 times slower:
-        #ps_ = self.model.resp(x, usual_x=True,slc=self.slc)
-        
-        tau = np.einsum('nk,ki->ni',ps,self.model.tau)
 
-        gr, hs, bm = self.partition(tau,self.model.distr, self.ind_ddxdxxu,
-                                           self.dind_ddxdxxu,
-                                    ci_mode=True)
-        gr1, hs1, bm1 = self.partition(tau,self.model.distr, self.ind_dxxu,
-                                         self.dind_dxxu,
-                                    ci_mode=True)
-        grm = gr - gr1
-        hsm = hs - hs1 
-        bmm = bm - bm1#  + elt
+        mu  = np.einsum('ki,nk->ni',self.mu,ps)            
+        P  = np.einsum('kij,nk->nij',self.P,ps)            
+        L  = -np.einsum('kij,nk->nij',self.L,ps)
         
-        llm = (np.einsum('nij,ni,nj->n', hsm,x, x)
-            + np.einsum('ni,ni->n',grm, x)
-            + bmm)
-        
-        hsm =2*hsm
-        grm = grm + np.einsum('nij,nj->ni',hsm,x)
-        
-        r = llm.max()/(llm.max()-llm.min())
-        if r>0 and True:
-            print "ll not PSD ", r
-        return llm,grm,hsm
-        
-    def ll_fast(self,x):
+        rs = np.einsum('nij,nj->ni', P,x-mu)
+        llm = np.einsum('kj,kj->k', np.einsum('ki,kij->kj', rs,L),rs )
 
-        lls = (np.einsum('kij,ni,nj->nk', self.hss,x, x)
-            + np.einsum('ki,ni->nk',self.grs, x)
-            + self.bms[np.newaxis,:]  )
-
-        lls -= lls.max(1)[:,np.newaxis]
-        ps = np.exp(lls)
-        ps /= ps.sum(1)[:,np.newaxis]
+        grm = 2*np.einsum('nik,nk->ni', np.einsum('nji,njk->nik',P,L),rs)
+        hsm = 2*np.einsum('nik,nkl->nil', np.einsum('nji,njk->nik',P,L),P)
         
-        # exact but about 10 times slower:
-        #ps_ = self.model.resp(x, usual_x=True,slc=self.slc)
-
-        hsm  = np.einsum('kij,nk->nij',self.hs,ps)            
-        grm  = np.einsum('ki,nk->ni',self.gr,ps)            
-        bmm  = np.einsum('k,nk->n',self.bm,ps)
-        
-        llm = (np.einsum('nij,ni,nj->n', hsm,x, x)
-            + np.einsum('ni,ni->n',grm, x)
-            + bmm)
-        
-        hsm =2*hsm
-        grm = grm + np.einsum('nij,nj->ni',hsm,x)
-        
-        r = llm.max()/(llm.max()-llm.min())
-        if r>0 and True:
-            print "ll not PSD ", r
         return llm,grm,hsm
         
     def plan_inner_sum(self,nt):
@@ -500,18 +411,18 @@ class Planner:
         else:
             x = self.x
 
-        ll = None
+        lls = None
 
         #plt.ion()
         for i in range(self.max_iters):
 
             ll_,q,Q = self.ll(x)             
-            if not ll is None:
-                if np.all(np.abs(ll_-ll) < self.tols*np.maximum(
-                            np.abs(ll_),
-                            np.abs(ll)) ):
+
+            lls_ = ll_.sum()
+            if not lls is None:
+                if (abs(lls_-lls) < self.tols*max(1,0*abs(lls_),0*abs(lls))):
                     break
-            ll = ll_
+            lls = lls_
 
             qp.endpoints_constraint(self.start,self.end, 
                     self.um,self.uM,x = x)
@@ -524,8 +435,7 @@ class Planner:
                 def f(a):
                     ll__,q__,Q__ = self.ll(x+a*dx)
                     return -ll__.sum()
-                a = scipy.optimize.golden(f,brack=[0.0,1.0],tol=1e-3)
-                a = min(max(0.0,a),1.0)
+                a = scipy.optimize.fminbound(f,0.0,1.0,xtol=1e-8)
                 x += a*dx
             else:
                 x += dx
@@ -542,10 +452,9 @@ class Planner:
         if i>=self.max_iters-1:
             print 'MI reached'
 
-        return ll_,x
+        return lls,x
 
 
-    #TODO no longer analogous to sum version.
     def plan_inner_min(self,nt):
 
         qp = PlannerQP(self.nx,self.nu,nt)
@@ -614,7 +523,6 @@ class Planner:
 
 
     plan_inner = plan_inner_sum
-    ll = ll_true
     def plan(self,model,start,end,just_one=False):
 
         self.start = start
@@ -623,7 +531,6 @@ class Planner:
         
         if just_one:
             lls,x = self.plan_inner(self.no)
-            print lls
             return x
 
         nm = 3
@@ -634,8 +541,8 @@ class Planner:
             nn = max(nn,nm)
             if not cll.has_key(nn):
                 ll,x = self.plan_inner(nn)
-                tmp = ll.sum()
-                #tmp -= nn
+                tmp = ll
+                tmp -= 1e-1*nn
                 cll[nn],cx[nn] = tmp,x
             return cll[nn]
         

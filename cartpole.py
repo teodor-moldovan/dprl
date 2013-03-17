@@ -371,7 +371,7 @@ class Tests(unittest.TestCase):
     def test_online2(self):
         
         seed = int(np.random.random()*1000)
-        #seed = 34 # works: 32
+        #seed = 45 # works: 32, 40
         np.random.seed(seed) 
         a = CartPole()
 
@@ -384,15 +384,16 @@ class Tests(unittest.TestCase):
 
         planner = ReducedPlanner(dt,.4) # should be 3.0
         traj = a.random_traj(2, control_freq = 50)
+        print traj[-1,2:6]
         
-        fl = open('./pickles/cartpole/online_'+str(seed)+'.pkl','wb') 
+        fl = open('../data/cartpole/online_'+str(seed)+'.pkl','wb') 
         #plt.ion()
 
         nss = 0
         for it in range(10000):
-            #plt.clf()
-            #plt.xlim([-.5*np.pi, 2*np.pi])
-            #plt.ylim([-10, 6])
+            plt.clf()
+            plt.xlim([-.5*np.pi, 2*np.pi])
+            plt.ylim([-10, 6])
 
             ss = hvdp.distr.sufficient_stats(traj)
             hvdp.put(ss[:-1,:]) 
