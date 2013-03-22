@@ -18,8 +18,8 @@ class PlannerQPEuler:
         self.nu = nu
         self.nt = nt
 
-        self.nv = nt*(3*nx+nu) + 1
-        self.nc = nt*(2*nx) + nt
+        self.nv = nt*(3*nx+nu) + nt*nx  + 1
+        self.nc = nt*(2*nx) + nt*nx + nt
         
         self.iv_ddxdxxu = np.arange(nt*(3*nx+nu))
 
@@ -41,8 +41,11 @@ class PlannerQPEuler:
 
         self.ic_dyn = np.int_(np.arange(2*nt*nx))
 
-        self.ic_mo = np.int_(np.arange(2*nt*nx,self.nc))
-        self.iv_mo = self.nv-1
+        self.iv_p = np.int_(nt*(3*nx+nu) +np.arange(nt*nx))
+        self.ic_p = np.int_(2*nt*nx+np.arange(nt*nx))
+
+        self.iv_q = np.int_(nt*(3*nx+nu) + nt*nx)
+        self.ic_q = np.int_(3*nt*nx +np.arange(nt))
 
         task = mosek_env.Task()
         task.append( mosek.accmode.var, self.nv)
@@ -157,6 +160,106 @@ class PlannerQPEuler:
         return 
 
 
+    def mpl_obj(self, m,P,L):
+        
+        nx = self.nx
+        nu = self.nu
+        nt = self.nt
+        
+
+        i = np.zeros((nt,nx,3*nx+nu),int)
+        i += self.ic_p.reshape(nt,-1)[:,:,np.newaxis]
+        j = np.zeros((nt,nx,3*nx+nu),int)
+        j += self.iv_ddxdxxu.reshape(nt,-1)[:,np.newaxis,:]
+
+
+        self.task.putaijlist( i.reshape(-1), 
+                              j.reshape(-1), 
+                              P.reshape(-1)  )
+
+        self.task.putaijlist( self.ic_p, 
+                              self.iv_p, 
+                              -np.ones(self.ic_p.size)  )
+
+        ind_c = self.ic_p
+        self.task.putboundlist(  mosek.accmode.con,
+                            ind_c, 
+                            [mosek.boundkey.fx]*ind_c.size, 
+                            -m.reshape(-1),-m.reshape(-1))
+
+
+        i = np.zeros((nt,nx,nx),int)
+        i += self.iv_p.reshape(nt,-1)[:,:,np.newaxis]
+        j = np.zeros((nt,nx,nx),int)
+        j += self.iv_p.reshape(nt,-1)[:,np.newaxis,:]
+
+        i = i.reshape(-1)
+        j = j.reshape(-1)
+        d = L.reshape(-1)
+        ind = (i>=j)
+       
+        self.task.putqobj(i[ind],j[ind], d[ind]) 
+        self.task.putobjsense(mosek.objsense.minimize)
+
+
+
+
+    def min_mpl_obj(self, m,P,L):
+        
+        nx = self.nx
+        nu = self.nu
+        nt = self.nt
+        
+
+        i = np.zeros((nt,nx,3*nx+nu),int)
+        i += self.ic_p.reshape(nt,-1)[:,:,np.newaxis]
+        j = np.zeros((nt,nx,3*nx+nu),int)
+        j += self.iv_ddxdxxu.reshape(nt,-1)[:,np.newaxis,:]
+
+
+        self.task.putaijlist( i.reshape(-1), 
+                              j.reshape(-1), 
+                              P.reshape(-1)  )
+
+        self.task.putaijlist( self.ic_p, 
+                              self.iv_p, 
+                              -np.ones(self.ic_p.size)  )
+
+        ind_c = self.ic_p
+        self.task.putboundlist(  mosek.accmode.con,
+                            ind_c, 
+                            [mosek.boundkey.fx]*ind_c.size, 
+                            -m.reshape(-1),-m.reshape(-1))
+
+
+        i = np.zeros((nt,nx,nx),int)
+        i += self.iv_p.reshape(nt,-1)[:,:,np.newaxis]
+        j = np.zeros((nt,nx,nx),int)
+        j += self.iv_p.reshape(nt,-1)[:,np.newaxis,:]
+        k = np.zeros((nt,nx,nx),int)
+        k += self.ic_q[:,np.newaxis,np.newaxis]
+
+        i = i.reshape(-1)
+        j = j.reshape(-1)
+        k = k.reshape(-1)
+        d = L.reshape(-1)
+        ind = (i>=j)
+       
+
+        self.task.putqcon(k[ind],i[ind],j[ind], d[ind])
+        self.task.putaijlist( self.ic_q, [self.iv_q]*nt, -np.ones(nt)  )
+
+        ind_c = self.ic_q
+        self.task.putboundlist(  mosek.accmode.con,
+                            ind_c, 
+                            [mosek.boundkey.up]*ind_c.size, 
+                            [0]*ind_c.size,[0]*ind_c.size)
+        self.task.putclist( [self.iv_q], [1]  )
+        self.task.putobjsense(mosek.objsense.minimize)
+
+
+
+
     def endpoints_constraint(self,xi,xf,um,uM,x = None):
         task = self.task
 
@@ -217,8 +320,8 @@ class PlannerQPEuler:
 
         task = self.task
 
-        # task.putintparam(mosek.iparam.intpnt_scaling,mosek.scalingtype.none);
-        task.putdouparam(mosek.dparam.check_convexity_rel_tol,1e-5);
+        #task.putintparam(mosek.iparam.intpnt_scaling,mosek.scalingtype.none);
+        task.putdouparam(mosek.dparam.check_convexity_rel_tol,1e-2);
 
         # solve
 
@@ -297,7 +400,7 @@ class PlannerQPVerlet(PlannerQPEuler):
 
 PlannerQP =PlannerQPVerlet
 class Planner:
-    def __init__(self, dt,h_init, nx, nu, um, uM): 
+    def __init__(self, dt,hi, nx, nu, um, uM): 
         self.um = um
         self.uM = uM
         self.dt = dt
@@ -318,12 +421,11 @@ class Planner:
 
         self.ind_u = np.arange(3*nx,3*nx+nu)
 
-        self.tols = 1e-6
+        self.tols = 1e-2
         self.max_iters = 100
+        self.nM = int(hi/float(self.dt))
 
         self.x = None
-        self.no = int(h_init/dt)
-        self.noo=self.no
         
     def partition(self, tau,distr,slc, slcd, ci_mode=False):
          
@@ -381,12 +483,14 @@ class Planner:
         A,B,D = Psi[:,i1,:][:,:,i1], Psi[:,i1,:][:,:,i2], Psi[:,i2,:][:,:,i2]
 
         Di = np.array(map(np.linalg.inv,D))
-        Li = A-np.einsum('nij,njk,nlk->nil',B,Di,B)
-        
+
+        P = np.einsum('njk,nkl->njl',B,Di)
+        Li = A-np.einsum('nik,nlk->nil',P,B)
+
         cf = nu*n/(n+1)
         L = cf[:,np.newaxis,np.newaxis]*np.array(map(np.linalg.inv,Li))
-        P = np.einsum('njk,nkl->njl',B,Di)
-        
+
+
         P = np.insert(P,np.zeros(i1.size),np.zeros(i1.size),axis=2)
         P = np.eye(P.shape[1],P.shape[2])[np.newaxis,:,:]-P
         P = np.einsum('nij,jk->nik',P,Prj)
@@ -409,17 +513,16 @@ class Planner:
         ps /= ps.sum(1)[:,np.newaxis]
         
 
-        mu  = np.einsum('ki,nk->ni',self.mu,ps)            
+        m = np.einsum('kij,kj->ki',self.P,self.mu )
+
+        m  = np.einsum('ki,nk->ni',m,ps)            
         P  = np.einsum('kij,nk->nij',self.P,ps)            
         L  = -np.einsum('kij,nk->nij',self.L,ps)
         
-        rs = np.einsum('nij,nj->ni', P,x-mu)
+        rs = np.einsum('nij,nj->ni', P,x)-m
         llm = np.einsum('kj,kj->k', np.einsum('ki,kij->kj', rs,L),rs )
 
-        grm = 2*np.einsum('nik,nk->ni', np.einsum('nji,njk->nik',P,L),rs)
-        hsm = 2*np.einsum('nik,nkl->nil', np.einsum('nji,njk->nik',P,L),P)
-        
-        return llm,grm,hsm
+        return llm,m,P,L
         
     def plan_inner_sum(self,nt):
 
@@ -441,33 +544,38 @@ class Planner:
 
         lls = None
 
+        qp = PlannerQP(self.nx,self.nu,nt)
+        qp.dyn_constraint(self.dt)
+
         #plt.ion()
         for i in range(self.max_iters):
 
-            ll_,q,Q = self.ll(x)             
+            ll_,m,P,L = self.ll(x)             
 
             lls_ = ll_.sum()
             if not lls is None:
-                if (abs(lls_-lls) < self.tols*max(1,0*abs(lls_),0*abs(lls))):
+                if (abs(lls_-lls) < max(1,self.tols*max(abs(lls_),abs(lls)))):
                     break
             lls = lls_
 
             qp.endpoints_constraint(self.start,self.end, 
-                    self.um,self.uM,x = x)
+                    self.um,self.uM,x=x)
+            
+            m = np.einsum('nij,nj->ni',P,x)-m
 
-            #qp.min_quad_objective(-ll,-q,-Q)
-            qp.quad_objective(-q,-Q)
+            qp.mpl_obj(m,P,-L)
+
             dx = qp.solve()
             
             if True:
                 def f(a):
-                    ll__,q__,Q__ = self.ll(x+a*dx)
+                    ll__,mu__,P__,L__ = self.ll(x+a*dx)
                     return -ll__.sum()
-                a = scipy.optimize.fminbound(f,0.0,1.0,xtol=1e-8)
+                a = scipy.optimize.golden(f,brack=[0.0,1.0],tol=1e-5)
                 x += a*dx
             else:
                 x += dx
-            #print lls#,a
+            #print lls,a
         
             if False:
                 plt.ion()
@@ -488,69 +596,61 @@ class Planner:
         qp = PlannerQP(self.nx,self.nu,nt)
         qp.dyn_constraint(self.dt)
         
-        Q = np.zeros((nt,self.dim,self.dim))
-        Q[:,self.ind_ddx,self.ind_ddx] = -1.0
-        q = np.zeros((nt,self.dim))
+        if self.x is None:
+            Q = np.zeros((nt,self.dim,self.dim))
+            Q[:,self.ind_ddx,self.ind_ddx] = -1.0
+            q = np.zeros((nt,self.dim))
 
-        qp.endpoints_constraint(self.start,self.end,self.um,self.uM)
-        qp.min_quad_objective(-np.zeros(nt), -q,-Q)
-        #qp.quad_objective(-q,-Q)
+            qp.endpoints_constraint(self.start,self.end,self.um,self.uM)
+            #qp.min_quad_objective(-np.zeros(nt), -q,-Q)
+            qp.quad_objective(-q,-Q)
 
-        x = qp.solve()
+            x = qp.solve()
+        else:
+            x = self.x
 
         lls = None
+
+        qp = PlannerQP(self.nx,self.nu,nt)
+        qp.dyn_constraint(self.dt)
 
         #plt.ion()
         for i in range(self.max_iters):
 
-            ll,q,Q = self.ll(x)             
-            
-            # psd fix
+            ll_,m,P,L = self.ll(x)             
 
-            lls_ = ll.min()
+            lls_ = ll_.min()
             if not lls is None:
-                if (abs(lls_-lls) < self.tols*max(abs(lls_),abs(lls))):
+                if (abs(lls_-lls) < max(1,self.tols*max(abs(lls_),abs(lls)))):
                     break
             lls = lls_
 
-            #plt.plot(ll)
-            #plt.show()
-
-            #print np.sum(ll), np.min(ll)
-            # should maximize the min ll.
-
             qp.endpoints_constraint(self.start,self.end, 
-                    self.um,self.uM,x = x)
+                    self.um,self.uM,x=x)
+            
+            m = np.einsum('nij,nj->ni',P,x)-m
 
-            qp.min_quad_objective(-ll,-q,-Q)
+            qp.min_mpl_obj(m,P,-L)
+
             dx = qp.solve()
             
             if True:
                 def f(a):
-                    ll,q,Q = self.ll(x+a*dx)
-                    return -ll.min()
-                a = scipy.optimize.golden(f,brack=[0.0,1.0],tol=1e-3)
-                a = min(max(a,0.0),1.0)
+                    ll__,mu__,P__,L__ = self.ll(x+a*dx)
+                    return -ll__.min()
+                a = scipy.optimize.golden(f,brack=[0.0,1.0],tol=1e-5)
                 x += a*dx
             else:
                 x += dx
-                
-            if False:
-                plt.ion()
-                plt.clf()
-                plt.scatter(x[:,2],x[:,1],c=x[:,3],linewidth=0)  # qdd, qd, q, u
-                #self.model.plot_clusters()
-                plt.draw()
-                #x = x_new
+            #print lls,a
         
         if i>=self.max_iters-1:
             print 'MI reached'
 
-        
         return lls,x
 
 
-    plan_inner = plan_inner_sum
+    plan_inner = plan_inner_min
     def plan(self,model,start,end,just_one=False):
 
         self.start = start
@@ -558,10 +658,11 @@ class Planner:
         self.parse_model(model)        
         
         if just_one:
-            lls,x = self.plan_inner(self.no)
+            lls,x = self.plan_inner(self.nM)
             return x
 
         nm = 3
+        nM = self.nM
         
         cx = {}
         cll ={}
@@ -570,14 +671,16 @@ class Planner:
             if not cll.has_key(nn):
                 ll,x = self.plan_inner(nn)
                 tmp = ll
-                tmp -= 1e-2*nn
+                if nn>nM:
+                    tmp -= (nn-nM)
                 cll[nn],cx[nn] = tmp,x
             return cll[nn]
         
         
-        if f(self.noo) > f(self.no):
-            self.no = self.noo 
-        n = self.no
+        try:
+            n = self.no
+        except:
+            n = nM
 
         for it in range(10):
             if f(n+1)>f(n):

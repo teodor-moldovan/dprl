@@ -78,8 +78,8 @@ class Distr(learning.GaussianNIW):
 
 
 class Planner(planning.Planner):
-    def __init__(self,dt,hi):        
-        planning.Planner.__init__(self,dt,hi,
+    def __init__(self,dt,h):        
+        planning.Planner.__init__(self,dt,h,
                 2,1,np.array([-10]), np.array([+10]))
 
 class ReducedDistr(learning.GaussianNIW):
@@ -96,8 +96,8 @@ class ReducedDistr(learning.GaussianNIW):
         #learning.GaussianNIW.plot(self,nu,szs,slc=np.array([3,5]),**kwargs)
 
 class ReducedPlanner(planning.Planner):
-    def __init__(self,dt,hi):        
-        planning.Planner.__init__(self,dt,hi,
+    def __init__(self,dt,h):        
+        planning.Planner.__init__(self,dt,h,
                 2,1,np.array([-10]), np.array([+10]))
        
         self.ind_dxx = np.array([2,4])
@@ -167,62 +167,6 @@ class Tests(unittest.TestCase):
         cp.plot(x)
         plt.show()
         
-    def test_online(self):
-        
-        seed = int(np.random.random()*1000)
-        #seed = 1
-        np.random.seed(seed) 
-        a = CartPole()
-
-        hvdp = learning.OnlineVDP(ReducedDistr(), 
-                w=.01, k = 30, tol=1e-4, max_items = 1000 )
-
-        stop =  np.array([0,0,0,0])
-        dt = .05
-        dts = .05
-
-        planner = ReducedPlanner(dt,.8,3.0) # should be 3.0
-        #traj = a.random_traj(.8, control_freq = 100)
-        traj = a.random_traj(.5, control_freq = 20)
-        traj[:,4] =  np.mod(traj[:,4] + 2*np.pi,4*np.pi)-2*np.pi
-        
-        fl = open('./pickles/cartpole_online_'+str(seed)+'.pkl','wb') 
-        #plt.ion()
-
-        nss = 0
-        for it in range(10000):
-            #plt.clf()
-            #plt.xlim([-.5*np.pi, 2*np.pi])
-            #plt.ylim([-10, 6])
-
-            ss = hvdp.distr.sufficient_stats(traj)
-            hvdp.put(ss[1:,:])
-            model = hvdp.get_model()
-            #model.plot_clusters()
-
-
-            start = traj[-1,2:6]
-            start[2] =  np.mod(start[2] + 2*np.pi,4*np.pi)-2*np.pi
-
-            if np.linalg.norm(start-stop) < .1:
-                nss += 1
-                if nss>50:
-                    break
-        
-            x,ll,cst, t = planner.plan(model,start,stop)
-            print t, ll,cst
-
-            #a.plot(x,linewidth=0)
-
-            #print x[0,2:6] - start
-            pi = lambda tc,xc: x[int(floor(tc/dt)),6]
-            traj = a.sim(start,pi,dts)
-
-            cPickle.dump((None,traj,None,ll,cst,t ),fl)
-
-            #plt.draw()
-            
-
     def test_online_hotstart(self):
         
         np.random.seed(1) 
@@ -327,48 +271,6 @@ class Tests(unittest.TestCase):
             plt.draw()
             
 
-    def test_online_(self):
-        
-        np.random.seed(1) 
-        a = CartPole()
-
-        hvdp = learning.OnlineVDP(ReducedDistr(), 
-                w=.01, k = 50, tol=1e-4, max_items = 1000 )
-
-        stop =  np.array([0,0,0,0])
-        dt = .01
-        dts = .01
-
-        planner = ReducedPlanner(dt,1.3)
-        traj = a.random_traj(.5, control_freq = 10)
-        
-        plt.ion()
-        for it in range(1000):
-            plt.clf()
-            #plt.xlim([-.5*np.pi, 2*np.pi])
-            #plt.ylim([-10, 6])
-
-            hvdp.put(hvdp.distr.sufficient_stats(traj[:-1,:])) 
-            model = hvdp.get_model()
-            #model.plot_clusters()
-
-            #traj = a.random_traj(.5, control_freq = 10)
-            #start = traj[-1,2:6]
-            start = a.x0
-            x = planner.plan(model,start,stop,just_one=True)
-
-            a.plot(x,linewidth=0,alpha=.1)
-            x[:,6] += (np.random.random(x.shape[0])-.5)*.2
-
-            #print x[0,1:3] - start[:2]
-            pi = lambda tc,xc: np.interp(tc, 
-                    dt*np.arange(x.shape[0]), x[:,6] )
-            traj = a.sim(start,pi,dt*x.shape[0])
-            a.plot(traj,linewidth=0)
-
-            plt.draw()
-            
-
     def test_online2(self):
         
         seed = int(np.random.random()*1000)
@@ -377,12 +279,12 @@ class Tests(unittest.TestCase):
         a = CartPole()
 
         hvdp = learning.OnlineVDP(ReducedDistr(), 
-                w=.01, k = 80, tol=1e-4, max_items = 1000 )
+                w=.1, k = 80, tol=1e-4, max_items = 1000 )
 
         stop =  np.array([0,0,0,0])
         dt = .01
 
-        planner = ReducedPlanner(dt,.4) # should be 3.0
+        planner = ReducedPlanner(dt,.2) # should be 3.0
 
         traj = a.random_traj(2, control_freq = 50)
         
@@ -419,6 +321,58 @@ class Tests(unittest.TestCase):
             cPickle.dump((None,traj,None,None,None,None ),fl)
 
             #plt.draw()
+            
+
+    def test_online_disp(self):
+        
+        seed = int(np.random.random()*1000)
+        seed = 32 # works: 32, 40
+        np.random.seed(seed) 
+        a = CartPole()
+
+        hvdp = learning.OnlineVDP(ReducedDistr(), 
+                w=.1, k = 80, tol=1e-4, max_items = 1000 )
+
+        stop =  np.array([0,0,0,0])
+        dt = .01
+
+        planner = ReducedPlanner(dt,.2) # should be 3.0
+
+        traj = a.random_traj(2, control_freq = 50)
+        
+        #fl = open('../data/cartpole/online_'+str(seed)+'.pkl','wb') 
+        plt.ion()
+
+        nss = 0
+        for it in range(10000):
+            plt.clf()
+            plt.xlim([-.5*np.pi, 2*np.pi])
+            plt.ylim([-10, 6])
+
+            ss = hvdp.distr.sufficient_stats(traj)
+            hvdp.put(ss[:-1,:]) 
+
+            start = traj[-1,2:6]
+
+            model = hvdp.get_model()
+            model.plot_clusters()
+            
+            if np.linalg.norm(start-stop) < .1:
+                nss += 1
+                if nss>50:
+                    break 
+
+            x = planner.plan(model,start,stop)
+
+            a.plot(x,linewidth=0)
+
+            pi = lambda tc,xc: np.interp(tc, dt*np.arange(x.shape[0]), x[:,6])
+            traj = a.sim(start,pi)
+            
+            #print  traj[0,[4,5]], x[0,[4,5]]
+            #cPickle.dump((None,traj,None,None,None,None ),fl)
+
+            plt.draw()
             
 
 if __name__ == '__main__':
