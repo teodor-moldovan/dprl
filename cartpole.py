@@ -3,7 +3,6 @@ from math import sin, cos, floor
 import numpy as np
 import numpy.random 
 import matplotlib
-#matplotlib.use('pdf')
 import matplotlib.pyplot as plt
 import cPickle
 
@@ -50,9 +49,13 @@ class CartPole(simulation.Simulation):
 
         return np.array((tdd,xdd))
 
+    def sim(self, *args):
+        x = simulation.Simulation.sim(self,*args) 
+        x[:,4] =  np.mod(x[:,4] + 2*np.pi,4*np.pi)-2*np.pi
+        return x
+
     def plot(self,traj,**kwarg):
         data = traj.copy()
-        data[:,4] =  np.mod(data[:,4] + 2*np.pi,4*np.pi)-2*np.pi
 
         plt.sca(plt.subplot(2,1,1))
         plt.scatter(data[:,4],data[:,2],c=data[:,6],**kwarg)
@@ -65,7 +68,6 @@ class Distr(learning.GaussianNIW):
         learning.GaussianNIW.__init__(self,7)
     def sufficient_stats(self,traj):
         data = traj.copy()
-        data[:,4] =  np.mod(data[:,4] + 2*np.pi,4*np.pi)-2*np.pi
         return learning.GaussianNIW.sufficient_stats(self,data)
         
     def plot(self, nu, szs, **kwargs):
@@ -85,7 +87,6 @@ class ReducedDistr(learning.GaussianNIW):
         learning.GaussianNIW.__init__(self,5)
     def sufficient_stats(self,traj):
         data = traj.copy()
-        data[:,4] =  np.mod(data[:,4] + 2*np.pi,4*np.pi)-2*np.pi
         return learning.GaussianNIW.sufficient_stats(self,data[:,[0,1,2,4,6]])
         
     def plot(self, nu, szs, **kwargs):
@@ -380,26 +381,24 @@ class Tests(unittest.TestCase):
 
         stop =  np.array([0,0,0,0])
         dt = .01
-        dts = .01
 
         planner = ReducedPlanner(dt,.4) # should be 3.0
+
         traj = a.random_traj(2, control_freq = 50)
-        print traj[-1,2:6]
         
         fl = open('../data/cartpole/online_'+str(seed)+'.pkl','wb') 
         #plt.ion()
 
         nss = 0
         for it in range(10000):
-            plt.clf()
-            plt.xlim([-.5*np.pi, 2*np.pi])
-            plt.ylim([-10, 6])
+            #plt.clf()
+            #plt.xlim([-.5*np.pi, 2*np.pi])
+            #plt.ylim([-10, 6])
 
             ss = hvdp.distr.sufficient_stats(traj)
             hvdp.put(ss[:-1,:]) 
 
             start = traj[-1,2:6]
-            start[2] =  np.mod(start[2] + 2*np.pi,4*np.pi)-2*np.pi
 
             model = hvdp.get_model()
             #model.plot_clusters()
@@ -413,9 +412,8 @@ class Tests(unittest.TestCase):
 
             #a.plot(x,linewidth=0)
 
-            #print x[0,2:6] - start
             pi = lambda tc,xc: np.interp(tc, dt*np.arange(x.shape[0]), x[:,6])
-            traj = a.sim(start,pi,dts)
+            traj = a.sim(start,pi)
             
             #print  traj[0,[4,5]], x[0,[4,5]]
             cPickle.dump((None,traj,None,None,None,None ),fl)

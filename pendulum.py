@@ -39,15 +39,18 @@ class Pendulum(simulation.Simulation):
 
     def plot_traj(self,traj,**kwargs):
         data = traj[:,:4]
-        data[:,2] =  np.mod(data[:,2] + 2*np.pi,4*np.pi)-2*np.pi
         plt.scatter(data[:,2],data[:,1],c=data[:,3],**kwargs)
+
+    def sim(self, *args):
+        x = simulation.Simulation.sim(self,*args) 
+        x[:,2] =  np.mod(x[:,2] + 2*np.pi,4*np.pi)-2*np.pi
+        return x
 
 class Distr(learning.GaussianNIW):
     def __init__(self):
         learning.GaussianNIW.__init__(self,4)
     def sufficient_stats(self,traj):
         data = traj.copy()
-        data[:,2] =  np.mod(data[:,2] + 2*np.pi,4*np.pi)-2*np.pi
         return learning.GaussianNIW.sufficient_stats(self,data)
         
     def plot(self, nu, szs, **kwargs):
@@ -122,13 +125,15 @@ class MDPtests(unittest.TestCase):
                 w=.1, k = 30, tol=1e-4, max_items = 1000 )
 
         stop = np.array([0,0])  # should finally be [0,0]
-        dt = .05
-        dts = .05
+        dt = .05 
+        dts = .05   # re-plan frequency
         planner = Planner(dt,2.3)
 
         traj = a.random_traj(2.0, control_freq = 5.0)
 
         #fl = open('./pickles/pendulum_online_'+str(seed)+'.pkl','wb') 
+        
+        # sim(a, hvdp, planner, dt dts start stop traj0)
         
         plt.ion()
         nss = 0
@@ -156,7 +161,7 @@ class MDPtests(unittest.TestCase):
                 x[:,3] += 2*np.random.random(x.shape[0])
                 x[:,3] = np.maximum(-5.0,np.minimum(5.0,x[:,3]))
 
-            plt.scatter(x[:,2],x[:,1], c=x[:,3],linewidth=0)  # qdd, qd, q, u
+            a.plot_traj(x,linewidth=0)
 
             #print x[0,1:3] - start[:2]
             pi = lambda tc,xc: np.interp(tc, dt*np.arange(x.shape[0]), x[:,3] )
@@ -168,7 +173,7 @@ class MDPtests(unittest.TestCase):
             
 
 if __name__ == '__main__':
-    single_test = 'test_planning'
+    single_test = 'test_online'
     if hasattr(MDPtests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(MDPtests(single_test))

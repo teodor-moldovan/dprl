@@ -12,7 +12,7 @@ mosek_env.init()
 
 class MyException(Exception):
     pass
-class PlannerQP:
+class PlannerQPEuler:
     def __init__(self,nx,nu,nt):
         self.nx = nx
         self.nu = nu
@@ -93,7 +93,6 @@ class PlannerQP:
         ai,aj,ad = a.row,a.col,a.data
         self.task.putaijlist( ai, aj, ad  )
 
-
         return
     def quad_objective(self,c,Q):
         task = self.task
@@ -172,31 +171,27 @@ class PlannerQP:
                             [mosek.boundkey.fx]*ind_c.size, 
                             np.zeros(ind_c.size),np.zeros(ind_c.size))
 
-        i = self.iv_first_dxx
-        vs = xi
-        if not x is None:
-            vs = vs - x.reshape(-1)[i]
+        if not xi is None:
+            i = self.iv_first_dxx
+            vs = xi
+            if not x is None:
+                vs = vs - x.reshape(-1)[i]
 
-        task.putboundlist(  mosek.accmode.var,
-                i, 
-                [mosek.boundkey.fx]*i.size,
-                vs,vs )
+            task.putboundlist(  mosek.accmode.var,
+                    i, 
+                    [mosek.boundkey.fx]*i.size,
+                    vs,vs )
 
-        i = self.iv_last_dxx 
-        vs = xf
-        if not x is None:
-            vs = vs - x.reshape(-1)[i]
+        if not xf is None:
+            i = self.iv_last_dxx 
+            vs = xf
+            if not x is None:
+                vs = vs - x.reshape(-1)[i]
 
-        task.putboundlist(  mosek.accmode.var,
-                i, 
-                [mosek.boundkey.fx]*i.size,
-                vs,vs )
-
-        #j = self.ic_lastn_dyn(n)
-        #task.putboundlist(  mosek.accmode.con,
-        #        j, 
-        #        [mosek.boundkey.fr]*j.size,
-        #        np.zeros(j.size),np.zeros(j.size) )
+            task.putboundlist(  mosek.accmode.var,
+                    i, 
+                    [mosek.boundkey.fx]*i.size,
+                    vs,vs )
 
 
         iu =  self.iv_u
@@ -268,6 +263,39 @@ class PlannerQP:
 
 
 
+class PlannerQPVerlet(PlannerQPEuler):   
+    def dyn_constraint(self,dt):
+        nx = self.nx
+        nu = self.nu
+        nt = self.nt
+
+        indsj = np.arange((3*nx+nu)*nt).reshape(nt,3*nx+nu)
+        j = lambda si,st : indsj[st,:][:,si].reshape(-1)
+
+        indsi = np.arange((2*nx)*(nt-1)).reshape(nt-1,2*nx)
+        i = lambda si,st : indsi[st,:][:,si].reshape(-1)
+
+        ddx = slice(0,nx)
+        dx =  slice(nx,2*nx)
+        x =   slice(2*nx,3*nx)
+        t =   slice(0,nt-1)
+        st =  slice(1,nt)
+        ox = np.ones(nx*(nt-1))
+
+        ct = np.concatenate
+
+        ai = ct(( i(ddx,t), i(ddx,t), i(ddx,t), i(ddx,t),
+                  i(dx,t), i(dx,t), i(dx,t), i(dx,t)     ))
+        aj = ct(( j(x,st),  j(x,t), j(dx,t),j(ddx,t),   
+                  j(dx,st),j(dx,t), j(ddx,st),j(ddx,t) ))
+        ad = ct(( -ox, ox,     dt*ox, .5*dt*dt* ox,
+                  -ox, ox,     .5*dt*ox, .5*dt*ox  ))
+        
+        a = scipy.sparse.coo_matrix((ad,(ai,aj))).tocsr().tocoo()
+
+        self.task.putaijlist( a.row, a.col, a.data  )
+
+PlannerQP =PlannerQPVerlet
 class Planner:
     def __init__(self, dt,h_init, nx, nu, um, uM): 
         self.um = um
@@ -542,7 +570,7 @@ class Planner:
             if not cll.has_key(nn):
                 ll,x = self.plan_inner(nn)
                 tmp = ll
-                tmp -= 1e-1*nn
+                tmp -= 1e-2*nn
                 cll[nn],cx[nn] = tmp,x
             return cll[nn]
         
@@ -571,13 +599,17 @@ class Planner:
 
         return cx[n_] #, cll[n_], f(n),  n_*self.dt
 
-class PlanningTests(unittest.TestCase):
+class Tests(unittest.TestCase):
+    def setUp(self):
+        pass
     def test_min_acc(self):
         
+        h = 1.0
         dt = .1
-        nt = 20
 
-        start = np.array([0,np.pi])
+        nt = int(h/dt)+1
+
+        start = np.array([0,1])
         stop = np.array([0,0])  # should finally be [0,0]
        
         planner = PlannerQP(1,1,nt)
@@ -594,16 +626,51 @@ class PlanningTests(unittest.TestCase):
         planner.min_quad_objective(b,q,Q)
 
         x = planner.solve()
+        print x
         
         plt.scatter(x[:,2],x[:,1], c=x[:,3])  # qdd, qd, q, u
         plt.show()
 
         
+    def test_sim(self):
+        import simulation
+        
+        freq = 10
+        h = 2*np.pi
+        x0 = np.random.normal(size=2)
+        dev = simulation.HarmonicOscillator(0)
+        dev.sample_freq = freq
+
+        traj = dev.sim_sym(x0,h)
+
+        dt = 1.0/freq
+        nt = int(h*freq)+1 
+       
+        planner = PlannerQP(1,1,nt)
+        
+        qm = dev.cost_matrix()
+        qm[-1,:] = 0
+        qm[:,-1] = 0
+        Q = np.tile(qm[np.newaxis,:,:],(nt,1,1))
+        q = np.zeros((nt,4))
+
+        planner.dyn_constraint(dt)
+        planner.endpoints_constraint(x0,None,np.array([-5]),np.array([5]))
+        
+        planner.quad_objective(q,Q)
+        traj_ = planner.solve()
+
+        traj_ = traj_[:,:-1]
+        re = np.max(np.abs((traj-traj_)[:,-1])/np.max(np.abs(traj[:,-1])))
+        print 'Max relative error: '+str(re)
+        self.assertLess(re,.01)
+
+
 if __name__ == '__main__':
-    single_test = 'test_min_acc'
-    if hasattr(PlanningTests, single_test):
+    single_test = 'test_sim'
+    if hasattr(Tests, single_test):
         dev_suite = unittest.TestSuite()
-        dev_suite.addTest(PlanningTests(single_test))
+        dev_suite.addTest(Tests(single_test))
         unittest.TextTestRunner().run(dev_suite)
     else:
         unittest.main()

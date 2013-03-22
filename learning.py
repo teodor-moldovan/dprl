@@ -64,6 +64,7 @@ class Gaussian(ExponentialFamilyDistribution):
         nu1 = nus[:,:d]
         nu2 = nus[:,d:].reshape((-1,d,d))        
         inv = np.array(map(self.inv,nu2))
+        # TODO: einsum wrong:
         t1 = -.25* np.einsum('ti,tij,tj->t',nu1,inv,nu1)
         t2 = -.5*np.array(map(self.slogdet,-2*nu2))[:,1]
         return (t1+t2,)
@@ -287,7 +288,11 @@ class GaussianNIW(ConjugatePair):
 
         # the only three lines depending on x
         dx = x[:,wx,:] - mu[wx,:,:]
+
+        # TODO: einsum wrong:
         gr = np.einsum('kij,nkj->nki', sgi,dx)
+
+        # TODO: einsum wrong:
         al = 1 + np.einsum('nki,nki->nk', gr,dx)/nu
 
         if rt[1] or rt[2]:
@@ -308,8 +313,7 @@ class GaussianNIW(ConjugatePair):
 
         #TODO: test hessian
         if rt[2]:
-            pass
-            #hs = bt[:,:,wx,wx]*sgi+gr[:,:,:,wx]*gr[:,:,wx,:]/(nu+p)[wx,:,wx,wx]
+            hs = bt[:,:,wx,wx]*sgi+gr[:,:,:,wx]*gr[:,:,wx,:]/(nu+p)[wx,:,wx,wx]
         
         return (ll,gr,hs)
         
@@ -497,6 +501,7 @@ class VDP:
         if rt[2]:
             hs1  = - gr[:,:,np.newaxis] * gr[:,np.newaxis,:]
             hs2 = np.einsum('nk,nkij->nij',p, hsk)
+            # TODO: einsum wrong
             hs3 = np.einsum('nk,nki,nkj->nij',p, grk, grk)
 
             hs = hs1 + hs2 + hs3
@@ -780,7 +785,11 @@ class Tests(unittest.TestCase):
         n = 120
         x = np.vstack([ gen_data(A,mu,n=n) for A,mu in zip(As,mus)])
         d = x.shape[1]
+        
+        # done generating test data
             
+        # k is the max number of clusters
+        # w is the prior parameter. 
         prob = VDP(GaussianNIW(d), k=30,w=0.1)
 
         xt = prob.distr.sufficient_stats(x)
@@ -807,7 +816,7 @@ class Tests(unittest.TestCase):
         np.random.seed(1)
         def gen_data(A, mu, n=10):
             xs = np.random.multivariate_normal(mu,np.eye(mu.size),size=n)
-            ys = (np.einsum('ij,j->i',A,mu)
+            ys = (np.finsum('ij,j->i',A,mu)
                 + np.random.multivariate_normal(
                         np.zeros(A.shape[0]),np.eye(A.shape[0]),size=n))
             
@@ -842,11 +851,14 @@ class Tests(unittest.TestCase):
          
         dx = x[:,np.newaxis,:] - mus[np.newaxis,:,:]
         sgi = np.array(map(np.linalg.inv,sgs)) # this is the hessian
+        
+        # TODO: einsum wrong:
         ll2 = -np.einsum('kij,nki,nkj->nk',.5*sgi,dx,dx)
         
         
         gr = prob.glp[:,:d]
         hs = prob.glp[:,d:d*(d+1)].reshape(-1,d,d)
+        # TODO: einsum wrong:
         ll3 = np.einsum('ki,ni->nk', gr,x) +np.einsum('kij,ni,nj->nk',hs,x,x)
         
 
@@ -863,7 +875,7 @@ class Tests(unittest.TestCase):
             print time.time()-t1
 
 if __name__ == '__main__':
-    single_test = 'test_batch_vdp'
+    single_test = 'test_ll'
     if hasattr(Tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(Tests(single_test))
