@@ -244,7 +244,7 @@ class GaussianNIW(ConjugatePair):
         return x1
 
     def posterior_ll(self,x,nu,ret_ll_gr_hs=[True,False,False],
-            usual_x=False, slc=None):
+            usual_x=False, slc=None, nsd = False):
 
         #TODO: caching
         if not usual_x:
@@ -313,7 +313,11 @@ class GaussianNIW(ConjugatePair):
 
         #TODO: test hessian
         if rt[2]:
-            hs = bt[:,:,wx,wx]*sgi+gr[:,:,:,wx]*gr[:,:,wx,:]/(nu+p)[wx,:,wx,wx]
+            #hs = bt[:,:,wx,wx]*sgi+gr[:,:,:,wx]*gr[:,:,wx,:]/(nu+p)[wx,:,wx,wx]
+            if not nsd:
+                pass
+            else:
+                hs = bt[:,:,wx,wx]*sgi
         
         return (ll,gr,hs)
         
@@ -468,11 +472,11 @@ class VDP:
         return (self.al -1)
         
         
-    def ll(self,x, ret_ll_gr_hs = [True,False,False], **kwargs):
+    def ll(self,x, ret_ll_gr_hs = [True,False,False], nsd = False,**kwargs):
 
         rt = ret_ll_gr_hs
         llk,grk,hsk = self.distr.posterior_ll(x,self.tau,
-                [True,rt[1],rt[2]], **kwargs)
+                [True,rt[1],rt[2]], nsd = nsd, **kwargs)
 
         ll = None
         gr = None
@@ -499,13 +503,16 @@ class VDP:
             gr = np.einsum('nk,nki->ni',p,grk)
         
         if rt[2]:
-            hs1  = - gr[:,:,np.newaxis] * gr[:,np.newaxis,:]
-            hs2 = np.einsum('nk,nkij->nij',p, hsk)
-            # TODO: einsum wrong
-            hs3 = np.einsum('nk,nki,nkj->nij',p, grk, grk)
 
-            hs = hs1 + hs2 + hs3
-        
+            hs2 = np.einsum('nk,nkij->nij',p, hsk)
+            hs = hs2
+
+            if not nsd:
+                hs1  = - gr[:,:,np.newaxis] * gr[:,np.newaxis,:]
+                hs3 = np.einsum('nk,nki,nkj->nij',p, grk, grk)
+
+                hs += hs1 + hs3
+            
         return (ll,gr,hs)
 
 
@@ -530,15 +537,18 @@ class VDP:
         return p
 
 
-    def conditional_ll(self,x,cond):
+    def conditional_ll(self,x,cond,ret_ll_gr_hs = [True,False,False],
+            nsd = False, **kwarg):
 
-        ll , gr, hs = self.ll(x,[True,True,True], usual_x=True)
-        ll_ , gr_, hs_ = self.ll(x,[True,True,True], 
-                slc=cond, usual_x=True)
+        ll , gr, hs = self.ll(x,ret_ll_gr_hs, nsd = nsd, **kwarg)
+        ll_ , gr_, hs_ = self.ll(x,ret_ll_gr_hs, slc=cond, nsd=nsd, **kwarg)
         
-        ll -= ll_
-        gr -= gr_
-        hs -= hs_
+        if ret_ll_gr_hs[0]:
+            ll -= ll_
+        if ret_ll_gr_hs[1]:
+            gr -= gr_
+        if ret_ll_gr_hs[2] and not nsd:
+            hs -= hs_
 
         return (ll,gr,hs)
 

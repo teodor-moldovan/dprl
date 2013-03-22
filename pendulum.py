@@ -62,6 +62,12 @@ class Planner(planning.Planner):
                 1,1,np.array([-5]), np.array([+5]))
 
 
+class PlannerTst(planning.PlannerTst):
+    def __init__(self,dt,hi):        
+        planning.Planner.__init__(self,dt,hi,
+                1,1,np.array([-5]), np.array([+5]))
+
+
 class MDPtests(unittest.TestCase):
     def test_rnd(self):
         a = Pendulum()
@@ -107,6 +113,20 @@ class MDPtests(unittest.TestCase):
         dt = .01
 
         planner = Planner(dt, 4.1)
+        x = planner.plan(model,start,stop,just_one=True)
+        
+        plt.scatter(x[:,2],x[:,1], c=x[:,3])  # qdd, qd, q, u
+        plt.show()
+
+        
+    def test_planning_grad_only(self):
+        model = cPickle.load(open('../data/pendulum/batch_vdp.pkl','r'))
+
+        start = np.array([0,np.pi])
+        stop = np.array([0,0])  # should finally be [0,0]
+        dt = .01
+
+        planner = PlannerTst(dt, 4.1)
         x = planner.plan(model,start,stop,just_one=True)
         
         plt.scatter(x[:,2],x[:,1], c=x[:,3])  # qdd, qd, q, u
@@ -173,7 +193,7 @@ class MDPtests(unittest.TestCase):
             
 
 if __name__ == '__main__':
-    single_test = 'test_online'
+    single_test = 'test_planning_grad_only'
     if hasattr(MDPtests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(MDPtests(single_test))

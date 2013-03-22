@@ -94,30 +94,31 @@ class PlannerQPEuler:
         self.task.putaijlist( ai, aj, ad  )
 
         return
-    def quad_objective(self,c,Q):
+    def quad_objective(self,c,Q=None):
         task = self.task
         iv = self.iv_ddxdxxu
-        
-        nv = 3*self.nx+self.nu
-        nt = self.nt
 
-        i,j = np.meshgrid(np.arange(nv), np.arange(nv))
-        i =  i[np.newaxis,...] + nv*np.arange(nt)[:,np.newaxis,np.newaxis]
-        j =  j[np.newaxis,...] + nv*np.arange(nt)[:,np.newaxis,np.newaxis]
-
-        i = i.reshape(-1)
-        j = j.reshape(-1)
-        d = Q.reshape(-1)
-        ind = (i>=j)
-       
-        task.putqobj(i[ind],j[ind], d[ind])
-        
         i = self.iv_ddxdxxu
         task.putclist(i, c.reshape(-1))
+        
+        if not Q is None:
+            nv = 3*self.nx+self.nu
+            nt = self.nt
+
+            i,j = np.meshgrid(np.arange(nv), np.arange(nv))
+            i =  i[np.newaxis,...] + nv*np.arange(nt)[:,np.newaxis,np.newaxis]
+            j =  j[np.newaxis,...] + nv*np.arange(nt)[:,np.newaxis,np.newaxis]
+
+            i = i.reshape(-1)
+            j = j.reshape(-1)
+            d = Q.reshape(-1)
+            ind = (i>=j)
+           
+            task.putqobj(i[ind],j[ind], d[ind])
 
         task.putobjsense(mosek.objsense.minimize)
 
-    def min_quad_objective(self,b,c,Q):
+    def min_quad_objective(self,b,c,Q=None):
 
         task = self.task
         iv = self.iv_ddxdxxu
@@ -125,19 +126,21 @@ class PlannerQPEuler:
         nv = 3*self.nx+self.nu
         nt = self.nt
 
-        i,j = np.meshgrid(np.arange(nv), np.arange(nv))
-        i =  i[np.newaxis,...] + nv*np.arange(nt)[:,np.newaxis,np.newaxis]
-        j =  j[np.newaxis,...] + nv*np.arange(nt)[:,np.newaxis,np.newaxis]
-        k = np.int_(np.kron(self.ic_mo, np.ones(nv*nv)))
+        if Q is not None:
+            i,j = np.meshgrid(np.arange(nv), np.arange(nv))
+            i =  i[np.newaxis,...] + nv*np.arange(nt)[:,np.newaxis,np.newaxis]
+            j =  j[np.newaxis,...] + nv*np.arange(nt)[:,np.newaxis,np.newaxis]
+            k = np.int_(np.kron(self.ic_mo, np.ones(nv*nv)))
 
-        i = i.reshape(-1)
-        j = j.reshape(-1)
-        d = Q.reshape(-1)
+            i = i.reshape(-1)
+            j = j.reshape(-1)
+            d = Q.reshape(-1)
 
-        ind = (i>=j)
-       
-        task.putqcon(k[ind],i[ind],j[ind], d[ind])
-        
+            ind = (i>=j)
+           
+            task.putqcon(k[ind],i[ind],j[ind], d[ind])
+            
+            
         j = self.iv_ddxdxxu
         k = np.int_(np.kron(self.ic_mo, np.ones(nv)))
 
@@ -154,6 +157,70 @@ class PlannerQPEuler:
                             ind_c, 
                             [mosek.boundkey.up]*ind_c.size, 
                             -b,-b)
+        return 
+
+
+    def min_con(self,c,q,Q,r):
+
+        task = self.task
+        iv = self.iv_ddxdxxu
+        
+        nv = 3*self.nx+self.nu
+        nt = self.nt
+
+        if Q is not None:
+            i,j = np.meshgrid(np.arange(nv), np.arange(nv))
+            i =  i[np.newaxis,...] + nv*np.arange(nt)[:,np.newaxis,np.newaxis]
+            j =  j[np.newaxis,...] + nv*np.arange(nt)[:,np.newaxis,np.newaxis]
+            k = np.int_(np.kron(self.ic_mo, np.ones(nv*nv)))
+
+            i = i.reshape(-1)
+            j = j.reshape(-1)
+            d = Q.reshape(-1)
+
+            ind = (i>=j)
+           
+            task.putqcon(k[ind],i[ind],j[ind], d[ind])
+            
+        if not q is None:
+            j = self.iv_ddxdxxu
+            k = np.int_(ic * np.ones(nt*nv))
+
+            task.putaijlist( k, j, q.reshape(-1)  )
+
+        self.task.putboundlist(  mosek.accmode.con,
+                            self.ic_mo, 
+                            [mosek.boundkey.up]*self.ic_mo.size, 
+                            [r]*self.ic_mo.size,[r]*self.ic_mo.size)
+
+        task.putclist(j, c.reshape(-1))
+        task.putobjsense(mosek.objsense.minimize)
+
+        return 
+
+
+    def L2con(self,c,r):
+
+        task = self.task
+        iv = self.iv_ddxdxxu
+        
+        nv = 3*self.nx+self.nu
+        nt = self.nt
+        ic = self.ic_mo[0]
+
+        j = self.iv_ddxdxxu
+        k = np.int_(ic * np.ones(nt*nv))
+        task.putqcon(k,j,j,2*np.ones(j.size) )
+            
+
+        self.task.putboundlist(  mosek.accmode.con,
+                            [ic], 
+                            [mosek.boundkey.up], 
+                            [r],[r])
+
+        task.putclist(j, c.reshape(-1))
+        task.putobjsense(mosek.objsense.minimize)
+
         return 
 
 
@@ -217,8 +284,9 @@ class PlannerQPEuler:
 
         task = self.task
 
-        # task.putintparam(mosek.iparam.intpnt_scaling,mosek.scalingtype.none);
-        task.putdouparam(mosek.dparam.check_convexity_rel_tol,1e-5);
+        #task.putintparam(mosek.iparam.intpnt_scaling,mosek.scalingtype.none);
+        #task.putdouparam(mosek.dparam.check_convexity_rel_tol,1e-5);
+        #task.putintparam(mosek.iparam.check_convexity,mosek.checkconvexitytype.none);
 
         # solve
 
@@ -264,7 +332,7 @@ class PlannerQPEuler:
 
 
 class PlannerQPVerlet(PlannerQPEuler):   
-    def dyn_constraint(self,dt):
+    def dyn_matrix(self,dt):
         nx = self.nx
         nu = self.nu
         nt = self.nt
@@ -292,7 +360,10 @@ class PlannerQPVerlet(PlannerQPEuler):
                   -ox, ox,     .5*dt*ox, .5*dt*ox  ))
         
         a = scipy.sparse.coo_matrix((ad,(ai,aj))).tocsr().tocoo()
+        return a
 
+    def dyn_constraint(self,dt):
+        a = self.dyn_matrix(dt)
         self.task.putaijlist( a.row, a.col, a.data  )
 
 PlannerQP =PlannerQPVerlet
@@ -599,6 +670,167 @@ class Planner:
 
         return cx[n_] #, cll[n_], f(n),  n_*self.dt
 
+class PlannerTst(Planner):
+    def parse_model(self,model):
+
+        self.model = model
+        d = self.dim
+
+        Prj = np.zeros((self.dind_ddxdxxu.size, d))
+        Prj[self.dind_ddxdxxu,self.ind_ddxdxxu] = 1
+
+
+        # prior cluster sizes
+        elt = self.model.elt
+
+        gr2, hs2, bm2 = self.partition(model.tau,model.distr, self.ind_dxx,
+                         self.dind_dxx)
+        
+        self.grs = gr2
+        self.hss = hs2
+        self.bms = bm2 + elt
+        
+
+        # conditionals
+
+        mu,Psi,n,nu = model.distr.prior.nat2usual(model.tau)
+
+        i2 = self.dind_dxxu
+        i1 = self.dind_ddx
+
+        A,B,D = Psi[:,i1,:][:,:,i1], Psi[:,i1,:][:,:,i2], Psi[:,i2,:][:,:,i2]
+
+        Di = np.array(map(np.linalg.inv,D))
+        Li = A-np.einsum('nij,njk,nlk->nil',B,Di,B)
+        
+        cf = nu*n/(n+1)
+        L = cf[:,np.newaxis,np.newaxis]*np.array(map(np.linalg.inv,Li))
+        P = np.einsum('njk,nkl->njl',B,Di)
+        
+        P = np.insert(P,np.zeros(i1.size),np.zeros(i1.size),axis=2)
+        P = np.eye(P.shape[1],P.shape[2])[np.newaxis,:,:]-P
+        P = np.einsum('nij,jk->nik',P,Prj)
+        mu = np.einsum('nj,jk->nk',mu,Prj)
+
+        self.mu = mu
+        self.P = P       
+        self.L = L        
+
+        #done here
+
+    def ll(self,x):
+        
+        lls = ( np.einsum('nkj,nj->nk', np.einsum('ni,kij->nkj', x,self.hss),x )
+                + np.einsum('ki,ni->nk',self.grs, x)
+                + self.bms[np.newaxis,:]  )
+
+        lls -= lls.max(1)[:,np.newaxis]
+        ps = np.exp(lls)
+        ps /= ps.sum(1)[:,np.newaxis]
+        
+
+        mu  = np.einsum('ki,nk->ni',self.mu,ps)            
+        P  = np.einsum('kij,nk->nij',self.P,ps)            
+        L  = -np.einsum('kij,nk->nij',self.L,ps)
+        
+        rs = np.einsum('nij,nj->ni', P,x-mu)
+        llm = np.einsum('kj,kj->k', np.einsum('ki,kij->kj', rs,L),rs )
+
+        grm = 2*np.einsum('nik,nk->ni', np.einsum('nji,njk->nik',P,L),rs)
+        hsm = 2*np.einsum('nik,nkl->nil', np.einsum('nji,njk->nik',P,L),P)
+        
+        return llm,grm,hsm
+        
+    def plan_inner(self,nt):
+
+        qp = PlannerQP(self.nx,self.nu,nt)
+        qp.dyn_constraint(self.dt)
+        
+        if self.x is None:
+            Q = np.zeros((nt,self.dim,self.dim))
+            Q[:,self.ind_ddx,self.ind_ddx] = -1.0
+            q = np.zeros((nt,self.dim))
+
+            qp.endpoints_constraint(self.start,self.end,self.um,self.uM)
+            #qp.min_quad_objective(-np.zeros(nt), -q,-Q)
+            qp.quad_objective(-q,-Q)
+
+            x = qp.solve()
+        else:
+            x = self.x
+
+
+        qp = PlannerQP(self.nx,self.nu,nt)
+        qp.dyn_constraint(self.dt)
+
+
+        ll_ = None
+
+        for t in range(1000):
+
+            ll,gr,hs = self.model.conditional_ll(x,self.dind_dxxu,
+                    [True,True,True], nsd=True, usual_x=True)
+            
+            if not ll_ is None:
+                pass
+            ll_ = ll
+            
+            qp.endpoints_constraint(self.start,self.end, 
+                    self.um,self.uM,x = x)
+
+            qp.min_con(-gr,None,-hs,100)
+            dx = qp.solve()
+            
+            xn = x+dx
+            
+            g = 2.0/(t+2.0)
+            x *= (1.0-g)
+            x += g*xn
+            print ll.sum()
+
+        
+        #plt.ion()
+        for i in range(self.max_iters):
+
+            ll_,q,Q = self.ll(x)             
+
+            lls_ = ll_.sum()
+            if not lls is None:
+                if (abs(lls_-lls) < self.tols*max(1,0*abs(lls_),0*abs(lls))):
+                    break
+            lls = lls_
+
+            qp.endpoints_constraint(self.start,self.end, 
+                    self.um,self.uM,x = x)
+
+            #qp.min_quad_objective(-ll,-q,-Q)
+            qp.quad_objective(-q,-Q)
+            dx = qp.solve()
+            
+            if True:
+                def f(a):
+                    ll__,q__,Q__ = self.ll(x+a*dx)
+                    return -ll__.sum()
+                a = scipy.optimize.fminbound(f,0.0,1.0,xtol=1e-8)
+                x += a*dx
+            else:
+                x += dx
+            #print lls#,a
+        
+            if False:
+                plt.ion()
+                plt.clf()
+                plt.scatter(x[:,2],x[:,1],c=x[:,3],linewidth=0)  # qdd, qd, q, u
+                #self.model.plot_clusters()
+                plt.draw()
+                #x = x_new
+
+        if i>=self.max_iters-1:
+            print 'MI reached'
+
+        return lls,x
+
+
 class Tests(unittest.TestCase):
     def setUp(self):
         pass
@@ -667,7 +899,7 @@ class Tests(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    single_test = 'test_sim'
+    single_test = 'test_grad_only'
     if hasattr(Tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(Tests(single_test))
