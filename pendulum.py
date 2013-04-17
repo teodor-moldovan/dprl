@@ -73,9 +73,9 @@ class MDPtests(unittest.TestCase):
         np.random.seed(2)
         a = Pendulum()
         traj = a.random_traj(200)
+        a.plot_traj(traj, alpha=.1)
         
         prob = learning.VDP(Distr(),k = 100, w = 1e-2, tol = 1e-7) # w = 1e-3
-        a.plot_traj(traj)
         x = prob.distr.sufficient_stats(traj)
         prob.batch_learn(x, verbose = True)
 
@@ -173,7 +173,7 @@ class MDPtests(unittest.TestCase):
             
 
 if __name__ == '__main__':
-    single_test = 'test_planning'
+    single_test = 'test_clustering'
     if hasattr(MDPtests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(MDPtests(single_test))

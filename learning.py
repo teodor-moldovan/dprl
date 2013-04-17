@@ -750,10 +750,13 @@ class Tests(unittest.TestCase):
         n = 120
         data = np.vstack([ gen_data(A,mu,n=n) for A,mu in zip(As,mus)])
         d = data.shape[1]
+        # can forget mus, As
             
         prob = VDP(GaussianNIW(d), k=50,w=.4)
         x = prob.distr.sufficient_stats(data)
         prob.batch_learn(x, verbose = False)
+        
+        print prob.cluster_sizes()        
         
         np.testing.assert_almost_equal((prob.al-1)[:3], n*np.ones(3))
         
@@ -875,7 +878,7 @@ class Tests(unittest.TestCase):
             print time.time()-t1
 
 if __name__ == '__main__':
-    single_test = 'test_ll'
+    single_test = 'test_batch_vdp'
     if hasattr(Tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(Tests(single_test))

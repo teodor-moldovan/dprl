@@ -53,7 +53,6 @@ class PlannerQPEuler:
 
         self.task = task
 
-
     def iv_lastn_dxx(self,n):
         nx = self.nx
         nu = self.nu
@@ -321,7 +320,8 @@ class PlannerQPEuler:
         task = self.task
 
         #task.putintparam(mosek.iparam.intpnt_scaling,mosek.scalingtype.none);
-        task.putdouparam(mosek.dparam.check_convexity_rel_tol,1e-2);
+        task.putintparam(mosek.iparam.check_convexity,mosek.checkconvexitytype.none);
+        #task.putdouparam(mosek.dparam.check_convexity_rel_tol,1e-2);
 
         # solve
 
@@ -334,7 +334,7 @@ class PlannerQPEuler:
                 task._Task__progress_cb=None
                 task._Task__stream_cb=None
                 print solsta, prosta
-                #raise MyException
+                raise MyException
 
         t0 = time.time()
         solve_b()
@@ -398,6 +398,290 @@ class PlannerQPVerlet(PlannerQPEuler):
 
         self.task.putaijlist( a.row, a.col, a.data  )
 
+class CanonicQP:
+    def __init__(self,nx,nu,nt):
+        """
+        Input:
+
+        min z.T*L*z/2
+        subject to:
+            dynamics: D*x = 0
+            z = P*x + m 
+            [x,dx]_i = [x_i,dx_i]
+            [x,dx]_f = [x_f,dx_f]
+            u_m <= I_u*x <= u_M
+        
+        Output:
+
+        min y.T*Q*y/2 + y.T*h
+        subject to:
+            y >= 0
+
+        indexing order: ddx,dx,x,u,z, ddx,dx,x,u,z, ...
+        """
+        self.nx = nx
+        self.nu = nu
+        self.nt = nt
+        self.constraints={}
+
+    def dyn_constraint(self,dt):
+        nx = self.nx
+        nu = self.nu
+        nt = self.nt
+
+        indsj = np.arange((4*nx+nu)*nt).reshape(nt,4*nx+nu)
+        j = lambda si,st : indsj[st,:][:,si].reshape(-1)
+
+        indsi = np.arange((2*nx)*(nt-1)).reshape(nt-1,2*nx)
+        i = lambda si,st : indsi[st,:][:,si].reshape(-1)
+
+        ddx = slice(0,nx)
+        dx =  slice(nx,2*nx)
+        x =   slice(2*nx,3*nx)
+        t =   slice(0,nt-1)
+        st =  slice(1,nt)
+        ox = np.ones(nx*(nt-1))
+
+        ct = np.concatenate
+
+        ai = ct(( i(ddx,t), i(ddx,t), i(ddx,t), i(ddx,t),
+                  i(dx,t), i(dx,t), i(dx,t), i(dx,t)     ))
+        aj = ct(( j(x,st),  j(x,t), j(dx,t),j(ddx,t),   
+                  j(dx,st),j(dx,t), j(ddx,st),j(ddx,t) ))
+        ad = ct(( -ox, ox,     dt*ox, .5*dt*dt* ox,
+                  -ox, ox,     .5*dt*ox, .5*dt*ox  ))
+        
+        a = scipy.sparse.coo_matrix((ad,(ai,aj)),
+            shape=(2*nx*(nt-1),(4*nx+nu)*nt)
+        ).tocsr().tocoo()
+
+        self.constraints['dyn']=(a, np.zeros(a.shape[0]), np.zeros(a.shape[0]))
+
+    def proj_constraint(self,P,m):
+        """
+        z = P*x + m equiv to:
+        -m <= P*x-z <= -m
+        """
+
+        nx = self.nx
+        nu = self.nu
+        nt = self.nt
+
+        indsj = np.arange((4*nx+nu)*nt).reshape(nt,4*nx+nu)
+        jz = indsj[:,3*nx+nu:4*nx+nu].reshape(-1)
+
+        i = np.arange(nx*nt)
+        ip = np.repeat(i.reshape(nt,nx,1),3*nx+nu,axis=2) 
+        jp = np.repeat(indsj[:,np.newaxis,0:3*nx+nu], nx,axis=1)
+
+        ct = np.concatenate
+
+        ai = ct(( ip.reshape(-1), i))
+        aj = ct(( jp.reshape(-1), jz))
+        ad = ct(( P.reshape(-1), -np.ones(nx*nt)))
+        ind=[ad!=0]
+        
+        a = scipy.sparse.coo_matrix((ad[ind],(ai[ind],aj[ind])),
+            shape=(nx*nt,(4*nx+nu)*nt)
+            )
+        self.constraints['proj']=(a,-m.reshape(-1),-m.reshape(-1))
+
+
+    def dxx_constraint(self,xi,xf):
+        
+        nx = self.nx
+        nu = self.nu
+        nt = self.nt
+
+        indsj = np.arange((4*nx+nu)*nt).reshape(nt,4*nx+nu)
+        ji = indsj[ 0,nx:3*nx].reshape(-1)
+        jf = indsj[-1,nx:3*nx].reshape(-1)
+
+        ox = np.ones(ji.size)
+        
+        aj = np.concatenate(( ji, jf))
+        ai = np.arange(aj.size)
+        ad = np.concatenate(( ox,ox))
+        
+        x = np.concatenate((xi,xf))
+        
+        ind = [ad!=0]
+        a = scipy.sparse.coo_matrix((ad[ind],(ai[ind],aj[ind])),
+            shape=(4*nx,(4*nx+nu)*nt)
+            )
+        self.constraints['dxx']=(a,x,x)
+
+    def u_constraint(self,ul):
+        nx = self.nx
+        nu = self.nu
+        nt = self.nt
+
+        indsj = np.arange((4*nx+nu)*nt).reshape(nt,4*nx+nu)
+        j = indsj[ :,3*nx:3*nx+nu].reshape(-1)
+
+        aj = j
+        ai = np.arange(j.size)
+        ad = np.ones(j.size)
+        
+        a = scipy.sparse.coo_matrix((ad,(ai,aj)), 
+            shape=(nu*nt,(4*nx+nu)*nt)
+        )
+        
+        ul = np.tile(ul,nt)
+
+        self.constraints['u']=(a,-ul,ul)
+
+    def quad_obj(self,L):
+
+        nx = self.nx
+        nu = self.nu
+        nt = self.nt
+        indsj = np.arange((4*nx+nu)*nt).reshape(nt,4*nx+nu)
+        j = indsj[ :,3*nx+nu:4*nx+nu]
+        
+        i = np.repeat(j[:,np.newaxis,:],nx,axis=1)
+        j = np.repeat(j[:,:,np.newaxis],nx,axis=2)
+        ai = i.reshape(-1)
+        aj = j.reshape(-1)
+        ad = L.reshape(-1)
+        ind = [ad!=0]
+        
+        a = scipy.sparse.coo_matrix((ad[ind],(ai[ind],aj[ind])))
+        self.obj=a
+
+    def quad_obj_inv(self,L):
+
+        nx = self.nx
+        nu = self.nu
+        nt = self.nt
+        indsj = np.arange((4*nx+nu)*nt).reshape(nt,4*nx+nu)
+        j = indsj[ :,3*nx+nu:4*nx+nu]
+        
+        i = np.repeat(j[:,np.newaxis,:],nx,axis=1)
+        j = np.repeat(j[:,:,np.newaxis],nx,axis=2)
+        ai = i.reshape(-1)
+        aj = j.reshape(-1)
+        ad = L.reshape(-1)
+        ind = [ad!=0]
+        
+        a = scipy.sparse.coo_matrix((ad[ind],(ai[ind],aj[ind])))
+        self.obj_inv=a
+
+    def solve_primal(self):
+
+        nx = self.nx
+        nu = self.nu
+        nt = self.nt
+
+        tt = zip(*self.constraints.values())
+        a = scipy.sparse.vstack(tt[0])
+        m = np.concatenate(tt[1])
+        M = np.concatenate(tt[2])
+        
+        a = scipy.sparse.vstack((a,-a))
+        m = np.concatenate((m,-M))
+        Q = self.obj
+        
+        c = np.zeros(Q.shape[0])
+        x = self.mosek_solve(Q,c,a,m)
+
+        x.reshape(nt,4*nx+nu)[:,0:3*nx+nu]
+        
+        
+    def solve_dual(self):
+
+        nx = self.nx
+        nu = self.nu
+        nt = self.nt
+
+        tt = zip(*self.constraints.values())
+        a = scipy.sparse.vstack(tt[0])
+        m = np.concatenate(tt[1])
+        M = np.concatenate(tt[2])
+        
+        A = scipy.sparse.vstack((-a,a))
+        b = np.concatenate((-m,M))
+
+        Qi = self.obj_inv
+        
+        Q =  ((A*Qi)*A.T).tocoo()
+
+        a  = scipy.sparse.eye(b.size,b.size ).tocoo()
+
+        m = np.zeros(b.size)
+        
+        x = self.mosek_solve(Q,b,a,m)
+        
+        
+    def mosek_solve(self,q,c,a,m):
+
+        nc,nv = a.shape
+        task = mosek_env.Task()
+        task.append( mosek.accmode.var, nv)
+        task.append( mosek.accmode.con, nc)
+
+        task.putboundlist(  mosek.accmode.var,
+                range(nv), 
+                [mosek.boundkey.fr]*nv,
+                [0]*nv,[0]*nv )
+
+        task.putboundlist(  mosek.accmode.con,
+                            range(nc), 
+                            [mosek.boundkey.lo]*nc, 
+                            m,m)
+
+        task.putaijlist( a.row, a.col, a.data )
+
+        i,j,d = q.row, q.col, q.data
+        ind = (i>=j)
+       
+        task.putqobj(i[ind],j[ind], d[ind]) 
+        task.putclist(range(nv),c) 
+        task.putobjsense(mosek.objsense.minimize)
+
+        # done formulating problem
+        
+        # solve problem
+        #task.putintparam(mosek.iparam.intpnt_scaling,mosek.scalingtype.none);
+        #task.putintparam(mosek.iparam.check_convexity,
+        #    mosek.checkconvexitytype.none);
+        #task.putdouparam(mosek.dparam.check_convexity_rel_tol,1e-2);
+
+        def solve_b():
+            task.optimize()
+            [prosta, solsta] = task.getsolutionstatus(mosek.soltype.itr)
+            if (solsta!=mosek.solsta.optimal 
+                    and solsta!=mosek.solsta.near_optimal):
+                # mosek bug fix 
+                task._Task__progress_cb=None
+                task._Task__stream_cb=None
+                print solsta, prosta
+                raise MyException
+
+        solve_b()
+           
+        xx = np.zeros(nv)
+
+        warnings.simplefilter("ignore", RuntimeWarning)
+        task.getsolutionslice(mosek.soltype.itr,
+                            mosek.solitem.xx,
+                            0,nv, xx)
+
+        if False:
+            yy = np.zeros(nc)
+            task.getsolutionslice(mosek.soltype.itr,
+                                mosek.solitem.y,
+                                0,nc, yy)
+
+
+        warnings.simplefilter("default", RuntimeWarning)
+
+        task._Task__progress_cb=None
+        task._Task__stream_cb=None
+        
+        return xx
+
+
 PlannerQP =PlannerQPVerlet
 class Planner:
     def __init__(self, dt,hi, nx, nu, um, uM): 
@@ -423,7 +707,7 @@ class Planner:
 
         self.tols = 1e-2
         self.max_iters = 100
-        self.nM = int(hi/float(self.dt))
+        self.nM = int(hi/float(self.dt))+1
 
         self.x = None
         
@@ -465,8 +749,8 @@ class Planner:
         # prior cluster sizes
         elt = self.model.elt
 
-        gr2, hs2, bm2 = self.partition(model.tau,model.distr, self.ind_dxx,
-                         self.dind_dxx)
+        gr2, hs2, bm2 = self.partition(model.tau,model.distr, self.ind_dxxu,
+                         self.dind_dxxu)
         
         self.grs = gr2
         self.hss = hs2
@@ -554,7 +838,7 @@ class Planner:
 
             lls_ = ll_.sum()
             if not lls is None:
-                if (abs(lls_-lls) < max(1,self.tols*max(abs(lls_),abs(lls)))):
+                if (abs(lls_-lls) < self.tols*max(1,abs(lls_),abs(lls))):
                     break
             lls = lls_
 
@@ -565,13 +849,16 @@ class Planner:
 
             qp.mpl_obj(m,P,-L)
 
-            dx = qp.solve()
+            try:
+                dx = qp.solve()
+            except MyException:
+                break
             
             if True:
                 def f(a):
                     ll__,mu__,P__,L__ = self.ll(x+a*dx)
                     return -ll__.sum()
-                a = scipy.optimize.golden(f,brack=[0.0,1.0],tol=1e-5)
+                a = scipy.optimize.fminbound(f,0.0,1.0,xtol=1e-5)
                 x += a*dx
             else:
                 x += dx
@@ -617,28 +904,31 @@ class Planner:
         #plt.ion()
         for i in range(self.max_iters):
 
-            ll_,m,P,L = self.ll(x)             
+            ll_,mu,P,L = self.ll(x)             
 
             lls_ = ll_.min()
             if not lls is None:
-                if (abs(lls_-lls) < max(1,self.tols*max(abs(lls_),abs(lls)))):
+                if (abs(lls_-lls) < self.tols*max(1,abs(lls_),abs(lls))):
                     break
             lls = lls_
 
             qp.endpoints_constraint(self.start,self.end, 
                     self.um,self.uM,x=x)
             
-            m = np.einsum('nij,nj->ni',P,x)-m
+            m = np.einsum('nij,nj->ni',P,x)-mu
 
             qp.min_mpl_obj(m,P,-L)
 
-            dx = qp.solve()
+            try:
+                dx = qp.solve()
+            except MyException:
+                break
             
             if True:
                 def f(a):
                     ll__,mu__,P__,L__ = self.ll(x+a*dx)
                     return -ll__.min()
-                a = scipy.optimize.golden(f,brack=[0.0,1.0],tol=1e-5)
+                a = scipy.optimize.fminbound(f,0.0,1.0,xtol=1e-5)
                 x += a*dx
             else:
                 x += dx
@@ -650,7 +940,7 @@ class Planner:
         return lls,x
 
 
-    plan_inner = plan_inner_min
+    plan_inner = plan_inner_sum
     def plan(self,model,start,end,just_one=False):
 
         self.start = start
@@ -671,8 +961,7 @@ class Planner:
             if not cll.has_key(nn):
                 ll,x = self.plan_inner(nn)
                 tmp = ll
-                if nn>nM:
-                    tmp -= (nn-nM)
+                tmp -= nn
                 cll[nn],cx[nn] = tmp,x
             return cll[nn]
         
@@ -681,6 +970,9 @@ class Planner:
             n = self.no
         except:
             n = nM
+        
+        #if f(nM)>f(n):
+        #    n = nM
 
         for it in range(10):
             if f(n+1)>f(n):
@@ -708,7 +1000,7 @@ class Tests(unittest.TestCase):
     def test_min_acc(self):
         
         h = 1.0
-        dt = .1
+        dt = .01
 
         nt = int(h/dt)+1
 
@@ -722,17 +1014,18 @@ class Tests(unittest.TestCase):
         q = np.zeros((nt,4))
         b = np.zeros(nt)
 
+        t1 = time.time()
         planner.dyn_constraint(dt)
         planner.endpoints_constraint(start,stop,np.array([-5]),np.array([5]))
 
         
-        planner.min_quad_objective(b,q,Q)
+        planner.quad_objective(q,Q)
 
         x = planner.solve()
-        print x
+        print time.time()-t1
         
-        plt.scatter(x[:,2],x[:,1], c=x[:,3])  # qdd, qd, q, u
-        plt.show()
+        #plt.scatter(x[:,2],x[:,1], c=x[:,3])  # qdd, qd, q, u
+        #plt.show()
 
         
     def test_sim(self):
@@ -769,8 +1062,29 @@ class Tests(unittest.TestCase):
         self.assertLess(re,.01)
 
 
+    def test_canonic_qp(self):
+
+        qp = CanonicQP(3,2,10)
+        
+        m = np.zeros((qp.nt,qp.nx))
+        P0 = np.eye(qp.nx,qp.nx*3+qp.nu)
+        P = np.repeat(P0[np.newaxis,:,:],qp.nt,axis=0)
+        L = np.repeat(2*np.eye(qp.nx)[np.newaxis,:,:],qp.nt,axis=0)
+        Li = L/4
+
+        qp.dyn_constraint(.1)
+        qp.proj_constraint(P,m)
+        qp.dxx_constraint([0,0,0,0,0,0],[0,0,0,1,1,1])
+        qp.u_constraint([10,2])
+        qp.quad_obj(L)         
+        qp.quad_obj_inv(Li)         
+        
+        qp.solve_primal()
+        qp.solve_dual()
+        
+
 if __name__ == '__main__':
-    single_test = 'test_sim'
+    single_test = 'test_canonic_qp'
     if hasattr(Tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(Tests(single_test))

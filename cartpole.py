@@ -284,7 +284,7 @@ class Tests(unittest.TestCase):
         stop =  np.array([0,0,0,0])
         dt = .01
 
-        planner = ReducedPlanner(dt,.2) # should be 3.0
+        planner = ReducedPlanner(dt,.1) # should be 3.0
 
         traj = a.random_traj(2, control_freq = 50)
         
@@ -336,7 +336,7 @@ class Tests(unittest.TestCase):
         stop =  np.array([0,0,0,0])
         dt = .01
 
-        planner = ReducedPlanner(dt,.2) # should be 3.0
+        planner = ReducedPlanner(dt,.1) # should be 3.0
 
         traj = a.random_traj(2, control_freq = 50)
         
