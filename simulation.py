@@ -3,6 +3,10 @@ from numpy import exp, sin, cos, sqrt
 import unittest
 import scipy.integrate
 import numpy.random 
+import matplotlib.pyplot as plt
+import git
+import cPickle
+import os
 
 class Simulation:
     def sim(self, x0, pi,t=None):
@@ -27,14 +31,18 @@ class Simulation:
 
         return x
 
-    def random_traj(self,t,control_freq = 2,scale = 1.0, x0=None): 
+    def random_traj(self,t=None,freq = None,scale = 1.0, x0=None): 
         
         if x0 is None:
             x0 = self.x0   
+        if t is None:
+            t = self.random_traj_h
+        if freq is None:
+            freq = self.random_traj_freq
 
         #t = max(t,2.0/control_freq)
         #TODO: is this consistent?
-        ts = np.linspace(0.0,t, t*control_freq)
+        ts = np.linspace(0.0,t, t*freq)
         us = ((numpy.random.uniform(size = ts.size))
                 *(self.umax-self.umin)+self.umin)*scale
 
@@ -95,6 +103,123 @@ class HarmonicOscillator(Simulation):
     def cost_matrix(self):
         a = np.array([1,2*self.ze,1,-1])
         return np.outer(a,a)
+
+class ControlledSim:
+    def __init__(self,system,modeller,planner):
+        self.system = system
+        self.modeller=modeller
+        self.planner=planner
+
+    def run(self,seed=None):
+
+        if seed is None:
+            seed = int(np.random.random()*1000)
+        self.seed = seed
+        np.random.seed(seed) # 11,12 works
+        
+        
+        a = self.system
+        hvdp = self.modeller
+        planner  = self.planner
+
+        traj = a.random_traj()
+        
+        # initialize output
+        self.output_init()
+
+        nss = 0
+        for it in range(10000):
+
+            ss = hvdp.distr.sufficient_stats(traj)
+            hvdp.put(ss[:-1,:]) 
+
+            start = traj[-1,a.nx:3*a.nx]
+
+            model = hvdp.get_model()
+            
+            if np.linalg.norm(start-planner.stop) < .1:
+                nss += 1
+                if nss>50:
+                    break 
+
+            x = planner.plan(model,start,planner.stop)
+
+            self.output(traj,x,model)
+
+            pi = lambda tc,xc: np.interp(tc, 
+                planner.dt*np.arange(x.shape[0]), x[:,3*a.nx])
+            traj = a.sim(start,pi,planner.dt)
+
+        self.output_final()
+            
+
+
+    def output_init(self):
+        pass
+
+    def output(self,traj,x,model):
+        pass
+    def output_final(self):
+        pass
+
+class ControlledSimDisp(ControlledSim):
+    def __init__(self,system,modeller,planner):
+        self.system = system
+        self.modeller=modeller
+        self.planner=planner
+
+    def output_init(self):
+        #fl = open('../data/cartpole/online_'+str(seed)+'.pkl','wb') 
+        plt.ion()
+
+    def output(self,traj,x,model):
+        
+        # output
+        plt.clf()
+        model.plot_clusters()
+        self.system.plot(x,linewidth=0)
+        plt.draw()
+
+
+        #print  traj[0,[4,5]], x[0,[4,5]]
+        #cPickle.dump((None,traj,None,None,None,None ),fl)
+
+
+
+
+
+class ControlledSimFile(ControlledSim):
+    def output_init(self):
+        cname = self.system.__class__.__name__.lower()
+        cseed = str(self.seed)
+         
+        repo = git.Repo()
+        for h in repo.heads:
+            if h.name==repo.active_branch:
+                cid = h.commit.id
+                break
+        
+        
+        dname = '../../data/'+cname+'/'+cid
+        fname = dname+'/online_'+cseed+'.pkl'
+
+        try:
+            os.makedirs(dname)
+        except OSError:
+            pass
+
+        self.fl = open(fname,'wb') 
+
+    def output(self,traj,x,model):
+        
+        cPickle.dump((None,traj,None,None,None,None ),self.fl)
+
+    def output_final(self):
+        self.fl.close()
+
+
+
+
 
 class Tests(unittest.TestCase):
     def setUp(self):
