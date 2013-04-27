@@ -23,36 +23,44 @@ class Simulation:
        
         f = lambda x_,t_: np.hstack((self.f(x_,pi(t_,x_)), x_[0:nx]) )
 
-        x[:,nx:nx+2*nx] = scipy.integrate.odeint(f,x0, ts,)
+        x[:,nx:3*nx] = scipy.integrate.odeint(f,x0, ts,)
 
         for t,i in zip(ts, np.arange(n)):
-            x[i,3*nx:] = pi(t,x[i,nx:nx+2*nx])
-            x[i,0:nx] = self.f(x[i,nx:nx+2*nx], x[i,3*nx:]).reshape(-1)
+            x[i,3*nx:] = pi(t,x[i,nx:3*nx])
+            x[i,0:nx] = self.f(x[i,nx:3*nx], x[i,3*nx:]).reshape(-1)
 
         return x
 
-    def random_traj(self,t=None,freq = None,scale = 1.0, x0=None): 
+    def random_traj(self,h=None,freq = None, x0=None): 
         
-        if x0 is None:
-            x0 = self.x0   
-        if t is None:
-            t = self.random_traj_h
+        if h is None:
+            h = self.random_traj_h
         if freq is None:
             freq = self.random_traj_freq
 
         #t = max(t,2.0/control_freq)
         #TODO: is this consistent?
-        ts = np.linspace(0.0,t, t*freq)
-        us = ((numpy.random.uniform(size = ts.size))
-                *(self.umax-self.umin)+self.umin)*scale
+        ts = np.linspace(0.0,h, h*freq)
+        us = self.random_controls(ts.size)
 
-        pi = lambda t,x: np.interp(t, ts, us)
+        return self.sim_controls(ts,us)
 
-        traj = self.sim(x0,pi,t )
-        return traj 
+    def sim_controls(self, ts,us,x0=None,h=None):
+        if h is None:
+            h = ts[-1]
+        if x0 is None:
+            x0 = self.x0
+         
+        if len(us.shape)>1:
+            pi = lambda t,x: np.array([np.interp(t, ts, u) for u in us.T])
+        else:
+            pi = lambda t,x: np.interp(t, ts, us)
+             
+        return self.sim(x0,pi,h)
           
 
-
+    def random_controls(self,n):
+        pass
 class HarmonicOscillator(Simulation):
     def __init__(self,ze):
         self.ze = ze
@@ -146,10 +154,15 @@ class ControlledSim:
 
             self.output(traj,x,model)
 
-            pi = lambda tc,xc: np.interp(tc, 
-                planner.dt*np.arange(x.shape[0]), x[:,3*a.nx])
-            traj = a.sim(start,pi,planner.dt)
+            ts = planner.dt*np.arange(x.shape[0])
+            
+            if a.nu>1:
+                us = x[:,3*a.nx:]
+            else: 
+                us = x[:,3*a.nx]
+            #us += .01*np.random.normal(size=us.size).reshape(us.shape)
 
+            traj = a.sim_controls(ts,us,x0=start,h=planner.dt)
         self.output_final()
             
 
@@ -179,6 +192,7 @@ class ControlledSimDisp(ControlledSim):
         model.plot_clusters()
         self.system.plot(x,linewidth=0)
         plt.draw()
+        print traj
 
 
         #print  traj[0,[4,5]], x[0,[4,5]]

@@ -705,7 +705,7 @@ class Planner:
 
         self.ind_u = np.arange(3*nx,3*nx+nu)
 
-        self.tols = 1e-7
+        self.tols = 1e-5
         self.max_iters = 100
         self.nM = int(hi/float(self.dt))+1
 
@@ -780,6 +780,10 @@ class Planner:
         P = np.einsum('nij,jk->nik',P,Prj)
         mu = np.einsum('nj,jk->nk',mu,Prj)
 
+        if True:
+            mx = np.max(L[:,np.arange(L.shape[1]),np.arange(L.shape[2])])
+            L /= mx
+
         self.mu = mu
         self.P = P       
         self.L = L        
@@ -838,7 +842,7 @@ class Planner:
 
             lls_ = ll_.sum()
             if not lls is None:
-                if (abs(lls_-lls) < self.tols*max(1,abs(lls_),abs(lls))):
+                if (abs(lls_-lls) < self.tols):
                     break
             lls = lls_
 
@@ -957,11 +961,12 @@ class Planner:
         cx = {}
         cll ={}
         def f(nn):
-            nn = max(nn,nm)
+            print nn
+            nn = min(max(nn,nm),50)
             if not cll.has_key(nn):
                 ll,x = self.plan_inner(nn)
                 tmp = ll
-                tmp -= nn
+                tmp -= 1e-4*nn
                 cll[nn],cx[nn] = tmp,x
             return cll[nn]
         
@@ -987,7 +992,7 @@ class Planner:
                     break
             n = n+df
 
-        n_ = max(n,nm)
+        n_ = min(max(n,nm),50)
         print n_,cll[n_]
         self.no = n_
         #self.x = cx[n_]
