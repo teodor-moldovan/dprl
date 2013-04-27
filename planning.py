@@ -705,7 +705,7 @@ class Planner:
 
         self.ind_u = np.arange(3*nx,3*nx+nu)
 
-        self.tols = 1e-2
+        self.tols = 1e-7
         self.max_iters = 100
         self.nM = int(hi/float(self.dt))+1
 
