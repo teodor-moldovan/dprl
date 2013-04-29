@@ -705,7 +705,7 @@ class Planner:
 
         self.ind_u = np.arange(3*nx,3*nx+nu)
 
-        self.tols = 1e-5
+        self.tols = 1e-4
         self.max_iters = 100
         self.nM = int(hi/float(self.dt))+1
 
@@ -783,10 +783,17 @@ class Planner:
         if True:
             mx = np.max(L[:,np.arange(L.shape[1]),np.arange(L.shape[2])])
             L /= mx
+            self.mx = mx
+        else:
+            self.mx = 1.0
+        
+        tmp = np.zeros(L.shape)
+        ind = np.arange(L.shape[1])
+        tmp[:,ind,ind]=L[:,ind,ind]
 
         self.mu = mu
         self.P = P       
-        self.L = L        
+        self.L = tmp        
 
         #done here
 

@@ -15,11 +15,11 @@ class Heli2D(simulation.Simulation):
 
         self.mu_w = 3.06     # angular rate friction coefficient
         self.mu = np.matrix(np.diag([.048,.0005]))  # friction
-        self.tc = .1
+        self.tc = 1
 
         self.g = 9.81   # gravitational accel
 
-        self.umax = np.array([3.0,3.0]) # action bounds
+        self.umax = np.array([5.0,3.0]) # action bounds
         self.umin = -self.umax
         
         self.nx = 3
@@ -65,7 +65,7 @@ class Heli2D(simulation.Simulation):
 
 
     def random_controls(self,n):
-        return (.05*np.random.normal(size=2*n).reshape(n,2) 
+        return (.1*np.random.normal(size=2*n).reshape(n,2) 
                 + self.u_eq[np.newaxis,:])
 
     def plot(self,traj,**kwarg):
@@ -108,7 +108,7 @@ class Planner(planning.Planner):
     def __init__(self,dt=.01,h=.1,stop=np.array([0,0,0,0,0,0])):        
         
         planning.Planner.__init__(self,dt,h,
-                3,2,np.array([-3.0,-3.0]), np.array([3.0,3.0]))
+                3,2,np.array([-5.0,-3.0]), np.array([5.0,3.0]))
        
         self.ind_dxx = np.array([3,4,5,6])
         self.ind_dxxu = np.array([3,4,5,6,9,10])
