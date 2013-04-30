@@ -65,6 +65,10 @@ class CartPole(simulation.Simulation):
         plt.scatter(data[:,5],data[:,3],c=data[:,6],**kwarg)
 
 
+    def random_controls(self,n):
+        return ((np.random.uniform(size = n))
+                *(self.umax-self.umin)+self.umin)
+
 class Distr(learning.GaussianNIW):
     def __init__(self):
         learning.GaussianNIW.__init__(self,5)

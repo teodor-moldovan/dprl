@@ -48,6 +48,10 @@ class Pendulum(simulation.Simulation):
         x[:,2] =  np.mod(x[:,2] + 2*np.pi,4*np.pi)-2*np.pi
         return x
 
+    def random_controls(self,n):
+        return ((np.random.uniform(size = n))
+                *(self.umax-self.umin)+self.umin)
+
 class Distr(learning.GaussianNIW):
     def __init__(self):
         learning.GaussianNIW.__init__(self,4)
@@ -76,7 +80,7 @@ class MDPtests(unittest.TestCase):
         np.random.seed(2)
         a = Pendulum()
         traj = a.random_traj(200)
-        a.plot_traj(traj, alpha=.1)
+        a.plot(traj, alpha=.1)
         
         prob = learning.VDP(Distr(),k = 100, w = 1e-2, tol = 1e-7) # w = 1e-3
         x = prob.distr.sufficient_stats(traj)
@@ -109,10 +113,10 @@ class MDPtests(unittest.TestCase):
         stop = np.array([0,0])  # should finally be [0,0]
         dt = .01
 
-        planner = Planner(dt, 4.1)
+        planner = Planner(dt, 4.1, stop)
         x = planner.plan(model,start,stop,just_one=True)
         
-        plt.scatter(x[:,2],x[:,1], c=x[:,3])  # qdd, qd, q, u
+        Pendulum().plot(x)
         plt.show()
 
         
@@ -131,7 +135,7 @@ class MDPtests(unittest.TestCase):
            
 
 if __name__ == '__main__':
-    single_test = 'test_clustering'
+    single_test = 'test_planning'
     if hasattr(MDPtests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(MDPtests(single_test))

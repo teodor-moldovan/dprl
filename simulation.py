@@ -54,7 +54,7 @@ class Simulation:
         if x0 is None:
             x0 = self.x0
          
-        if hasattr(us,"shape"):
+        if len(us.shape)>1:
             pi = lambda t,x: np.array([np.interp(t, ts, u) for u in us.T])
         else:
             pi = lambda t,x: np.interp(t, ts, us)
