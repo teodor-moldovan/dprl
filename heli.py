@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import math
 
 import simulation
-import learning
+import dpcluster as learning
 import planning
 
 class Heli2D(simulation.Simulation):

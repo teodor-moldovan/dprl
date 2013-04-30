@@ -4,7 +4,8 @@ import numpy as np
 import numpy.random 
 import matplotlib.pyplot as plt
 
-import learning
+
+import dpcluster as learning
 import planning
 import simulation
 
