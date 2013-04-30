@@ -3,6 +3,7 @@ import math
 import numpy as np
 import numpy.random 
 import matplotlib.pyplot as plt
+import cPickle
 
 import dpcluster as learning
 import planning
@@ -130,7 +131,7 @@ class MDPtests(unittest.TestCase):
            
 
 if __name__ == '__main__':
-    single_test = 'test_online'
+    single_test = 'test_clustering'
     if hasattr(MDPtests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(MDPtests(single_test))
