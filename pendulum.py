@@ -111,6 +111,7 @@ class MDPtests(unittest.TestCase):
 
         start = np.array([0,np.pi])
         stop = np.array([0,0])  # should finally be [0,0]
+        stop = None
         dt = .01
 
         planner = Planner(dt, 4.1, stop)

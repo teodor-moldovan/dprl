@@ -705,7 +705,7 @@ class Planner:
 
         self.ind_u = np.arange(3*nx,3*nx+nu)
 
-        self.tols = 1e-4
+        self.tols = 1e-7
         self.max_iters = 100
         self.nM = int(hi/float(self.dt))+1
 
@@ -819,7 +819,7 @@ class Planner:
 
         return llm,m,P,L
         
-    def plan_inner_sum(self,nt):
+    def plan_inner(self,nt):
 
         qp = PlannerQP(self.nx,self.nu,nt)
         qp.dyn_constraint(self.dt)
@@ -873,7 +873,7 @@ class Planner:
                 x += a*dx
             else:
                 x += dx
-            #print lls,a
+            print lls,a
         
             if False:
                 plt.ion()
@@ -889,69 +889,6 @@ class Planner:
         return lls,x
 
 
-    def plan_inner_min(self,nt):
-
-        qp = PlannerQP(self.nx,self.nu,nt)
-        qp.dyn_constraint(self.dt)
-        
-        if self.x is None:
-            Q = np.zeros((nt,self.dim,self.dim))
-            Q[:,self.ind_ddx,self.ind_ddx] = -1.0
-            q = np.zeros((nt,self.dim))
-
-            qp.endpoints_constraint(self.start,self.end,self.um,self.uM)
-            #qp.min_quad_objective(-np.zeros(nt), -q,-Q)
-            qp.quad_objective(-q,-Q)
-
-            x = qp.solve()
-        else:
-            x = self.x
-
-        lls = None
-
-        qp = PlannerQP(self.nx,self.nu,nt)
-        qp.dyn_constraint(self.dt)
-
-        #plt.ion()
-        for i in range(self.max_iters):
-
-            ll_,mu,P,L = self.ll(x)             
-
-            lls_ = ll_.min()
-            if not lls is None:
-                if (abs(lls_-lls) < self.tols*max(1,abs(lls_),abs(lls))):
-                    break
-            lls = lls_
-
-            qp.endpoints_constraint(self.start,self.end, 
-                    self.um,self.uM,x=x)
-            
-            m = np.einsum('nij,nj->ni',P,x)-mu
-
-            qp.min_mpl_obj(m,P,-L)
-
-            try:
-                dx = qp.solve()
-            except MyException:
-                break
-            
-            if True:
-                def f(a):
-                    ll__,mu__,P__,L__ = self.ll(x+a*dx)
-                    return -ll__.min()
-                a = scipy.optimize.fminbound(f,0.0,1.0,xtol=1e-5)
-                x += a*dx
-            else:
-                x += dx
-            #print lls,a
-        
-        if i>=self.max_iters-1:
-            print 'MI reached'
-
-        return lls,x
-
-
-    plan_inner = plan_inner_sum
     def plan(self,model,start,end,just_one=False):
 
         self.start = start
