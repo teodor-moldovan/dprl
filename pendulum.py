@@ -111,10 +111,10 @@ class MDPtests(unittest.TestCase):
 
         start = np.array([0,np.pi])
         stop = np.array([0,0])  # should finally be [0,0]
-        stop = None
+        #stop = None
         dt = .01
 
-        planner = Planner(dt, 4.1, stop)
+        planner = Planner(dt, 2.1, stop)
         x = planner.plan(model,start,stop,just_one=True)
         
         Pendulum().plot(x)
@@ -136,7 +136,7 @@ class MDPtests(unittest.TestCase):
            
 
 if __name__ == '__main__':
-    single_test = 'test_planning'
+    single_test = 'test_online'
     if hasattr(MDPtests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(MDPtests(single_test))

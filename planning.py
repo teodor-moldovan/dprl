@@ -705,7 +705,7 @@ class Planner:
 
         self.ind_u = np.arange(3*nx,3*nx+nu)
 
-        self.tols = 1e-7
+        self.tols = 1e-4
         self.max_iters = 100
         self.nM = int(hi/float(self.dt))+1
 
@@ -857,6 +857,7 @@ class Planner:
                     self.um,self.uM,x=x)
             
             m = np.einsum('nij,nj->ni',P,x)-m
+            L*=2
 
             qp.mpl_obj(m,P,-L)
 
@@ -869,11 +870,11 @@ class Planner:
                 def f(a):
                     ll__,mu__,P__,L__ = self.ll(x+a*dx)
                     return -ll__.sum()
-                a = scipy.optimize.fminbound(f,0.0,1.0,xtol=1e-5)
+                a = scipy.optimize.fminbound(f,0.0,1.0,xtol=1e-4)
                 x += a*dx
             else:
                 x += dx
-            print lls,a
+            #print lls,a
         
             if False:
                 plt.ion()
