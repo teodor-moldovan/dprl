@@ -837,7 +837,7 @@ class Planner:
         else:
             x = self.x
 
-        lls = None
+        ll = None
 
         qp = PlannerQP(self.nx,self.nu,nt)
         qp.dyn_constraint(self.dt)
@@ -847,11 +847,13 @@ class Planner:
 
             ll_,m,P,L = self.ll(x)             
 
-            lls_ = ll_.sum()
-            if not lls is None:
-                if (abs(lls_-lls) < self.tols):
+            print ll_.sum()
+            if not ll is None:
+                rs = np.abs(ll_-ll)/np.maximum(np.abs(ll),np.abs(ll_))
+                if np.max(rs) < self.tols:
+                #if ll_.sum()<ll.sum():
                     break
-            lls = lls_
+            ll = ll_
 
             qp.endpoints_constraint(self.start,self.end, 
                     self.um,self.uM,x=x)
@@ -867,14 +869,13 @@ class Planner:
                 break
             
             if True:
-                def f(a):
-                    ll__,mu__,P__,L__ = self.ll(x+a*dx)
+                def f(a__):
+                    ll__,mu__,P__,L__ = self.ll(x+a__*dx)
                     return -ll__.sum()
-                a = scipy.optimize.fminbound(f,0.0,1.0,xtol=1e-4)
+                a = scipy.optimize.fminbound(f,0.0,1.0,xtol=1e-8)
                 x += a*dx
             else:
-                x += dx
-            #print lls,a
+                x += 2.0/(i+2.0)*dx
         
             if False:
                 plt.ion()
@@ -887,7 +888,7 @@ class Planner:
         if i>=self.max_iters-1:
             print 'MI reached'
 
-        return lls,x
+        return ll.sum(),x
 
 
     def plan(self,model,start,end,just_one=False):
@@ -907,11 +908,11 @@ class Planner:
         cll ={}
         def f(nn):
             print nn
-            nn = min(max(nn,nm),50)
+            nn = min(max(nn,nm),100)
             if not cll.has_key(nn):
                 ll,x = self.plan_inner(nn)
                 tmp = ll
-                tmp -= 1e-4*nn
+                tmp -= 1.0*nn/self.mx
                 cll[nn],cx[nn] = tmp,x
             return cll[nn]
         
@@ -937,7 +938,7 @@ class Planner:
                     break
             n = n+df
 
-        n_ = min(max(n,nm),50)
+        n_ = min(max(n,nm),100)
         print n_,cll[n_]
         self.no = n_
         #self.x = cx[n_]

@@ -26,10 +26,7 @@ class Simulation:
         x[:,nx:3*nx] = scipy.integrate.odeint(f,x0, ts,)
 
         for t,i in zip(ts, np.arange(n)):
-            if nu>1:
-                x[i,3*nx:] = pi(t,x[i,nx:3*nx])
-            else:
-                x[i,3*nx] = pi(t,x[i,nx:3*nx])
+            x[i,3*nx:] = pi(t,x[i,nx:3*nx])
             x[i,0:nx] = self.f(x[i,nx:3*nx], x[i,3*nx:]).reshape(-1)
 
         return x

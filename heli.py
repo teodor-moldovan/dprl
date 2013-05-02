@@ -15,11 +15,11 @@ class Heli2D(simulation.Simulation):
 
         self.mu_w = 3.06     # angular rate friction coefficient
         self.mu = np.matrix(np.diag([.048,.0005]))  # friction
-        self.tc = 1
+        self.tc = .1
 
         self.g = 9.81   # gravitational accel
 
-        self.umax = np.array([5.0,3.0]) # action bounds
+        self.umax = np.array([3.0,.5]) # action bounds
         self.umin = -self.umax
         
         self.nx = 3
@@ -31,7 +31,7 @@ class Heli2D(simulation.Simulation):
 
         self.random_traj_freq = 10.0 
         self.random_traj_h = 2.0
-        self.u_eq= np.array([1.1,0])
+        self.u_eq= np.array([1.5,0])
 
     def f(self,xv,u):
 
@@ -65,7 +65,7 @@ class Heli2D(simulation.Simulation):
 
 
     def random_controls(self,n):
-        return (.1*np.random.normal(size=2*n).reshape(n,2) 
+        return (.5*np.random.normal(size=2*n).reshape(n,2) 
                 + self.u_eq[np.newaxis,:])
 
     def plot(self,traj,**kwarg):
@@ -93,7 +93,7 @@ class Distr(learning.GaussianNIW):
         data = traj.copy()
 
         n = data.shape[0] 
-        nz = .001*np.random.normal(size =n*1).reshape(n,1)
+        nz = .01*np.random.normal(size =n*1).reshape(n,1)
         data[:,:1] += nz
 
         return learning.GaussianNIW.sufficient_stats(self,
@@ -108,7 +108,7 @@ class Planner(planning.Planner):
     def __init__(self,dt=.01,h=.1,stop=np.array([0,0,0,0,0,0])):        
         
         planning.Planner.__init__(self,dt,h,
-                3,2,np.array([-5.0,-3.0]), np.array([5.0,3.0]))
+                3,2,np.array([-3.0,-.5]), np.array([3.0,.5]))
        
         self.ind_dxx = np.array([3,4,5,6])
         self.ind_dxxu = np.array([3,4,5,6,9,10])
@@ -182,7 +182,7 @@ class Tests(unittest.TestCase):
         hvdp = learning.OnlineVDP(Distr(), 
                 w=.1, k = 80, tol=1e-4, max_items = 1000 )
 
-        planner = Planner(.02,.5)
+        planner = Planner(.05,.5)
         
         sm = simulation.ControlledSimDisp(a,hvdp,planner)
         sm.run(5)
