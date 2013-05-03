@@ -184,7 +184,7 @@ class PlannerQPEuler:
         self.task.putboundlist(  mosek.accmode.con,
                             ind_c, 
                             [mosek.boundkey.fx]*ind_c.size, 
-                            -m.reshape(-1),-m.reshape(-1))
+                            m.reshape(-1),m.reshape(-1))
 
 
         i = np.zeros((nt,nx,nx),int)
@@ -791,9 +791,11 @@ class Planner:
         ind = np.arange(L.shape[1])
         tmp[:,ind,ind]=L[:,ind,ind]
 
-        self.mu = mu
+        m = np.einsum('kij,kj->ki',P,mu )
+
+        self.m = -m
         self.P = P       
-        self.L = tmp        
+        self.L = -tmp        
 
         #done here
 
@@ -818,6 +820,41 @@ class Planner:
         llm = np.einsum('kj,kj->k', np.einsum('ki,kij->kj', rs,L),rs )
 
         return llm,m,P,L
+        
+    def predict(self,x):
+        
+        lls = ( np.einsum('nkj,nj->nk', np.einsum('ni,kij->nkj', x,self.hss),x )
+                + np.einsum('ki,ni->nk',self.grs, x)
+                + self.bms[np.newaxis,:]  )
+
+        lls -= lls.max(1)[:,np.newaxis]
+        ps = np.exp(lls)
+        ps /= ps.sum(1)[:,np.newaxis]
+        
+        g1 = np.einsum('nk,kij->nij',ps,self.P)
+        
+        
+        gp = 2*np.einsum('ni,kij->nkj', x,self.hss) + self.grs
+        mn = np.einsum('nkj,nk->nj',gp,ps)
+        gp = (gp - mn[:,np.newaxis,:] )*ps[:,:,np.newaxis]
+        
+        prk = np.einsum('kij,nj->nki',self.P,x) +self.m[np.newaxis,:,:]
+        g2 = np.einsum('nki,nkj->nij',prk,gp)
+         
+        gr = g1+g2
+        
+        m = -np.einsum('nki,nk->ni',prk,ps)
+    
+
+        L  = np.einsum('kij,nk->nij',self.L,ps) 
+        #gr3 = 2*np.einsum('nj,njl->nl',np.einsum('ni,nij->nj',m,L),gr)
+        
+        #print gr3.shape
+        
+        ll = np.sum(np.sum(m[:,:,np.newaxis]*L*m[:,np.newaxis,:],1),1)
+
+        return ll,m,gr,L
+
         
     def plan_inner(self,nt):
 
@@ -845,22 +882,17 @@ class Planner:
         #plt.ion()
         for i in range(self.max_iters):
 
-            ll_,m,P,L = self.ll(x)             
+            ll_,m,P,L = self.predict(x)             
 
             print ll_.sum()
             if not ll is None:
-                rs = np.abs(ll_-ll)/np.maximum(np.abs(ll),np.abs(ll_))
-                if np.max(rs) < self.tols:
-                #if ll_.sum()<ll.sum():
+                if np.abs(ll_.sum()-ll.sum())<self.tols or np.abs(ll_.sum())<self.tols:
                     break
             ll = ll_
 
             qp.endpoints_constraint(self.start,self.end, 
                     self.um,self.uM,x=x)
             
-            m = np.einsum('nij,nj->ni',P,x)-m
-            L*=2
-
             qp.mpl_obj(m,P,-L)
 
             try:
@@ -870,7 +902,7 @@ class Planner:
             
             if True:
                 def f(a__):
-                    ll__,mu__,P__,L__ = self.ll(x+a__*dx)
+                    ll__,mu__,P__,L__ = self.predict(x+a__*dx)
                     return -ll__.sum()
                 a = scipy.optimize.fminbound(f,0.0,1.0,xtol=1e-8)
                 x += a*dx
