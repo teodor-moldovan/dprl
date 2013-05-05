@@ -1,5 +1,6 @@
 import numpy as np
 from numpy import exp, sin, cos, sqrt
+import math
 import unittest
 import scipy.integrate
 import numpy.random 
@@ -56,6 +57,7 @@ class Simulation:
         else:
             pi = lambda t,x: np.interp(t, ts, us)
              
+
         return self.sim(x0,pi,h)
           
 

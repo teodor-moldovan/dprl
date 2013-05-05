@@ -98,25 +98,27 @@ class PlannerQPEuler:
         return
     def quad_objective(self,c,Q):
         task = self.task
-        iv = self.iv_ddxdxxu
-        
-        nv = 3*self.nx+self.nu
-        nt = self.nt
 
-        i,j = np.meshgrid(np.arange(nv), np.arange(nv))
-        i =  i[np.newaxis,...] + nv*np.arange(nt)[:,np.newaxis,np.newaxis]
-        j =  j[np.newaxis,...] + nv*np.arange(nt)[:,np.newaxis,np.newaxis]
 
-        i = i.reshape(-1)
-        j = j.reshape(-1)
-        d = Q.reshape(-1)
-        ind = (i>=j)
-       
-        task.putqobj(i[ind],j[ind], d[ind])
-        
+        if not Q is None:
+            iv = self.iv_ddxdxxu
+            
+            nv = 3*self.nx+self.nu
+            nt = self.nt
+
+            i,j = np.meshgrid(np.arange(nv), np.arange(nv))
+            i =  i[np.newaxis,...] + nv*np.arange(nt)[:,np.newaxis,np.newaxis]
+            j =  j[np.newaxis,...] + nv*np.arange(nt)[:,np.newaxis,np.newaxis]
+
+            i = i.reshape(-1)
+            j = j.reshape(-1)
+            d = Q.reshape(-1)
+            ind = (i>=j)
+           
+            task.putqobj(i[ind],j[ind], d[ind]) 
+
         i = self.iv_ddxdxxu
         task.putclist(i, c.reshape(-1))
-
         task.putobjsense(mosek.objsense.minimize)
 
     def min_quad_objective(self,b,c,Q):
@@ -159,11 +161,32 @@ class PlannerQPEuler:
         return 
 
 
-    def mpl_obj(self, m,P,L):
+    def mpl_obj(self, m,P,L, thrs = float('inf')):
         
         nx = self.nx
         nu = self.nu
         nt = self.nt
+        
+        dg =L[:,np.arange(L.shape[1]),np.arange(L.shape[1])] 
+        ind = dg > thrs
+        
+        indn = np.logical_not(ind)
+        indn = indn[:,:,np.newaxis]*indn[:,np.newaxis,:]
+        mx = np.max(L[indn])
+        
+        iv_z =  self.iv_p[ind.reshape(-1)]
+
+        self.task.putboundlist(  mosek.accmode.var,
+                iv_z, 
+                [mosek.boundkey.fx]*iv_z.size,
+                np.zeros(iv_z.size),np.zeros(iv_z.size) )
+
+        iv_z =  self.iv_p[np.logical_not(ind).reshape(-1)]
+
+        self.task.putboundlist(  mosek.accmode.var,
+                iv_z, 
+                [mosek.boundkey.fr]*iv_z.size,
+                np.zeros(iv_z.size),np.zeros(iv_z.size) )
         
 
         i = np.zeros((nt,nx,3*nx+nu),int)
@@ -191,10 +214,11 @@ class PlannerQPEuler:
         i += self.iv_p.reshape(nt,-1)[:,:,np.newaxis]
         j = np.zeros((nt,nx,nx),int)
         j += self.iv_p.reshape(nt,-1)[:,np.newaxis,:]
+        
 
         i = i.reshape(-1)
         j = j.reshape(-1)
-        d = L.reshape(-1)
+        d = L.reshape(-1)/mx
         ind = (i>=j)
        
         self.task.putqobj(i[ind],j[ind], d[ind]) 
@@ -693,171 +717,128 @@ class Planner:
         self.nx = nx
         self.nu = nu
         
-        self.ind_dxx = np.arange(nx,nx+2*nx)
-        self.ind_dxxu = np.arange(nx,nx+2*nx+nu)
-        self.ind_ddxdxxu = np.arange(3*nx+nu)
         self.ind_ddx = np.arange(0,nx)
-
-        self.dind_dxx = self.ind_dxx
-        self.dind_dxxu = self.ind_dxxu
-        self.dind_ddxdxxu = self.ind_ddxdxxu
         self.dind_ddx = self.ind_ddx
-
-        self.ind_u = np.arange(3*nx,3*nx+nu)
+        self.dind_dxxu = np.arange(nx,nx+2*nx+nu)
+        self.ind_ddxdxxu = np.arange(3*nx+nu)
 
         self.tols = 1e-4
-        self.max_iters = 100
+        self.max_iters = 50
         self.nM = int(hi/float(self.dt))+1
 
         self.x = None
-        
-    def partition(self, tau,distr,slc, slcd, ci_mode=False):
-         
-        d = self.dim
-        n = tau.shape[0]
 
-        slice_distr,nus = distr.partition(tau,slcd)
+
+        
+    def parse_model(self,model,ci_mode=False):
+
+        i2 = self.dind_dxxu
+        i1 = self.dind_ddx
+
+        self.model = model
+
+        # prior cluster sizes
+        elt = self.model.elt
+
+        d = i2.size
+
+        slice_distr,nus = model.distr.partition(model.tau,i2)
         glp = slice_distr.prior.log_partition(nus, [False,True,False],
                 no_k_grad=ci_mode)[1]
 
-        gr = np.zeros((n,d))
-        hs = np.zeros((n,d*d))
-
-        slc_ =(slc[np.newaxis,:] + slc[:,np.newaxis]*d).reshape(-1)
-        
-        gr[:,slc] = glp[:,:slcd.size]
-        hs[:,slc_] = glp[:,slcd.size:-2]
-        hs = hs.reshape(-1,d,d)
-
+        gr = glp[:,:d]
+        hs = glp[:,d:-2].reshape(-1,d,d)
 
         if ci_mode:
             bm = glp[:,-2] 
         else:
             bm = glp[:,-2:].sum(1) 
 
-        return (gr,hs,bm)
         
-    def parse_model(self,model):
-
-        self.model = model
-        d = self.dim
-
-        Prj = np.zeros((self.dind_ddxdxxu.size, d))
-        Prj[self.dind_ddxdxxu,self.ind_ddxdxxu] = 1
-
-
-        # prior cluster sizes
-        elt = self.model.elt
-
-        gr2, hs2, bm2 = self.partition(model.tau,model.distr, self.ind_dxxu,
-                         self.dind_dxxu)
-        
-        self.grs = gr2
-        self.hss = hs2
-        self.bms = bm2 + elt
+        self.grs = gr
+        self.hss = hs
+        self.bms = bm + elt
         
 
         # conditionals
 
         mu,Psi,n,nu = model.distr.prior.nat2usual(model.tau)
 
-        i2 = self.dind_dxxu
-        i1 = self.dind_ddx
 
         A,B,D = Psi[:,i1,:][:,:,i1], Psi[:,i1,:][:,:,i2], Psi[:,i2,:][:,:,i2]
-
         Di = np.array(map(np.linalg.inv,D))
 
         P = np.einsum('njk,nkl->njl',B,Di)
         Li = A-np.einsum('nik,nlk->nil',P,B)
 
-        cf = nu*n/(n+1)
-        L = cf[:,np.newaxis,np.newaxis]*np.array(map(np.linalg.inv,Li))
-
 
         P = np.insert(P,np.zeros(i1.size),np.zeros(i1.size),axis=2)
         P = np.eye(P.shape[1],P.shape[2])[np.newaxis,:,:]-P
-        P = np.einsum('nij,jk->nik',P,Prj)
-        mu = np.einsum('nj,jk->nk',mu,Prj)
 
-        if True:
-            mx = np.max(L[:,np.arange(L.shape[1]),np.arange(L.shape[2])])
-            L /= mx
-            self.mx = mx
-        else:
-            self.mx = 1.0
+
+        V1 = Li*( (n+1)/n/(nu - self.nx-1))[:,np.newaxis,np.newaxis]
         
-        tmp = np.zeros(L.shape)
-        ind = np.arange(L.shape[1])
-        tmp[:,ind,ind]=L[:,ind,ind]
+        V2 = Di*( n/(n+1) )[:,np.newaxis,np.newaxis]
+        V2 = np.insert(V2,np.zeros(i1.size),np.zeros(i1.size),axis=2)
+        V2 = np.insert(V2,np.zeros(i1.size),np.zeros(i1.size+i2.size)
+                ,axis=1)
 
-        m = np.einsum('kij,kj->ki',P,mu )
-
-        self.m = -m
+        self.V1 = V1
+        self.V2 = V2
+        self.mu = mu
         self.P = P       
-        self.L = -tmp        
 
         #done here
 
-    def ll(self,x):
+    def predict(self,z):
         
-        lls = ( np.einsum('nkj,nj->nk', np.einsum('ni,kij->nkj', x,self.hss),x )
-                + np.einsum('ki,ni->nk',self.grs, x)
+        ll,m,gr,L = self.predict_inner(z[:,self.ind_ddxdxxu])
+        g_ = np.zeros((gr.shape[0],gr.shape[1],self.dim))
+        g_[:,:,self.ind_ddxdxxu] = gr
+        return ll,m,g_,L
+        
+
+    def predict_inner(self,x):
+        
+        x_t = x[:,self.dind_dxxu]
+        lls = ( np.einsum('nkj,nj->nk', np.einsum('ni,kij->nkj', x_t,self.hss),x_t )
+                + np.einsum('ki,ni->nk',self.grs, x_t)
                 + self.bms[np.newaxis,:]  )
 
         lls -= lls.max(1)[:,np.newaxis]
         ps = np.exp(lls)
         ps /= ps.sum(1)[:,np.newaxis]
-        
 
-        m = np.einsum('kij,kj->ki',self.P,self.mu )
-
-        m  = np.einsum('ki,nk->ni',m,ps)            
-        P  = np.einsum('kij,nk->nij',self.P,ps)            
-        L  = -np.einsum('kij,nk->nij',self.L,ps)
-        
-        rs = np.einsum('nij,nj->ni', P,x)-m
-        llm = np.einsum('kj,kj->k', np.einsum('ki,kij->kj', rs,L),rs )
-
-        return llm,m,P,L
-        
-    def predict(self,x):
-        
-        lls = ( np.einsum('nkj,nj->nk', np.einsum('ni,kij->nkj', x,self.hss),x )
-                + np.einsum('ki,ni->nk',self.grs, x)
-                + self.bms[np.newaxis,:]  )
-
-        lls -= lls.max(1)[:,np.newaxis]
-        ps = np.exp(lls)
-        ps /= ps.sum(1)[:,np.newaxis]
-        
-        g1 = np.einsum('nk,kij->nij',ps,self.P)
-        
-        
-        gp = 2*np.einsum('ni,kij->nkj', x,self.hss) + self.grs
+        gp = 2*np.einsum('ni,kij->nkj', x_t,self.hss) + self.grs
         mn = np.einsum('nkj,nk->nj',gp,ps)
         gp = (gp - mn[:,np.newaxis,:] )*ps[:,:,np.newaxis]
         
-        prk = np.einsum('kij,nj->nki',self.P,x) +self.m[np.newaxis,:,:]
-        g2 = np.einsum('nki,nkj->nij',prk,gp)
-         
-        gr = g1+g2
-        
-        m = -np.einsum('nki,nk->ni',prk,ps)
-    
+        df = x[:,np.newaxis,:] - self.mu[np.newaxis,:,:]
+        prk = np.einsum('kij,nkj->nki',self.P,df)
+        m = np.einsum('nki,nk->ni',prk,ps)
 
-        L  = np.einsum('kij,nk->nij',self.L,ps) 
-        #gr3 = 2*np.einsum('nj,njl->nl',np.einsum('ni,nij->nj',m,L),gr)
+        cf = np.einsum('nkj,nkj->nk',np.einsum('nki,kij->nkj',df,self.V2),df )
+        V = self.V1[np.newaxis,:,:,:]*(1.0+ cf[:,:,np.newaxis,np.newaxis])
         
-        #print gr3.shape
+        tmp =  (prk - m[:,np.newaxis,:])
+        V += tmp[:,:,:,np.newaxis] * tmp[:,:,np.newaxis,:]
+        V = np.einsum('nkij,nk->nij',V,ps)
+        L = -np.array(map(np.linalg.inv,V))
+
+        g1 = -np.einsum('nk,kij->nij',ps,self.P) 
+        g2 = -np.einsum('nki,nkj->nij',prk,gp)
+         
+        gr = g1
+        gr[:,:,self.dind_dxxu] += g2
         
         ll = np.sum(np.sum(m[:,:,np.newaxis]*L*m[:,np.newaxis,:],1),1)
-
+        
         return ll,m,gr,L
 
         
     def plan_inner(self,nt):
 
+        print nt
         qp = PlannerQP(self.nx,self.nu,nt)
         qp.dyn_constraint(self.dt)
         
@@ -882,30 +863,54 @@ class Planner:
         #plt.ion()
         for i in range(self.max_iters):
 
-            ll_,m,P,L = self.predict(x)             
+            ll_,m,P,L = self.predict(x) 
 
-            print ll_.sum()
+
+            #dx = 1e-4*np.random.normal(size=x.size).reshape(x.shape)
+            #ll1,q_ = self.predict(x+.5*dx)             
+            #ll2,q_ = self.predict(x-.5*dx)             
+
+            #print (ll1-ll2)/np.sum(q*dx,1)
+            #sdfsdf
+
             if not ll is None:
-                if np.abs(ll_.sum()-ll.sum())<self.tols or np.abs(ll_.sum())<self.tols:
+                if ll_.sum() < ll.sum():
+                    print 'decrease ll'
+                if np.abs(ll_.sum()-ll.sum())<self.tols:
                     break
             ll = ll_
+            print ll.sum()
 
             qp.endpoints_constraint(self.start,self.end, 
                     self.um,self.uM,x=x)
             
-            qp.mpl_obj(m,P,-L)
+            qp.mpl_obj(-m,-P,-L,thrs = 1e5)
 
             try:
                 dx = qp.solve()
             except MyException:
-                break
+                try:
+                    qp.mpl_obj(-m,-P,-L)
+                    dx = qp.solve()
+                except MyException:
+                    break
             
             if True:
+                s0 = -ll.sum()
                 def f(a__):
-                    ll__,mu__,P__,L__ = self.predict(x+a__*dx)
-                    return -ll__.sum()
-                a = scipy.optimize.fminbound(f,0.0,1.0,xtol=1e-8)
+                    ll__,m__,P__,L__ = self.predict(x+a__*dx)
+                    return -ll__.sum() -s0
+
+                ub = 1
+                while True:
+                    a,fv,tmp,tt = scipy.optimize.fminbound(f,0.0,ub,
+                        xtol=self.tols,full_output=True,disp=0)
+                    if fv>0:
+                        ub /= 2.0
+                    else:
+                        break
                 x += a*dx
+                #print '\t',a,ub
             else:
                 x += 2.0/(i+2.0)*dx
         
@@ -939,12 +944,11 @@ class Planner:
         cx = {}
         cll ={}
         def f(nn):
-            print nn
             nn = min(max(nn,nm),100)
             if not cll.has_key(nn):
                 ll,x = self.plan_inner(nn)
                 tmp = ll
-                tmp -= 1.0*nn/self.mx
+                tmp -= 1.0*nn
                 cll[nn],cx[nn] = tmp,x
             return cll[nn]
         
@@ -969,6 +973,8 @@ class Planner:
                 if f(n+2*df) <= f(n+df):
                     break
             n = n+df
+        
+        n = sorted(cll.iteritems(), key=lambda item: -item[1])[0][0]
 
         n_ = min(max(n,nm),100)
         print n_,cll[n_]

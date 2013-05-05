@@ -86,14 +86,12 @@ class Planner(planning.Planner):
         planning.Planner.__init__(self,dt,h,
                 2,1,np.array([-10]), np.array([+10]))
        
-        self.ind_dxx = np.array([2,4])
-        self.ind_dxxu = np.array([2,4,6])
+        self.ind_ddx = np.array([0,1])
         self.ind_ddxdxxu = np.array([0,1,2,4,6])
-
-        self.dind_dxx =  np.array([2,3])
+        self.dind_ddx =  np.array([0,1])
         self.dind_dxxu = np.array([2,3,4])
-        self.dind_ddxdxxu =  np.array([0,1,2,3,4])
         
+
         self.stop = stop
 
 
