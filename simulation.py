@@ -210,15 +210,11 @@ class ControlledSimFile(ControlledSim):
         cseed = str(self.seed)
          
         repo = git.Repo()
-        for h in repo.heads:
-            if h.name==repo.active_branch:
-                cid = h.commit.id
-                break
-        
+        cid = str(repo.active_branch.commit)
         
         dname = '../../data/'+cname+'/'+cid
         fname = dname+'/online_'+cseed+'.pkl'
-
+        
         try:
             os.makedirs(dname)
         except OSError:

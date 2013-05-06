@@ -543,7 +543,6 @@ class Planner:
             else:
                 x += 2.0/(i+2.0)*dx
         
- 
         if i>=self.max_iters-1:
             print 'MI reached'
 
