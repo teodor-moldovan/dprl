@@ -492,12 +492,11 @@ class Planner:
 
         qp = PlannerQP(self.nx,self.nu,nt)
         qp.dyn_constraint(self.dt)
-        qp.endpoints_constraint(self.start,self.end, self.um,self.uM)
 
         for i in range(self.max_iters):
 
             ll_,m,P,L = self.predict(x) 
-            m -= np.einsum('nij,nj->ni', P,x)
+            #m -= np.einsum('nij,nj->ni', P,x)
 
             #np.random.seed(10)
             #dx = 1e-7*np.random.normal(size=x.size).reshape(x.shape)
@@ -513,14 +512,15 @@ class Planner:
             ll = ll_
             print ll.sum()
 
+            qp.endpoints_constraint(self.start,self.end, self.um,self.uM,x=x)
             qp.mpl_obj(m,P,L,thrs = 1e5)
 
             try:
-                dx = qp.solve()-x
+                dx = qp.solve()
             except MyException:
                 try:
                     qp.mpl_obj(m,P,L)
-                    dx = qp.solve()-x
+                    dx = qp.solve()
                 except MyException:
                     break
             
@@ -530,17 +530,20 @@ class Planner:
                     ll__,m__,P__,L__ = self.predict(x+a__*dx)
                     return ll__.sum() -s0
 
-                    
-                rng = np.exp(np.linspace(-20,0,20))
-                fv,a = min([(f(i),i) for i in rng])
-                if fv>0:
-                    a = 0
-        
+                ub = 1
+                while True:
+                    a,fv,tmp,tt = scipy.optimize.fminbound(f,0.0,ub,
+                        xtol=self.tols,full_output=True,disp=0)
+                    if fv>0:
+                        ub /= 2.0
+                    else:
+                        break
                 x += a*dx
+                #print '\t',a,ub
             else:
                 x += 2.0/(i+2.0)*dx
-                #x += dx
         
+ 
         if i>=self.max_iters-1:
             print 'MI reached'
 
