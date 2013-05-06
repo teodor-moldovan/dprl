@@ -183,7 +183,7 @@ class Tests(unittest.TestCase):
         planner = Planner(.05,1.0)
         
         sm = simulation.ControlledSimDisp(a,hvdp,planner)
-        sm.run(5)
+        sm.run()  #5
            
 
 
