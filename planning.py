@@ -276,12 +276,12 @@ class PlannerQPEuler:
                             self.iv_ddxdxxu[0],self.iv_ddxdxxu[-1]+1, xx)
 
         if False:
-            tmp = np.zeros(1)
+            tmp = np.zeros(self.iv_p.size)
 
             task.getsolutionslice(mosek.soltype.itr,
                                 mosek.solitem.xx,
-                                self.iv_mo,self.iv_mo+1, tmp)
-            print tmp
+                                self.iv_p[0],self.iv_p[-1]+1, tmp)
+            self.xi = tmp
             
         warnings.simplefilter("default", RuntimeWarning)
 
@@ -343,7 +343,9 @@ class Planner:
 
         self.tols = 1e-4
         self.max_iters = 50
-        self.nM = int(hi/float(self.dt))+1
+        self.no = int(hi/float(self.dt))+1
+        self.nM = 100
+        self.nm = 3
 
         self.x = None
 
@@ -367,7 +369,7 @@ class Planner:
 
         gr = glp[:,:d]
         hs = glp[:,d:-2].reshape(-1,d,d)
-        bm = glp[:,-2] 
+        bm = np.sum(glp[:,-2:],1 )
         
         self.grs = gr
         self.hss = hs
@@ -459,9 +461,7 @@ class Planner:
         return ll,m,gr,L
 
         
-    def plan_inner(self,nt):
-
-        
+    def init_traj(self,nt):
         # initial guess
         qp = PlannerQP(self.nx,self.nu,nt)
         qp.dyn_constraint(self.dt)
@@ -472,13 +472,27 @@ class Planner:
 
         qp.endpoints_constraint(self.start,self.end,self.um,self.uM)
         qp.quad_objective(q,Q)
-        x = qp.solve()
+        return qp.solve()
 
 
+    def plan_inner(self,nt,x0=None):
+
+        if False and not x0 is None:
+            x = x0.copy()
+            
+            x = np.array([np.interp(np.linspace(0,1,nt), 
+                        np.linspace(0,1,x.shape[0]), xi) for xi in x.T]).T
+            x = x.copy()
+        else:
+
+            x = self.init_traj(nt) 
+            
+        print nt
         ll = None
 
         qp = PlannerQP(self.nx,self.nu,nt)
         qp.dyn_constraint(self.dt)
+        qp.endpoints_constraint(self.start,self.end, self.um,self.uM)
 
         for i in range(self.max_iters):
 
@@ -499,7 +513,6 @@ class Planner:
             ll = ll_
             print ll.sum()
 
-            qp.endpoints_constraint(self.start,self.end, self.um,self.uM)
             qp.mpl_obj(m,P,L,thrs = 1e5)
 
             try:
@@ -517,18 +530,16 @@ class Planner:
                     ll__,m__,P__,L__ = self.predict(x+a__*dx)
                     return ll__.sum() -s0
 
-                ub = 1
-                while True:
-                    a,fv,tmp,tt = scipy.optimize.fminbound(f,0.0,ub,
-                        xtol=self.tols,full_output=True,disp=0)
-                    if fv>0:
-                        ub /= 2.0
-                    else:
-                        break
+                    
+                rng = np.exp(np.linspace(-20,0,20))
+                fv,a = min([(f(i),i) for i in rng])
+                if fv>0:
+                    a = 0
+        
                 x += a*dx
-                #print '\t',a,ub
             else:
                 x += 2.0/(i+2.0)*dx
+                #x += dx
         
         if i>=self.max_iters-1:
             print 'MI reached'
@@ -542,32 +553,32 @@ class Planner:
         self.end = end
         self.parse_model(model)        
         
+        nm, n, nM = self.nm, self.no, self.nM
+
         if just_one:
-            lls,x = self.plan_inner(self.nM)
+            lls,x = self.plan_inner(n)
             return x
 
-        nm = 3
-        nM = self.nM
         
         cx = {}
         cll ={}
         def f(nn):
-            nn = min(max(nn,nm),100)
+            nn = min(max(nn,nm),nM)
             if not cll.has_key(nn):
-                ll,x = self.plan_inner(nn)
+                if len(cll)==0:
+                    x0 = None
+                else:
+                    n = sorted(cll.iteritems(), 
+                            key=lambda item: (item[0]-nn)**2)[0][0]
+                    x0 = cx[n]
+                
+                ll,x = self.plan_inner(nn,x0)
                 tmp = ll
                 tmp -= 1.0*nn
                 cll[nn],cx[nn] = tmp,x
             return cll[nn]
         
         
-        try:
-            n = self.no
-        except:
-            n = nM
-        
-        #if f(nM)>f(n):
-        #    n = nM
 
         for it in range(10):
             if f(n+1)>f(n):
@@ -575,7 +586,6 @@ class Planner:
             else:
                 d = -1
             
-            #print n,f(n+1), f(n-1)
             for inc in range(15):
                 df = d*(2**(inc))
                 if f(n+2*df) <= f(n+df):
@@ -584,12 +594,11 @@ class Planner:
         
         n = sorted(cll.iteritems(), key=lambda item: -item[1])[0][0]
 
-        n_ = min(max(n,nm),100)
+        n_ = min(max(n,nm),nM)
         print n_,cll[n_]
         self.no = n_
-        #self.x = cx[n_]
 
-        return cx[n_] #, cll[n_], f(n),  n_*self.dt
+        return cx[n_]
 
 class Tests(unittest.TestCase):
     def setUp(self):
