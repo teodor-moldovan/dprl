@@ -120,7 +120,7 @@ class PlannerQPEuler:
         task.putclist(i, c.reshape(-1))
         task.putobjsense(mosek.objsense.minimize)
 
-    def mpl_obj(self, m,P,L,q, thrs = float('inf')):
+    def mpl_obj(self, m,P,L, thrs = float('inf')):
         
         nx = self.nx
         nu = self.nu
@@ -186,7 +186,6 @@ class PlannerQPEuler:
         ind = (i>=j)
        
         self.task.putqobj(i[ind],j[ind], d[ind]) 
-        self.task.putclist(self.iv_ddxdxxu,q.reshape(-1)/mx)
         self.task.putobjsense(mosek.objsense.minimize)
 
 
@@ -384,13 +383,14 @@ class Planner:
 
         V1 = Li*( (n+1)/n/(nu - self.nx-1))[:,np.newaxis,np.newaxis]
         
-        V2 = Di*( n/(n+1) )[:,np.newaxis,np.newaxis]
-        V2 = np.insert(V2,np.zeros(i1.size),np.zeros(i1.size),axis=2)
-        V2 = np.insert(V2,np.zeros(i1.size),np.zeros(i1.size+i2.size)
-                ,axis=1)
+        #V2 = Di*( n/(n+1) )[:,np.newaxis,np.newaxis]
+        #V2 = np.insert(V2,np.zeros(i1.size),np.zeros(i1.size),axis=2)
+        #V2 = np.insert(V2,np.zeros(i1.size),np.zeros(i1.size+i2.size)
+        #        ,axis=1)
 
-        self.V1 = V1
-        self.V2 = V2
+        self.L = np.array(map(np.linalg.inv,V1))
+        #self.V1 = V1
+        #self.V2 = V2
         self.mu = mu
         self.P = P       
 
@@ -399,48 +399,33 @@ class Planner:
 
     def predict(self,z):
         
-        ll,m,gr,L,q = self.predict_inner(z[:,self.ind_ddxdxxu])
+        ll,m,gr,L = self.predict_inner(z[:,self.ind_ddxdxxu])
         g_ = np.zeros((gr.shape[0],gr.shape[1],self.dim))
         g_[:,:,self.ind_ddxdxxu] = gr
-        q_ = np.zeros((q.shape[0],self.dim))
-        q_[:,self.ind_ddxdxxu] = q
-        return ll,m,g_,L,q_
+        return ll,m,g_,L
         
 
 
     # TODO: test, move to dpcluster
-    def predict_inner_old(self,x):
+    def predict_inner(self,x):
         
         x_t = x[:,self.dind_dxxu]
-        ps,gp,trash = self.model_marginal.resp(x_t,(True,True,False))
+        ps,gp,trash = self.model_marginal.resp(x_t,(True,False,False))
 
         df = x[:,np.newaxis,:] - self.mu[np.newaxis,:,:]
         prk = np.einsum('kij,nkj->nki',self.P,df)
 
         m = np.einsum('nki,nk->ni',prk,ps)
-
-        g1 = np.einsum('kij,nk->nij',self.P,ps) 
-        g2 = np.einsum('nki,nkj->nij',prk,gp)
-         
-        gr = g1
-        gr[:,:,self.dind_dxxu] += g2
         
-        cf = np.einsum('nkj,nkj->nk',np.einsum('nki,kij->nkj',df,self.V2),df )
-        V = self.V1[np.newaxis,:,:,:]*(1.0+ cf[:,:,np.newaxis,np.newaxis])
-        
-        tmp =  (prk - m[:,np.newaxis,:])
-        V += tmp[:,:,:,np.newaxis] * tmp[:,:,np.newaxis,:]
-        V = np.einsum('nkij,nk->nij',V,ps)
-        L = np.array(map(np.linalg.inv,V))
-
-        L = np.einsum('kij,nk->nij',np.array(map(np.linalg.inv,self.V1)),ps)
+        P = np.einsum('kij,nk->nij',self.P,ps)
+        L = np.einsum('kij,nk->nij',self.L,ps)
 
         ll = np.sum(np.sum(m[:,:,np.newaxis]*L*m[:,np.newaxis,:],1),1)
-        
-        return ll,m,gr,L
+
+        return ll,m,P,L
 
         
-    def predict_inner(self,z):
+    def predict_inner_exp(self,z):
 
         ix = self.dind_dxxu
         iy = self.dind_ddx
@@ -507,7 +492,7 @@ class Planner:
 
         for i in range(self.max_iters):
 
-            ll_,m,P,L,q = self.predict(x) 
+            ll_,m,P,L = self.predict(x) 
         
             if not ll is None:
                 if ll_.sum() > ll.sum():
@@ -518,7 +503,7 @@ class Planner:
             print ll.sum()
 
             qp.endpoints_constraint(self.start,self.end, self.um,self.uM,x=x)
-            qp.mpl_obj(m,P,L,q,thrs = 1e6)
+            qp.mpl_obj(m,P,L,thrs = 1e6)
 
             try:
                 dx = qp.solve()
@@ -532,7 +517,7 @@ class Planner:
             if True:
                 s0 = ll.sum()
                 def f(a__):
-                    ll__,m__,P__,L__,q__ = self.predict(x+a__*dx)
+                    ll__,m__,P__,L__ = self.predict(x+a__*dx)
                     return ll__.sum() -s0
 
                 ub = 1
@@ -558,7 +543,8 @@ class Planner:
 
         self.start = start
         self.end = end
-        self.model=model
+        self.parse_model(model)
+        #self.model=model
         
         nm, n, nM = self.nm, self.no, self.nM
 
