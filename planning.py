@@ -127,7 +127,12 @@ class PlannerQPEuler:
         nt = self.nt
         
         dg =L[:,np.arange(L.shape[1]),np.arange(L.shape[1])] 
-        ind = dg > thrs
+        
+        ind = dg/np.min(dg) > thrs
+        
+        si = np.sum(ind)
+        if si>0:
+            print 'hard constrained ', si
         
         indn = np.logical_not(ind)
         indn = indn[:,:,np.newaxis]*indn[:,np.newaxis,:]
@@ -342,7 +347,7 @@ class Planner:
         self.ind_ddxdxxu = np.arange(3*nx+nu)
 
         self.tols = 1e-4
-        self.max_iters = 50
+        self.max_iters = 1000
         self.no = int(hi/float(self.dt))+1
         self.nM = 100
         self.nm = 3
@@ -358,23 +363,7 @@ class Planner:
         i1 = self.dind_ddx
 
         self.model = model
-
-        # prior cluster sizes
-        elt = self.model.elt
-
-        d = i2.size
-
-        slice_distr,nus = model.distr.partition(model.tau,i2)
-        glp = slice_distr.prior.log_partition(nus, [False,True,False])[1]
-
-        gr = glp[:,:d]
-        hs = glp[:,d:-2].reshape(-1,d,d)
-        bm = np.sum(glp[:,-2:],1 )
-        
-        self.grs = gr
-        self.hss = hs
-        self.bms = bm + elt
-        
+        self.model_marginal = model.marginal(i2)
 
         # conditionals
 
@@ -417,25 +406,10 @@ class Planner:
 
 
     # TODO: test, move to dpcluster
-    def resp(self,x):
-        lls = ( np.einsum('nkj,nj->nk', np.einsum('ni,kij->nkj', x,self.hss),x )
-                + np.einsum('ki,ni->nk',self.grs, x)
-                + self.bms[np.newaxis,:]  )
-
-        lls -= lls.max(1)[:,np.newaxis]
-        ps = np.exp(lls)
-        ps /= ps.sum(1)[:,np.newaxis]
-
-        gp = 2*np.einsum('ni,kij->nkj', x,self.hss) + self.grs
-        mn = np.einsum('nkj,nk->nj',gp,ps)
-        gp = (gp - mn[:,np.newaxis,:] )*ps[:,:,np.newaxis]
-        return ps,gp
-
-    # TODO: test, move to dpcluster
     def predict_inner(self,x):
         
         x_t = x[:,self.dind_dxxu]
-        ps,gp = self.resp(x_t)
+        ps,gp,trash = self.model_marginal.resp(x_t,(True,True,False))
 
         df = x[:,np.newaxis,:] - self.mu[np.newaxis,:,:]
         prk = np.einsum('kij,nkj->nki',self.P,df)
@@ -459,6 +433,36 @@ class Planner:
         ll = np.sum(np.sum(m[:,:,np.newaxis]*L*m[:,np.newaxis,:],1),1)
         
         return ll,m,gr,L
+
+        
+    def predict_inner_new(self,z):
+
+        ix = self.dind_dxxu
+        iy = self.dind_ddx
+
+        x = z[:,ix]
+        y = z[:,iy]
+        dx = len(ix)
+        dy = len(iy)
+
+        ex, exg, trash = self.model.conditional_expectation(x,iy,ix,
+                    (True,True,False)) 
+        vr, vrg, trash = self.model.conditional_variance(x,iy,ix,
+                    (True,True,False)) 
+
+        vi = np.array(map(np.linalg.inv,vr))
+        xi = (y-ex)
+        
+        pr = np.einsum('nij,nj->ni',vi,xi)
+        ll = np.einsum('nj,nj->n',pr,xi)
+
+        #q = -np.einsum('ni,nija,nj->na',pr,vrg,pr)
+        #q = np.hstack((np.zeros((q.shape[0],dy)),q))
+
+        P = np.repeat(np.eye(dy,dy)[np.newaxis,:,:],exg.shape[0],0)
+        P = np.dstack((P,-exg))
+
+        return ll,xi,P,vi#,0*q
 
         
     def init_traj(self,nt):
@@ -492,17 +496,23 @@ class Planner:
 
         qp = PlannerQP(self.nx,self.nu,nt)
         qp.dyn_constraint(self.dt)
+        qp.endpoints_constraint(self.start,self.end, self.um,self.uM)
 
         for i in range(self.max_iters):
 
             ll_,m,P,L = self.predict(x) 
-            #m -= np.einsum('nij,nj->ni', P,x)
+        
+            #gr = 2*np.einsum('ni,nij,njk->nk', m,L,P)
+            m -= np.einsum('nij,nj->ni', P,x)
+            #print gr.shape
 
             #np.random.seed(10)
             #dx = 1e-7*np.random.normal(size=x.size).reshape(x.shape)
-            #ll,m1,q_,L = self.predict_inner(x+.5*dx)             
-            #ll,m2,q_,L = self.predict_inner(x-.5*dx)             
+            #ll1,m1,q_,L = self.predict_inner(x+.5*dx)             
+            #ll2,m2,q_,L = self.predict_inner(x-.5*dx)             
             #print (m1-m2)/np.sum(P*dx[:,np.newaxis,:],2)
+            #print (ll1-ll2)/np.sum(gr*dx,1)
+            #asfdf
 
             if not ll is None:
                 if ll_.sum() > ll.sum():
@@ -512,17 +522,17 @@ class Planner:
             ll = ll_
             print ll.sum()
 
-            qp.endpoints_constraint(self.start,self.end, self.um,self.uM,x=x)
-            qp.mpl_obj(m,P,L,thrs = 1e5)
+            qp.mpl_obj(m,P,L,thrs = 1e6)
 
             try:
-                dx = qp.solve()
+                x_ = qp.solve()
             except MyException:
                 try:
                     qp.mpl_obj(m,P,L)
-                    dx = qp.solve()
+                    x_ = qp.solve()
                 except MyException:
                     break
+            dx = x_-x
             
             if True:
                 s0 = ll.sum()
@@ -576,7 +586,7 @@ class Planner:
                 
                 ll,x = self.plan_inner(nn,x0)
                 tmp = ll
-                tmp -= 1.0*nn
+                tmp -= 1*nn
                 cll[nn],cx[nn] = tmp,x
             return cll[nn]
         

@@ -114,7 +114,7 @@ class MDPtests(unittest.TestCase):
         #stop = None
         dt = .01
 
-        planner = Planner(dt, 4.1, stop)
+        planner = Planner(dt, 2.1, stop)
         x = planner.plan(model,start,stop,just_one=True)
         
         Pendulum().plot(x)
