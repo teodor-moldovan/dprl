@@ -120,7 +120,7 @@ class PlannerQPEuler:
         task.putclist(i, c.reshape(-1))
         task.putobjsense(mosek.objsense.minimize)
 
-    def mpl_obj(self, m,P,L, thrs = float('inf')):
+    def mpl_obj(self, m,P,L,q, thrs = float('inf')):
         
         nx = self.nx
         nu = self.nu
@@ -186,6 +186,7 @@ class PlannerQPEuler:
         ind = (i>=j)
        
         self.task.putqobj(i[ind],j[ind], d[ind]) 
+        self.task.putclist(self.iv_ddxdxxu,q.reshape(-1)/mx)
         self.task.putobjsense(mosek.objsense.minimize)
 
 
@@ -398,15 +399,17 @@ class Planner:
 
     def predict(self,z):
         
-        ll,m,gr,L = self.predict_inner(z[:,self.ind_ddxdxxu])
+        ll,m,gr,L,q = self.predict_inner(z[:,self.ind_ddxdxxu])
         g_ = np.zeros((gr.shape[0],gr.shape[1],self.dim))
         g_[:,:,self.ind_ddxdxxu] = gr
-        return ll,m,g_,L
+        q_ = np.zeros((q.shape[0],self.dim))
+        q_[:,self.ind_ddxdxxu] = q
+        return ll,m,g_,L,q_
         
 
 
     # TODO: test, move to dpcluster
-    def predict_inner(self,x):
+    def predict_inner_old(self,x):
         
         x_t = x[:,self.dind_dxxu]
         ps,gp,trash = self.model_marginal.resp(x_t,(True,True,False))
@@ -430,12 +433,14 @@ class Planner:
         V = np.einsum('nkij,nk->nij',V,ps)
         L = np.array(map(np.linalg.inv,V))
 
+        L = np.einsum('kij,nk->nij',np.array(map(np.linalg.inv,self.V1)),ps)
+
         ll = np.sum(np.sum(m[:,:,np.newaxis]*L*m[:,np.newaxis,:],1),1)
         
         return ll,m,gr,L
 
         
-    def predict_inner_new(self,z):
+    def predict_inner(self,z):
 
         ix = self.dind_dxxu
         iy = self.dind_ddx
@@ -451,18 +456,21 @@ class Planner:
                     (True,True,False)) 
 
         vi = np.array(map(np.linalg.inv,vr))
+        
         xi = (y-ex)
         
         pr = np.einsum('nij,nj->ni',vi,xi)
         ll = np.einsum('nj,nj->n',pr,xi)
 
-        #q = -np.einsum('ni,nija,nj->na',pr,vrg,pr)
-        #q = np.hstack((np.zeros((q.shape[0],dy)),q))
+        q = -np.einsum('ni,nija,nj->na',pr,vrg,pr)
+        q = np.hstack((np.zeros((q.shape[0],dy)),q))
 
         P = np.repeat(np.eye(dy,dy)[np.newaxis,:,:],exg.shape[0],0)
         P = np.dstack((P,-exg))
 
-        return ll,xi,P,vi#,0*q
+        return ll,xi,P,2*vi,q
+
+        #return ll,xi,P,2*vi,q
 
         
     def init_traj(self,nt):
@@ -496,24 +504,11 @@ class Planner:
 
         qp = PlannerQP(self.nx,self.nu,nt)
         qp.dyn_constraint(self.dt)
-        qp.endpoints_constraint(self.start,self.end, self.um,self.uM)
 
         for i in range(self.max_iters):
 
-            ll_,m,P,L = self.predict(x) 
+            ll_,m,P,L,q = self.predict(x) 
         
-            #gr = 2*np.einsum('ni,nij,njk->nk', m,L,P)
-            m -= np.einsum('nij,nj->ni', P,x)
-            #print gr.shape
-
-            #np.random.seed(10)
-            #dx = 1e-7*np.random.normal(size=x.size).reshape(x.shape)
-            #ll1,m1,q_,L = self.predict_inner(x+.5*dx)             
-            #ll2,m2,q_,L = self.predict_inner(x-.5*dx)             
-            #print (m1-m2)/np.sum(P*dx[:,np.newaxis,:],2)
-            #print (ll1-ll2)/np.sum(gr*dx,1)
-            #asfdf
-
             if not ll is None:
                 if ll_.sum() > ll.sum():
                     print 'increase cost'
@@ -522,22 +517,22 @@ class Planner:
             ll = ll_
             print ll.sum()
 
-            qp.mpl_obj(m,P,L,thrs = 1e6)
+            qp.endpoints_constraint(self.start,self.end, self.um,self.uM,x=x)
+            qp.mpl_obj(m,P,L,q,thrs = 1e6)
 
             try:
-                x_ = qp.solve()
+                dx = qp.solve()
             except MyException:
                 try:
-                    qp.mpl_obj(m,P,L)
-                    x_ = qp.solve()
+                    qp.mpl_obj(m,P,L,q)
+                    dx = qp.solve()
                 except MyException:
                     break
-            dx = x_-x
             
             if True:
                 s0 = ll.sum()
                 def f(a__):
-                    ll__,m__,P__,L__ = self.predict(x+a__*dx)
+                    ll__,m__,P__,L__,q__ = self.predict(x+a__*dx)
                     return ll__.sum() -s0
 
                 ub = 1
@@ -563,7 +558,7 @@ class Planner:
 
         self.start = start
         self.end = end
-        self.parse_model(model)        
+        self.model=model
         
         nm, n, nM = self.nm, self.no, self.nM
 
