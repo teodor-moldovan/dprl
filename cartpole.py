@@ -147,9 +147,9 @@ class Tests(unittest.TestCase):
 
         planner = Planner(.01,.25)
         
-        sm = simulation.ControlledSimDisp(a,hvdp,planner)
-        #sm = simulation.ControlledSimFile(a,hvdp,planner)
-        sm.run(32)# 32
+        #sm = simulation.ControlledSimDisp(a,hvdp,planner)
+        sm = simulation.ControlledSimFile(a,hvdp,planner)
+        sm.run()# 32
 
            
 
