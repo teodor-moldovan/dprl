@@ -131,12 +131,16 @@ class PlannerQPEuler:
         ind = dg/np.min(dg) > thrs
         
         si = np.sum(ind)
-        if si>0:
+        if si>0 and False:
             print 'hard constrained ', si
         
         indn = np.logical_not(ind)
         indn = indn[:,:,np.newaxis]*indn[:,np.newaxis,:]
-        mx = np.max(L[indn])
+        
+        if np.sum(indn)>0:
+            mx = np.abs(np.max(L[indn]))
+        else:
+            mx = 1.0
         
         iv_z =  self.iv_p[ind.reshape(-1)]
 
@@ -252,7 +256,7 @@ class PlannerQPEuler:
         task = self.task
 
         #task.putintparam(mosek.iparam.intpnt_scaling,mosek.scalingtype.none);
-        task.putintparam(mosek.iparam.check_convexity,mosek.checkconvexitytype.none);
+        #task.putintparam(mosek.iparam.check_convexity,mosek.checkconvexitytype.none);
         #task.putdouparam(mosek.dparam.check_convexity_rel_tol,1e-2);
 
         # solve
@@ -266,7 +270,7 @@ class PlannerQPEuler:
                 task._Task__progress_cb=None
                 task._Task__stream_cb=None
                 print solsta, prosta
-                raise MyException
+                raise MyException()
 
         t0 = time.time()
         solve_b()
@@ -346,13 +350,13 @@ class Planner:
         self.dind_dxxu = np.arange(nx,nx+2*nx+nu)
         self.ind_ddxdxxu = np.arange(3*nx+nu)
 
-        self.tols = 1e-4
-        self.max_iters = 1000
+        self.tols = 1e-2
+        self.max_iters = 500
         self.no = int(hi/float(self.dt))+1
         self.nM = 100
         self.nm = 3
 
-        self.x = None
+        self.xo = None
 
 
          
@@ -380,18 +384,22 @@ class Planner:
         P = np.insert(P,np.zeros(i1.size),np.zeros(i1.size),axis=2)
         P = np.eye(P.shape[1],P.shape[2])[np.newaxis,:,:]-P
 
+        m = np.einsum('kij,kj->ki',P,mu )
 
-        V1 = Li*( (n+1)/n/(nu - self.nx-1))[:,np.newaxis,np.newaxis]
+        cf = nu*n/(n+1)
+        self.L = cf[:,np.newaxis,np.newaxis]*np.array(map(np.linalg.inv,Li))
+
+        #V1 = Li*( (n+1)/n/(nu - self.nx-1))[:,np.newaxis,np.newaxis]
         
         #V2 = Di*( n/(n+1) )[:,np.newaxis,np.newaxis]
         #V2 = np.insert(V2,np.zeros(i1.size),np.zeros(i1.size),axis=2)
         #V2 = np.insert(V2,np.zeros(i1.size),np.zeros(i1.size+i2.size)
         #        ,axis=1)
 
-        self.L = np.array(map(np.linalg.inv,V1))
+        #self.L = np.array(map(np.linalg.inv,V1))
         #self.V1 = V1
         #self.V2 = V2
-        self.mu = mu
+        self.m = m
         self.P = P       
 
         #done here
@@ -407,22 +415,32 @@ class Planner:
 
 
     # TODO: test, move to dpcluster
-    def predict_inner(self,x):
+    def predict_inner_old(self,z):
         
-        x_t = x[:,self.dind_dxxu]
-        ps,gp,trash = self.model_marginal.resp(x_t,(True,False,False))
+        ix = self.dind_dxxu
+        iy = self.dind_ddx
 
-        df = x[:,np.newaxis,:] - self.mu[np.newaxis,:,:]
-        prk = np.einsum('kij,nkj->nki',self.P,df)
+        x = z[:,ix]
+        y = z[:,iy]
+        dx = len(ix)
+        dy = len(iy)
 
-        m = np.einsum('nki,nk->ni',prk,ps)
-        
-        P = np.einsum('kij,nk->nij',self.P,ps)
+
+        ps,gp,trash = self.model_marginal.resp(x,(True,True,False))
+
+        ex, exg, trash = self.model.conditional_expectation(x,iy,ix,
+                    (True,True,False)) 
+
+        xi = (y-ex)
+
+        P = np.repeat(np.eye(dy,dy)[np.newaxis,:,:],exg.shape[0],0)
+        P = np.dstack((P,-exg))
+
         L = np.einsum('kij,nk->nij',self.L,ps)
 
-        ll = np.sum(np.sum(m[:,:,np.newaxis]*L*m[:,np.newaxis,:],1),1)
+        ll = np.sum(np.sum(xi[:,:,np.newaxis]*L*xi[:,np.newaxis,:],1),1)
 
-        return ll,m,P,L
+        return ll,xi,P,L
 
         
     def predict_inner_exp(self,z):
@@ -447,17 +465,45 @@ class Planner:
         pr = np.einsum('nij,nj->ni',vi,xi)
         ll = np.einsum('nj,nj->n',pr,xi)
 
-        q = -np.einsum('ni,nija,nj->na',pr,vrg,pr)
-        q = np.hstack((np.zeros((q.shape[0],dy)),q))
+        #q = -np.einsum('ni,nija,nj->na',pr,vrg,pr)
+        #q = np.hstack((np.zeros((q.shape[0],dy)),q))
 
         P = np.repeat(np.eye(dy,dy)[np.newaxis,:,:],exg.shape[0],0)
         P = np.dstack((P,-exg))
 
-        return ll,xi,P,2*vi,q
+        return ll,xi,P,2*vi#,q
 
         #return ll,xi,P,2*vi,q
 
         
+    def predict_inner_older(self,z):
+        
+        ix = self.dind_dxxu
+        iy = self.dind_ddx
+
+        x = z[:,ix]
+        y = z[:,iy]
+        dx = len(ix)
+        dy = len(iy)
+
+        ps,gp,trash = self.model_marginal.resp(x,(True,True,False))
+
+        #vr, vrg, trash = self.model.conditional_variance(x,iy,ix,
+        #            (True,True,False)) 
+        #L = np.array(map(np.linalg.inv,vr))
+
+
+        P = np.einsum('kij,nk->nij',self.P,ps) 
+        xi = np.einsum('nij,nj->ni',P,z) - np.einsum('ki,nk->ni',self.m,ps)
+
+        L = np.einsum('kij,nk->nij',self.L,ps)
+
+        ll = np.sum(np.sum(xi[:,:,np.newaxis]*L*xi[:,np.newaxis,:],1),1)
+
+        return ll,xi,P,L
+
+        
+    predict_inner = predict_inner_exp
     def init_traj(self,nt):
         # initial guess
         qp = PlannerQP(self.nx,self.nu,nt)
@@ -474,68 +520,59 @@ class Planner:
 
     def plan_inner(self,nt,x0=None):
 
-        if False and not x0 is None:
-            x = x0.copy()
-            
-            x = np.array([np.interp(np.linspace(0,1,nt), 
-                        np.linspace(0,1,x.shape[0]), xi) for xi in x.T]).T
-            x = x.copy()
+        if x0 is None:
+            x_ = self.init_traj(nt) 
         else:
-
-            x = self.init_traj(nt) 
+            t = np.linspace(0,1,nt)
+            ts = np.linspace(0,1,x0.shape[0])
+            x_ = np.array([np.interp(t, ts, x) for x in x0.T]).T
             
-        print nt
         ll = None
 
         qp = PlannerQP(self.nx,self.nu,nt)
         qp.dyn_constraint(self.dt)
+        qp.endpoints_constraint(self.start,self.end, self.um,self.uM)
 
+        hc=True
         for i in range(self.max_iters):
 
-            ll_,m,P,L = self.predict(x) 
+            ll_,m,P,L = self.predict(x_) 
+            m -= np.einsum('nij,nj->ni',P,x_)
         
             if not ll is None:
                 if ll_.sum() > ll.sum():
-                    print 'increase cost'
+                    pass
+                    #print 'increase cost'
                 if np.abs(ll_.sum()-ll.sum())<self.tols:
                     break
+                if ll_.sum() < self.tols:
+                    break
+                if not hc:
+                    break
             ll = ll_
-            print ll.sum()
+            x = x_
+            #print ll.sum()
 
-            qp.endpoints_constraint(self.start,self.end, self.um,self.uM,x=x)
-            qp.mpl_obj(m,P,L,thrs = 1e6)
 
             try:
-                dx = qp.solve()
+                qp.mpl_obj(m,P,L,thrs = 1e6) #1e6
+                x_ = qp.solve()
             except MyException:
+                hc = False
                 try:
-                    qp.mpl_obj(m,P,L,q)
-                    dx = qp.solve()
+                    qp.mpl_obj(m,P,L)
+                    x_ = qp.solve()
                 except MyException:
-                    break
-            
-            if True:
-                s0 = ll.sum()
-                def f(a__):
-                    ll__,m__,P__,L__ = self.predict(x+a__*dx)
-                    return ll__.sum() -s0
+                    pass
 
-                ub = 1
-                while True:
-                    a,fv,tmp,tt = scipy.optimize.fminbound(f,0.0,ub,
-                        xtol=self.tols,full_output=True,disp=0)
-                    if fv>0:
-                        ub /= 2.0
-                    else:
-                        break
-                x += a*dx
-                #print '\t',a,ub
-            else:
-                x += 2.0/(i+2.0)*dx
+            
+            dx = x_-x
+            x_ = x +2.0/(i+2.0)*dx
         
         if i>=self.max_iters-1:
             print 'MI reached'
 
+        print nt, -ll.sum()
         return -ll.sum(),x
 
 
@@ -558,19 +595,12 @@ class Planner:
         def f(nn):
             nn = min(max(nn,nm),nM)
             if not cll.has_key(nn):
-                if len(cll)==0:
-                    x0 = None
-                else:
-                    n = sorted(cll.iteritems(), 
-                            key=lambda item: (item[0]-nn)**2)[0][0]
-                    x0 = cx[n]
-                
-                ll,x = self.plan_inner(nn,x0)
+                ll,x = self.plan_inner(nn,self.xo)
                 tmp = ll
                 tmp -= 1*nn
+
                 cll[nn],cx[nn] = tmp,x
-            return cll[nn]
-        
+            return cll[nn] 
         
 
         for it in range(10):
@@ -589,7 +619,8 @@ class Planner:
 
         n_ = min(max(n,nm),nM)
         print n_,cll[n_]
-        self.no = n_
+        self.no = min(max(nm,n_-1),nM)
+        self.xo = cx[n_][1:,:]
 
         return cx[n_]
 
