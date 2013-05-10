@@ -96,7 +96,6 @@ class Planner(planning.Planner):
         
         self.stop = stop
 
-
 class Tests(unittest.TestCase):
     def test_rnd(self):
         a = CartPole()
@@ -143,13 +142,13 @@ class Tests(unittest.TestCase):
         a = CartPole()
 
         hvdp = learning.OnlineVDP(Distr(), 
-                w=.1, k = 80, tol=1e-4, max_items = 1000 )
+                w=.1, k = 80, tol=1e-4, max_items = 1000)
 
         planner = Planner(.01,.25)
         
-        sm = simulation.ControlledSimDisp(a,hvdp,planner)
-        #sm = simulation.ControlledSimFile(a,hvdp,planner)
-        sm.run(32)# 32
+        #sm = simulation.ControlledSimDisp(a,hvdp,planner)
+        sm = simulation.ControlledSimFile(a,hvdp,planner)
+        sm.run()# 32
 
            
 

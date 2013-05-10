@@ -361,50 +361,6 @@ class Planner:
 
          
     # TODO: test, move to dpcluster
-    def parse_model(self,model):
-
-        i2 = self.dind_dxxu
-        i1 = self.dind_ddx
-
-        self.model = model
-        self.model_marginal = model.marginal(i2)
-
-        # conditionals
-
-        mu,Psi,n,nu = model.distr.prior.nat2usual(model.tau)
-
-
-        A,B,D = Psi[:,i1,:][:,:,i1], Psi[:,i1,:][:,:,i2], Psi[:,i2,:][:,:,i2]
-        Di = np.array(map(np.linalg.inv,D))
-
-        P = np.einsum('njk,nkl->njl',B,Di)
-        Li = A-np.einsum('nik,nlk->nil',P,B)
-
-
-        P = np.insert(P,np.zeros(i1.size),np.zeros(i1.size),axis=2)
-        P = np.eye(P.shape[1],P.shape[2])[np.newaxis,:,:]-P
-
-        m = np.einsum('kij,kj->ki',P,mu )
-
-        cf = nu*n/(n+1)
-        self.L = cf[:,np.newaxis,np.newaxis]*np.array(map(np.linalg.inv,Li))
-
-        #V1 = Li*( (n+1)/n/(nu - self.nx-1))[:,np.newaxis,np.newaxis]
-        
-        #V2 = Di*( n/(n+1) )[:,np.newaxis,np.newaxis]
-        #V2 = np.insert(V2,np.zeros(i1.size),np.zeros(i1.size),axis=2)
-        #V2 = np.insert(V2,np.zeros(i1.size),np.zeros(i1.size+i2.size)
-        #        ,axis=1)
-
-        #self.L = np.array(map(np.linalg.inv,V1))
-        #self.V1 = V1
-        #self.V2 = V2
-        self.m = m
-        self.P = P       
-
-        #done here
-
-
     def predict(self,z):
         
         ll,m,gr,L = self.predict_inner(z[:,self.ind_ddxdxxu])
@@ -415,35 +371,7 @@ class Planner:
 
 
     # TODO: test, move to dpcluster
-    def predict_inner_old(self,z):
-        
-        ix = self.dind_dxxu
-        iy = self.dind_ddx
-
-        x = z[:,ix]
-        y = z[:,iy]
-        dx = len(ix)
-        dy = len(iy)
-
-
-        ps,gp,trash = self.model_marginal.resp(x,(True,True,False))
-
-        ex, exg, trash = self.model.conditional_expectation(x,iy,ix,
-                    (True,True,False)) 
-
-        xi = (y-ex)
-
-        P = np.repeat(np.eye(dy,dy)[np.newaxis,:,:],exg.shape[0],0)
-        P = np.dstack((P,-exg))
-
-        L = np.einsum('kij,nk->nij',self.L,ps)
-
-        ll = np.sum(np.sum(xi[:,:,np.newaxis]*L*xi[:,np.newaxis,:],1),1)
-
-        return ll,xi,P,L
-
-        
-    def predict_inner_exp(self,z):
+    def predict_inner(self,z):
 
         ix = self.dind_dxxu
         iy = self.dind_ddx
@@ -476,34 +404,6 @@ class Planner:
         #return ll,xi,P,2*vi,q
 
         
-    def predict_inner_older(self,z):
-        
-        ix = self.dind_dxxu
-        iy = self.dind_ddx
-
-        x = z[:,ix]
-        y = z[:,iy]
-        dx = len(ix)
-        dy = len(iy)
-
-        ps,gp,trash = self.model_marginal.resp(x,(True,True,False))
-
-        #vr, vrg, trash = self.model.conditional_variance(x,iy,ix,
-        #            (True,True,False)) 
-        #L = np.array(map(np.linalg.inv,vr))
-
-
-        P = np.einsum('kij,nk->nij',self.P,ps) 
-        xi = np.einsum('nij,nj->ni',P,z) - np.einsum('ki,nk->ni',self.m,ps)
-
-        L = np.einsum('kij,nk->nij',self.L,ps)
-
-        ll = np.sum(np.sum(xi[:,:,np.newaxis]*L*xi[:,np.newaxis,:],1),1)
-
-        return ll,xi,P,L
-
-        
-    predict_inner = predict_inner_exp
     def init_traj(self,nt):
         # initial guess
         qp = PlannerQP(self.nx,self.nu,nt)
@@ -576,8 +476,7 @@ class Planner:
 
         self.start = start
         self.end = end
-        self.parse_model(model)
-        #self.model=model
+        self.model=model
         
         nm, n, nM = self.nm, self.no, self.nM
 

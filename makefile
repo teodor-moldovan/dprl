@@ -1,2 +1,2 @@
 all: 
-	python heli.py
+	python cartpole.py
