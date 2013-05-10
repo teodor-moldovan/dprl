@@ -533,7 +533,6 @@ class Planner:
         qp.dyn_constraint(self.dt)
         qp.endpoints_constraint(self.start,self.end, self.um,self.uM)
 
-        hc=True
         for i in range(self.max_iters):
 
             ll_,m,P,L = self.predict(x_) 
@@ -543,11 +542,9 @@ class Planner:
                 if ll_.sum() > ll.sum():
                     pass
                     #print 'increase cost'
-                if np.abs(ll_.sum()-ll.sum())<self.tols:
+                if np.abs(ll_.sum()-ll.sum())<self.tols*max(1,ll_.sum(),ll.sum()):
                     break
                 if ll_.sum() < self.tols:
-                    break
-                if not hc:
                     break
             ll = ll_
             x = x_
@@ -555,15 +552,14 @@ class Planner:
 
 
             try:
-                qp.mpl_obj(m,P,L,thrs = 1e6) #1e6
+                qp.mpl_obj(m,P,L,thrs = 1e5) #1e6
                 x_ = qp.solve()
             except MyException:
-                hc = False
                 try:
                     qp.mpl_obj(m,P,L)
                     x_ = qp.solve()
                 except MyException:
-                    pass
+                    break
 
             
             dx = x_-x
@@ -572,8 +568,8 @@ class Planner:
         if i>=self.max_iters-1:
             print 'MI reached'
 
-        print nt, -ll.sum()
-        return -ll.sum(),x
+        print nt, -ll_.sum()
+        return -ll_.sum(),x_
 
 
     def plan(self,model,start,end,just_one=False):
@@ -597,7 +593,7 @@ class Planner:
             if not cll.has_key(nn):
                 ll,x = self.plan_inner(nn,self.xo)
                 tmp = ll
-                tmp -= 1*nn
+                tmp -= 3*nn
 
                 cll[nn],cx[nn] = tmp,x
             return cll[nn] 
@@ -621,6 +617,7 @@ class Planner:
         print n_,cll[n_]
         self.no = min(max(nm,n_-1),nM)
         self.xo = cx[n_][1:,:]
+
 
         return cx[n_]
 
