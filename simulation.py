@@ -138,7 +138,7 @@ class ControlledSim:
         self.output_init()
 
         nss = 0
-        for it in range(10000):
+        for it in range(1000000):
 
             ss = hvdp.distr.sufficient_stats(traj)
             hvdp.put(ss[:-1,:]) 

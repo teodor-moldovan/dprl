@@ -353,10 +353,11 @@ class Planner:
         self.tols = 1e-2
         self.max_iters = 500
         self.no = int(hi/float(self.dt))+1
-        self.nM = 100
+        self.nM = 150
         self.nm = 3
 
         self.xo = None
+        self.hc = False
 
 
          
@@ -451,15 +452,23 @@ class Planner:
             #print ll.sum()
 
 
-            try:
-                qp.mpl_obj(m,P,L,thrs = 1e5) #1e6
-                x_ = qp.solve()
-            except MyException:
+            if self.hc:
+                try:
+                    qp.mpl_obj(m,P,L,thrs = 1e5) #1e6
+                    x_ = qp.solve()
+                except MyException:
+                    try:
+                        qp.mpl_obj(m,P,L)
+                        x_ = qp.solve()
+                    except MyException:
+                        break
+            else:
                 try:
                     qp.mpl_obj(m,P,L)
                     x_ = qp.solve()
                 except MyException:
                     break
+
 
             
             dx = x_-x
@@ -490,9 +499,9 @@ class Planner:
         def f(nn):
             nn = min(max(nn,nm),nM)
             if not cll.has_key(nn):
-                ll,x = self.plan_inner(nn,self.xo)
+                ll,x = self.plan_inner(nn,None)
                 tmp = ll
-                tmp -= 3*nn
+                tmp -= 1*nn
 
                 cll[nn],cx[nn] = tmp,x
             return cll[nn] 
