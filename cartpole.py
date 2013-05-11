@@ -22,7 +22,7 @@ class CartPole(simulation.Simulation):
         self.umin = -10.0     # action bounds
         self.umax = 10.0
         self.sample_freq = 100.0
-        self.friction = 0*.1
+        self.friction = .1
         
         self.nx = 2
         self.nu = 1

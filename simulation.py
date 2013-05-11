@@ -120,7 +120,7 @@ class ControlledSim:
         self.modeller=modeller
         self.planner=planner
 
-    def run(self,seed=None):
+    def run(self,seed=None, replan=True):
 
         if seed is None:
             seed = int(np.random.random()*1000)
@@ -162,9 +162,12 @@ class ControlledSim:
                 us = x[:,3*a.nx:]
             else: 
                 us = x[:,3*a.nx]
-            #us += .01*np.random.normal(size=us.size).reshape(us.shape)
 
-            traj = a.sim_controls(ts,us,x0=start,h=planner.dt)
+            if replan:
+                traj = a.sim_controls(ts,us,x0=start,h=planner.dt)
+            else:
+                traj = a.sim_controls(ts,us,x0=start,h=np.max(ts))
+                
         self.output_final()
             
 

@@ -183,7 +183,6 @@ class Tests(unittest.TestCase):
                 w=.1, k = 80, tol=1e-4, max_items = 1000 )
 
         planner = Planner(.05,1.0)
-        planner.hc=True
         
         sm = simulation.ControlledSimFile(a,hvdp,planner)
         #sm = simulation.ControlledSimDisp(a,hvdp,planner)

@@ -195,6 +195,94 @@ class PlannerQPEuler:
 
 
 
+    def min_mpl_obj(self, m,P,L, thrs = float('inf')):
+        
+        nx = self.nx
+        nu = self.nu
+        nt = self.nt
+        
+        dg =L[:,np.arange(L.shape[1]),np.arange(L.shape[1])] 
+        
+        ind = dg/np.min(dg) > thrs
+        
+        si = np.sum(ind)
+        if si>0 and False:
+            print 'hard constrained ', si
+        
+        indn = np.logical_not(ind)
+        indn = indn[:,:,np.newaxis]*indn[:,np.newaxis,:]
+        
+        if np.sum(indn)>0:
+            mx = np.abs(np.max(L[indn]))
+        else:
+            mx = 1.0
+        
+        iv_z =  self.iv_p[ind.reshape(-1)]
+
+        self.task.putboundlist(  mosek.accmode.var,
+                iv_z, 
+                [mosek.boundkey.fx]*iv_z.size,
+                np.zeros(iv_z.size),np.zeros(iv_z.size) )
+
+        iv_z =  self.iv_p[np.logical_not(ind).reshape(-1)]
+
+        self.task.putboundlist(  mosek.accmode.var,
+                iv_z, 
+                [mosek.boundkey.fr]*iv_z.size,
+                np.zeros(iv_z.size),np.zeros(iv_z.size) )
+        
+
+        i = np.zeros((nt,nx,3*nx+nu),int)
+        i += self.ic_p.reshape(nt,-1)[:,:,np.newaxis]
+        j = np.zeros((nt,nx,3*nx+nu),int)
+        j += self.iv_ddxdxxu.reshape(nt,-1)[:,np.newaxis,:]
+
+
+        self.task.putaijlist( i.reshape(-1), 
+                              j.reshape(-1), 
+                              P.reshape(-1)  )
+
+        self.task.putaijlist( self.ic_p, 
+                              self.iv_p, 
+                              -np.ones(self.ic_p.size)  )
+
+        ind_c = self.ic_p
+        self.task.putboundlist(  mosek.accmode.con,
+                            ind_c, 
+                            [mosek.boundkey.fx]*ind_c.size, 
+                            -m.reshape(-1),-m.reshape(-1))
+
+
+        i = np.zeros((nt,nx,nx),int)
+        i += self.iv_p.reshape(nt,-1)[:,:,np.newaxis]
+        j = np.zeros((nt,nx,nx),int)
+        j += self.iv_p.reshape(nt,-1)[:,np.newaxis,:]
+        k = np.zeros((nt,nx,nx),int)
+        k += self.ic_q[:,np.newaxis,np.newaxis]
+        
+
+        i = i.reshape(-1)
+        j = j.reshape(-1)
+        d = L.reshape(-1)/mx
+        k = k.reshape(-1)
+        ind = (i>=j)
+       
+
+        self.task.putqcon(k[ind],i[ind],j[ind], d[ind])
+        self.task.putaijlist( self.ic_q, [self.iv_q]*nt, -np.ones(nt)  )
+
+        ind_c = self.ic_q
+        self.task.putboundlist(  mosek.accmode.con,
+                            ind_c, 
+                            [mosek.boundkey.up]*ind_c.size, 
+                            [0]*ind_c.size,[0]*ind_c.size)
+
+
+        self.task.putclist( [self.iv_q], [1]  )
+        self.task.putobjsense(mosek.objsense.minimize)
+
+
+
     def endpoints_constraint(self,xi,xf,um,uM,x = None):
         task = self.task
 
@@ -256,7 +344,7 @@ class PlannerQPEuler:
         task = self.task
 
         #task.putintparam(mosek.iparam.intpnt_scaling,mosek.scalingtype.none);
-        #task.putintparam(mosek.iparam.check_convexity,mosek.checkconvexitytype.none);
+        task.putintparam(mosek.iparam.check_convexity,mosek.checkconvexitytype.none);
         #task.putdouparam(mosek.dparam.check_convexity_rel_tol,1e-2);
 
         # solve
@@ -357,8 +445,6 @@ class Planner:
         self.nm = 3
 
         self.xo = None
-        self.hc = False
-
 
          
     # TODO: test, move to dpcluster
@@ -384,9 +470,20 @@ class Planner:
 
         ex, exg, trash = self.model.conditional_expectation(x,iy,ix,
                     (True,True,False)) 
-        vr, vrg, trash = self.model.conditional_variance(x,iy,ix,
-                    (True,True,False)) 
+        
+        ps,psg,trash =  self.model.marginal(ix).resp(x,(True,True,False))
 
+        tr,mx,tr,V1,V2,n =  self.model.distr.conditionals_cache(self.model.tau,
+                iy,ix)
+
+        
+        df = x[:,np.newaxis]-mx[np.newaxis,:]
+        cf = np.einsum('nkj,nkj->nk',np.einsum('nki,kij->nkj',df, V2),df )
+        
+        
+        V = V1[np.newaxis,:,:,:]*(1/n + cf)[:,:,np.newaxis,np.newaxis]
+        
+        vr = np.einsum('nkij,nk->nij',V,ps)
         vi = np.array(map(np.linalg.inv,vr))
         
         xi = (y-ex)
@@ -394,15 +491,11 @@ class Planner:
         pr = np.einsum('nij,nj->ni',vi,xi)
         ll = np.einsum('nj,nj->n',pr,xi)
 
-        #q = -np.einsum('ni,nija,nj->na',pr,vrg,pr)
-        #q = np.hstack((np.zeros((q.shape[0],dy)),q))
 
         P = np.repeat(np.eye(dy,dy)[np.newaxis,:,:],exg.shape[0],0)
         P = np.dstack((P,-exg))
 
-        return ll,xi,P,2*vi#,q
-
-        #return ll,xi,P,2*vi,q
+        return ll,xi,P,2*vi
 
         
     def init_traj(self,nt):
@@ -428,7 +521,7 @@ class Planner:
             ts = np.linspace(0,1,x0.shape[0])
             x_ = np.array([np.interp(t, ts, x) for x in x0.T]).T
             
-        ll = None
+        c = None
 
         qp = PlannerQP(self.nx,self.nu,nt)
         qp.dyn_constraint(self.dt)
@@ -438,47 +531,32 @@ class Planner:
 
             ll_,m,P,L = self.predict(x_) 
             m -= np.einsum('nij,nj->ni',P,x_)
+            c_ = ll_.max()
         
-            if not ll is None:
-                if ll_.sum() > ll.sum():
-                    pass
-                    #print 'increase cost'
-                if np.abs(ll_.sum()-ll.sum())<self.tols*max(1,ll_.sum(),ll.sum()):
+            if not c is None:
+                if np.abs(c_-c)<self.tols*max(c,c_,1):
                     break
-                if ll_.sum() < self.tols:
-                    break
-            ll = ll_
+            c = c_
             x = x_
-            #print ll.sum()
 
 
-            if self.hc:
+            try:
+                qp.min_mpl_obj(m,P,L,thrs = 1e5) #1e6
+                x_ = qp.solve()
+            except:
                 try:
-                    qp.mpl_obj(m,P,L,thrs = 1e5) #1e6
+                    qp.min_mpl_obj(m,P,L)
                     x_ = qp.solve()
-                except MyException:
-                    try:
-                        qp.mpl_obj(m,P,L)
-                        x_ = qp.solve()
-                    except MyException:
-                        break
-            else:
-                try:
-                    qp.mpl_obj(m,P,L)
-                    x_ = qp.solve()
-                except MyException:
+                except:
                     break
 
-
-            
             dx = x_-x
             x_ = x +2.0/(i+2.0)*dx
         
         if i>=self.max_iters-1:
             print 'MI reached'
 
-        print nt, -ll_.sum()
-        return -ll_.sum(),x_
+        return ll_,x_
 
 
     def plan(self,model,start,end,just_one=False):
@@ -500,9 +578,9 @@ class Planner:
             nn = min(max(nn,nm),nM)
             if not cll.has_key(nn):
                 ll,x = self.plan_inner(nn,None)
-                tmp = ll
-                tmp -= 1*nn
+                tmp = -ll.max() - nn
 
+                print nn, tmp
                 cll[nn],cx[nn] = tmp,x
             return cll[nn] 
         
