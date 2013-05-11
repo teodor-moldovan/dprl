@@ -531,7 +531,7 @@ class Planner:
 
             ll_,m,P,L = self.predict(x_) 
             m -= np.einsum('nij,nj->ni',P,x_)
-            c_ = ll_.max()
+            c_ = ll_.sum()
         
             if not c is None:
                 if np.abs(c_-c)<self.tols*max(c,c_,1):
@@ -541,11 +541,11 @@ class Planner:
 
 
             try:
-                qp.min_mpl_obj(m,P,L,thrs = 1e5) #1e6
+                qp.mpl_obj(m,P,L,thrs = 1e5) #1e6
                 x_ = qp.solve()
             except:
                 try:
-                    qp.min_mpl_obj(m,P,L)
+                    qp.mpl_obj(m,P,L)
                     x_ = qp.solve()
                 except:
                     break

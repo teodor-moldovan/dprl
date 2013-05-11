@@ -1,6 +1,8 @@
 import matplotlib
+import cPickle
 matplotlib.use('Agg')
-from cartpole import *
+import numpy as np
+import matplotlib.pyplot as plt 
 import re
 import os
 import fnmatch
@@ -13,26 +15,18 @@ matplotlib.rcParams.update({'font.size': 21})
 
 def parse_file(filename, plot_clusters=True):
 
-    seed = int(re.search(r'\d+', filename).group())
-    np.random.seed(seed) 
-
-    a = CartPole()
-        
-    traj = a.random_traj(ti, control_freq = cf)
-    traj[:,4] =  np.mod(traj[:,4] + 2*np.pi,4*np.pi)-2*np.pi
-
     fl = open(filename)
 
-    traj = traj[:-1,:]
-
+    trajs = []
     cnt = 0
     while True:
         try:
             hvdp,traj_,x,ll,cst,t = cPickle.load(fl)
         except:
             break
-        traj = np.vstack((traj,traj_[:-1,:]))
+        trajs.append(traj_[:-1,:])
 
+    traj = np.vstack(trajs)
     traj = np.insert(traj,0,dt*np.arange(traj.shape[0]),axis=1 )
 
     return traj
@@ -40,7 +34,7 @@ def parse_file(filename, plot_clusters=True):
 
 def theta_x_plots(seeds=None, legend=False): 
         
-    seeds = [int(re.findall(r'\d+',f)[0]) for f in os.listdir(in_dir) 
+    seeds = [int(re.findall(r'\d+',f)[-1]) for f in os.listdir(in_dir) 
                 if fnmatch.fnmatch(f,"*.pkl")]
 
     filenames = [in_dir+'online_'+str(seed)+'.pkl' for seed in seeds]
@@ -171,9 +165,9 @@ def video(seed):
 
 #batch_cluster_plot()
 
-in_dir = '../data/cartpole/'
-out_dir = '../data/cartpole/figures/'
-ti,cf,dt = 2,50.0,.01
+in_dir = '../../data/cartpole/39635ea17fa44b83360736c5bd853261ec73af38/'
+out_dir = in_dir+'figures/'
+dt = .01
 theta_x_plots(legend=True)
 #video(357)
 

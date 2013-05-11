@@ -22,7 +22,7 @@ class CartPole(simulation.Simulation):
         self.umin = -10.0     # action bounds
         self.umax = 10.0
         self.sample_freq = 100.0
-        self.friction = .1
+        self.friction = 0#.1
         
         self.nx = 2
         self.nu = 1
@@ -145,7 +145,7 @@ class Tests(unittest.TestCase):
         hvdp = learning.OnlineVDP(Distr(), 
                 w=.1, k = 80, tol=1e-4, max_items = 1000)
 
-        planner = Planner(.02,.25)
+        planner = Planner(.01,.25)
         
         #sm = simulation.ControlledSimDisp(a,hvdp,planner)
         sm = simulation.ControlledSimFile(a,hvdp,planner)
