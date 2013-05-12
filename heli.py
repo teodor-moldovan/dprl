@@ -65,22 +65,34 @@ class Heli2D(simulation.Simulation):
 
 
     def random_controls(self,n):
-        return (1*np.random.normal(size=2*n).reshape(n,2) 
+        ctrls = ( (np.random.random(size=2*n).reshape(n,2) - .5)*.2
                 + self.u_eq[np.newaxis,:])
+        
+        ctrls[ctrls>3.0] = 3.0
+        ctrls[ctrls<-3.0] = -3.0
+        return ctrls
+
 
     def plot(self,traj,**kwarg):
 
-        plt.sca(plt.subplot(2,1,2))
+        plt.sca(plt.subplot(2,2,4))
         plt.gca().set_aspect('equal')
         plt.scatter(traj[:,7],traj[:,8],c=traj[:,9],**kwarg)
-        plt.colorbar()
         plt.xlabel('x')
         plt.ylabel('z')
         
+        plt.sca(plt.subplot(2,2,1))
+        plt.scatter(traj[:,8],traj[:,5],c=traj[:,9],**kwarg)
+        plt.xlabel('z')
+        plt.ylabel('z derivative')
 
-        plt.sca(plt.subplot(2,1,1))
+        plt.sca(plt.subplot(2,2,3))
+        plt.scatter(traj[:,7],traj[:,4],c=traj[:,9],**kwarg)
+        plt.xlabel('x')
+        plt.ylabel('x derivative')
+
+        plt.sca(plt.subplot(2,2,2))
         plt.scatter(traj[:,6],traj[:,3],c=traj[:,10],**kwarg)
-        plt.colorbar()
         plt.xlabel('orientation')
         plt.ylabel('angular velocity')
 
@@ -100,7 +112,7 @@ class Distr(learning.GaussianNIW):
             data[:,[0,1,2,3,4,5,6,9,10]])
         
     def plot(self, nu, szs, **kwargs):
-        plt.sca(plt.subplot(2,1,1))
+        plt.sca(plt.subplot(2,2,2))
         learning.GaussianNIW.plot(self,nu,szs,slc=np.array([3,6]),**kwargs)
 
 
@@ -110,14 +122,8 @@ class Planner(planning.Planner):
         planning.Planner.__init__(self,dt,h,
                 3,2,np.array([-3.0,-3.0]), np.array([3.0,3.0]))
        
-        self.ind_dxx = np.array([3,4,5,6])
-        self.ind_dxxu = np.array([3,4,5,6,9,10])
-        self.ind_ddxdxxu = np.array([0,1,2,3,4,5,6,9,10])
+        self.ind_ddxdxxu = (0,1,2,3,4,5,6,9,10)
 
-        self.dind_dxx =  np.array([3,4,5,6])
-        self.dind_dxxu = np.array([3,4,5,6,7,8])
-        self.dind_ddxdxxu =  np.array([0,1,2,3,4,5,6,7,8])
-        
         self.stop = stop
 
 
@@ -184,8 +190,8 @@ class Tests(unittest.TestCase):
 
         planner = Planner(.05,1.0)
         
-        sm = simulation.ControlledSimFile(a,hvdp,planner)
-        #sm = simulation.ControlledSimDisp(a,hvdp,planner)
+        #sm = simulation.ControlledSimFile(a,hvdp,planner)
+        sm = simulation.ControlledSimDisp(a,hvdp,planner)
         sm.run()  #5
            
 

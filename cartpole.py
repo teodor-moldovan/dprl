@@ -86,15 +86,8 @@ class Planner(planning.Planner):
         
         planning.Planner.__init__(self,dt,h,
                 2,1,np.array([-10]), np.array([+10]))
-       
-        self.ind_dxx = np.array([2,4])
-        self.ind_dxxu = np.array([2,4,6])
-        self.ind_ddxdxxu = np.array([0,1,2,4,6])
+        self.ind_ddxdxxu = (0,1,2,4,6)
 
-        self.dind_dxx =  np.array([2,3])
-        self.dind_dxxu = np.array([2,3,4])
-        self.dind_ddxdxxu =  np.array([0,1,2,3,4])
-        
         self.stop = stop
 
 class Tests(unittest.TestCase):
@@ -145,7 +138,7 @@ class Tests(unittest.TestCase):
         hvdp = learning.OnlineVDP(Distr(), 
                 w=.1, k = 80, tol=1e-4, max_items = 1000)
 
-        planner = Planner(.01,.25)
+        planner = Planner(.02,.5)
         
         #sm = simulation.ControlledSimDisp(a,hvdp,planner)
         sm = simulation.ControlledSimFile(a,hvdp,planner)

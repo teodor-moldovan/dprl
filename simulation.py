@@ -188,23 +188,14 @@ class ControlledSimDisp(ControlledSim):
 
     def output_init(self):
         #fl = open('../data/cartpole/online_'+str(seed)+'.pkl','wb') 
+        plt.figure(figsize=(15,10))
         plt.ion()
 
     def output(self,traj,x,model):
-        
-        # output
         plt.clf()
         model.plot_clusters()
         self.system.plot(x,linewidth=0)
         plt.draw()
-        print traj
-
-
-        #print  traj[0,[4,5]], x[0,[4,5]]
-        #cPickle.dump((None,traj,None,None,None,None ),fl)
-
-
-
 
 
 class ControlledSimFile(ControlledSim):
