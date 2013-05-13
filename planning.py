@@ -357,7 +357,7 @@ class QP:
         return xr
 
 class Planner:
-    def __init__(self, dt,hi, nx, nu, um, uM): 
+    def __init__(self, dt,hi, nx, nu, um, uM, h_cost): 
         self.um = um
         self.uM = uM
         self.dt = dt
@@ -368,13 +368,14 @@ class Planner:
         
         self.ind_ddxdxxu = np.arange(3*nx+nu)
 
-        self.tols = 1e-3
-        self.max_iters = 500
+        self.tols = 1e-2
+        self.max_iters = 100
         self.no = int(hi/float(self.dt))+1
         self.nM = 150
         self.nm = 3
 
         self.xo = None
+        self.h_cost = h_cost
 
          
     def predict(self,z):
@@ -386,7 +387,44 @@ class Planner:
         
 
 
-    def predict_inner(self,z):
+    def predict_inner_exp(self,z):
+
+        iy = tuple(range(self.nx))
+        ix = tuple(range(self.nx,len(self.ind_ddxdxxu)))
+        
+        x = z[:,ix]
+        y = z[:,iy]
+        dx = len(ix)
+        dy = len(iy)
+
+        #ps,psg,trash =self.model.marginal(ix).pseudo_resp(x,(True,False,False))
+        ps,psg,trash =self.model.marginal(ix).resp(x,(True,False,False))
+        
+        nus = np.einsum('nk,ki->ni',ps,self.model.tau)
+        
+        mygx,mx,exg,V1,V2,n =  self.model.distr.conditionals_cache(nus,iy,ix)
+        
+        
+        xi = y - (mygx + np.einsum('nij,nj->ni',exg,x))
+
+
+        P = np.repeat(np.eye(dy,dy)[np.newaxis,:,:],exg.shape[0],0)
+        P = np.dstack((P,-exg))
+
+        df = x-mx
+        cf = np.einsum('nj,nj->n',np.einsum('ni,nij->nj',df, V2),df )
+
+        V = V1*(1/n + cf)[:,np.newaxis,np.newaxis]        
+
+        vi = np.array(map(np.linalg.inv,V))
+        
+        pr = np.einsum('nij,nj->ni',vi,xi)
+        ll = np.einsum('nj,nj->n',pr,xi)
+
+        return ll,xi,P,2*vi
+
+        
+    def predict_inner_old(self,z):
 
         iy = tuple(range(self.nx))
         ix = tuple(range(self.nx,len(self.ind_ddxdxxu)))
@@ -415,7 +453,9 @@ class Planner:
             tmp[:,i,i]=V1[:,i,i]
             V1 = tmp
 
+        #V = V1[np.newaxis,:,:,:]*(1/n + cf)[:,:,np.newaxis,np.newaxis]        
         V = V1[np.newaxis,:,:,:]*(1/n + cf)[:,:,np.newaxis,np.newaxis]        
+
         vr = np.einsum('nkij,nk->nij',V,ps)
 
         vi = np.array(map(np.linalg.inv,vr))
@@ -431,6 +471,7 @@ class Planner:
         return ll,xi,P,2*vi
 
         
+    predict_inner=predict_inner_exp
     def init_traj(self,nt):
         # initial guess
         qp = QP(self.nx,self.nu,nt)
@@ -459,7 +500,7 @@ class Planner:
 
             ll_,m,P,L = self.predict(x_) 
             m -= np.einsum('nij,nj->ni',P,x_)
-            c_ = ll_.sum()
+            c_ = ll_.max()
         
             if not c is None:
                 if np.abs(c_-c)<self.tols*max(c,c_,1):
@@ -467,12 +508,12 @@ class Planner:
             c = c_
             x = x_
 
-            qp.mpl_obj(m,P,L,thrs=1e6) #1e6
+            qp.min_mpl_obj(m,P,L,thrs=1e6) #1e6
             try:
                 x_ = qp.solve()
             except:
                 try:
-                    qp.mpl_obj(m,P,L) #1e6
+                    qp.min_mpl_obj(m,P,L) #1e6
                     x_ = qp.solve()
                 except:
                     break
@@ -505,9 +546,9 @@ class Planner:
             nn = min(max(nn,nm),nM)
             if not cll.has_key(nn):
                 ll,x = self.plan_inner(nn,None)
-                tmp = - nn*ll.max() - 3.0*nn
+                tmp = - ll.sum() - self.h_cost*nn
 
-                print nn, tmp
+                print nn, tmp, ll.sum()
                 cll[nn],cx[nn] = tmp,x
 
             return cll[nn] 
@@ -521,7 +562,7 @@ class Planner:
             
             for inc in range(15):
                 df = d*(2**(inc))
-                if f(n+2*df) < f(n+df):
+                if f(n+2*df) <= f(n+df):
                     break
 
             n = sorted(cll.iteritems(), key=lambda item: -item[1])[0][0]
@@ -531,6 +572,7 @@ class Planner:
         self.no = min(max(nm,n_-1),nM)
         self.xo = cx[n_][1:,:]
 
+        #cx[n_][:,-2:] += np.random.normal(size=cx[n_][:,-2:].size).reshape(cx[n_][:,-2:].shape)
 
         return cx[n_]
 

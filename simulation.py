@@ -32,7 +32,7 @@ class Simulation:
 
         return x
 
-    def random_traj(self,h=None,freq = None, x0=None): 
+    def random_traj(self,h=None,freq = None, fx0=None): 
         
         if h is None:
             h = self.random_traj_h
@@ -53,12 +53,14 @@ class Simulation:
             x0 = self.x0
          
         if len(us.shape)>1:
-            pi = lambda t,x: np.array([np.interp(t, ts, u) for u in us.T])
+            #pi = lambda t,x: np.array([np.interp(t, ts, u) for u in us.T])
+            pi = lambda t,x: [u[min(math.trunc(t/ts.max()*(ts.size)),ts.size-1)]                    for u in us.T]
         else:
-            pi = lambda t,x: np.interp(t, ts, us)
+            pi = lambda t,x: us[min(math.trunc(t/ts.max()*(ts.size)),ts.size-1)]
              
 
-        return self.sim(x0,pi,h)
+        xs =  self.sim(x0,pi,h)
+        return xs
           
 
     def random_controls(self,n):

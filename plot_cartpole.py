@@ -165,7 +165,7 @@ def video(seed):
 
 #batch_cluster_plot()
 
-in_dir = '../../data/cartpole/f726a4d7fb93b0e00004f95cc29adcf2d8074df2/'
+in_dir = '../../data/cartpole/94d951d45a9ad138959ac91cec76f480df9cd8ff/'
 out_dir = in_dir+'figures/'
 dt = .01
 theta_x_plots(legend=True)

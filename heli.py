@@ -102,14 +102,14 @@ class Distr(learning.GaussianNIW):
         "ddq,ddx,ddz,dq,dx,dz,q,x,z,ul,ur"
         learning.GaussianNIW.__init__(self,9)
     def sufficient_stats(self,traj):
-        data = traj.copy()
+        data = traj[:,[0,1,2,3,4,5,6,9,10]].copy()
 
         n = data.shape[0] 
-        nz = .001*np.random.normal(size =n*1).reshape(n)
-        data[:,0] += nz
+        nz = .001*np.random.normal(size =n*7).reshape(n,7)
+        data[:,:-2] += nz
 
         return learning.GaussianNIW.sufficient_stats(self,
-            data[:,[0,1,2,3,4,5,6,9,10]])
+            data)
         
     def plot(self, nu, szs, **kwargs):
         plt.sca(plt.subplot(2,2,2))
@@ -117,10 +117,10 @@ class Distr(learning.GaussianNIW):
 
 
 class Planner(planning.Planner):
-    def __init__(self,dt=.01,h=.1,stop=np.array([0,0,0,0,0,0])):        
+    def __init__(self,dt=.01,h=.1,stop=np.array([0,0,0,0,0,0]),h_cost=.2):        
         
         planning.Planner.__init__(self,dt,h,
-                3,2,np.array([-3.0,-3.0]), np.array([3.0,3.0]))
+                3,2,np.array([-3.0,-3.0]), np.array([3.0,3.0]),h_cost)
        
         self.ind_ddxdxxu = (0,1,2,3,4,5,6,9,10)
 
@@ -188,7 +188,7 @@ class Tests(unittest.TestCase):
         hvdp = learning.OnlineVDP(Distr(), 
                 w=.1, k = 80, tol=1e-4, max_items = 1000 )
 
-        planner = Planner(.05,1.0)
+        planner = Planner(.05,1.0,h_cost=.5)
         
         #sm = simulation.ControlledSimFile(a,hvdp,planner)
         sm = simulation.ControlledSimDisp(a,hvdp,planner)

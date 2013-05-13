@@ -82,10 +82,10 @@ class Distr(learning.GaussianNIW):
         learning.GaussianNIW.plot(self,nu,szs,slc=np.array([2,3]),**kwargs)
 
 class Planner(planning.Planner):
-    def __init__(self,dt=.01,h=.1,stop=np.array([0,0,0,0])):        
+    def __init__(self,dt=.01,h=.1,stop=np.array([0,0,0,0]),h_cost=1.0):        
         
         planning.Planner.__init__(self,dt,h,
-                2,1,np.array([-10]), np.array([+10]))
+                2,1,np.array([-10]), np.array([+10]),h_cost)
         self.ind_ddxdxxu = (0,1,2,4,6)
 
         self.stop = stop
@@ -124,7 +124,7 @@ class Tests(unittest.TestCase):
         stop =  np.array([0,0,0,0])
         dt = .01
 
-        planner = ReducedPlanner(dt, 1.2)
+        planner = ReducedPlanner(dt, 1.2, h_cost=1.0)
         x = planner.plan(model,start,stop,just_one=False)
 
         model.plot_clusters()
@@ -140,9 +140,9 @@ class Tests(unittest.TestCase):
 
         planner = Planner(.02,.5)
         
-        #sm = simulation.ControlledSimDisp(a,hvdp,planner)
-        sm = simulation.ControlledSimFile(a,hvdp,planner)
-        sm.run()# 32
+        sm = simulation.ControlledSimDisp(a,hvdp,planner)
+        #sm = simulation.ControlledSimFile(a,hvdp,planner)
+        sm.run(32)# 32
 
            
 
