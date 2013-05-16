@@ -154,7 +154,7 @@ class ControlledSim:
                 if nss>50:
                     break 
 
-            x = planner.plan(model,start,planner.stop)
+            x = planner.plan(model,start)
 
             self.output(traj,x,model)
 

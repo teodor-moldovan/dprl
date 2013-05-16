@@ -117,15 +117,12 @@ class Distr(learning.GaussianNIW):
 
 
 class Planner(planning.Planner):
-    def __init__(self,dt=.01,h=.1,stop=np.array([0,0,0,0,0,0]),h_cost=.2):        
-        
+    def __init__(self,dt=.01,h=.1,stop=np.array([0,0,0,0,0,0]),h_cost=1.0):  
         planning.Planner.__init__(self,dt,h,
-                3,2,np.array([-3.0,-3.0]), np.array([3.0,3.0]),h_cost)
+                stop,np.array([-3.0,-3.0]), np.array([3.0,3.0]),
+                (0,1,2,3,4,5,6,9,10),
+                h_cost=h_cost)
        
-        self.ind_ddxdxxu = (0,1,2,3,4,5,6,9,10)
-
-        self.stop = stop
-
 
 class Tests(unittest.TestCase):
     def test_sim(self):

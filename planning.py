@@ -356,18 +356,22 @@ class QP:
         xr = xx.reshape(self.nt, -1)
         return xr
 
-class Planner:
-    def __init__(self, dt,hi, nx, nu, um, uM, h_cost): 
+class PlannerFullModel:
+    def __init__(self, dt,hi, stop, um, uM, h_cost=1.0): 
+        
+        self.stop = stop
+
         self.um = um
         self.uM = uM
         self.dt = dt
 
-        self.dim = 3*nx+nu
-        self.nx = nx
-        self.nu = nu
-        
-        self.ind_ddxdxxu = np.arange(3*nx+nu)
+        self.nx = stop.size/2
+        self.nu = um.size
+        self.dim = 3*self.nx+self.nu
 
+        self.iy = tuple(range(self.nx))
+        self.ix = tuple(range(self.nx,self.dim))
+        
         self.tols = 1e-2
         self.max_iters = 500
         self.no = int(hi/float(self.dt))+1
@@ -380,18 +384,9 @@ class Planner:
          
     def predict(self,z):
         
-        ll,m,gr,L = self.predict_inner(z[:,self.ind_ddxdxxu])
-        g_ = np.zeros((gr.shape[0],gr.shape[1],self.dim))
-        g_[:,:,self.ind_ddxdxxu] = gr
-        return ll,m,g_,L
-        
+        ix = self.ix
+        iy = self.iy
 
-
-    def predict_inner_exp(self,z):
-
-        iy = tuple(range(self.nx))
-        ix = tuple(range(self.nx,len(self.ind_ddxdxxu)))
-        
         x = z[:,ix]
         y = z[:,iy]
         dx = len(ix)
@@ -424,15 +419,131 @@ class Planner:
         return ll,xi,P,2*vi
 
         
-    def predict_inner_old(self,z):
-
-        iy = tuple(range(self.nx))
-        ix = tuple(range(self.nx,len(self.ind_ddxdxxu)))
+    def trust_region_hess(self,z):
+        x = z[:,self.ix]
         
-        x = z[:,ix]
-        y = z[:,iy]
-        dx = len(ix)
-        dy = len(iy)
+        mdl = self.model.marginal(self.ix)
+        llk,gr,hsk = mdl.distr.posterior_ll(x,mdl.tau,(False,True,False),True)
+        ps,psg,trash = mdl.resp(x,(True,False,False))
+        
+        df = gr - np.einsum('nki,nk->nk',gr,ps)[:,:,np.newaxis]
+        
+        R = np.einsum('nki,nkj,nk->nij',df,df,ps)
+
+        return R
+        
+
+    def init_traj(self,nt,x0=None):
+        # initial guess
+        if x0 is None:
+            qp = QP(self.nx,self.nu,nt)
+            qp.dyn_constraint(self.dt)
+            qp.endpoints_constraint(self.start,self.stop,self.um,self.uM)
+            qp.min_acc()
+            x_ = qp.solve()
+        else:
+            t = np.linspace(0,1,nt)
+            ts = np.linspace(0,1,x0.shape[0])
+            x_ = np.array([np.interp(t, ts, x) for x in x0.T]).T
+        return x_
+
+
+    def plan_inner(self,nt,x0=None):
+
+        x_ = self.init_traj(nt,x0) 
+            
+        c = None
+
+        qp = QP(self.nx,self.nu,nt)
+        qp.dyn_constraint(self.dt)
+
+        for i in range(self.max_iters):
+
+            ll_,m,P,L = self.predict(x_) 
+            #m -= np.einsum('nij,nj->ni',P,x_)
+            c_ = ll_.max()
+            
+            #R = self.trust_region_hess(x_)
+        
+            if not c is None:
+                if np.abs(c_-c)<self.tols*max(c,c_,1):
+                    break
+            c = c_
+            x = x_
+
+            qp.endpoints_constraint(self.start,self.stop, self.um,self.uM,x=x)
+            qp.min_mpl_obj(m,P,L,thrs=1e6) #1e6
+            
+
+            try:
+                dx = qp.solve()
+            except:
+                try:
+                    qp.min_mpl_obj(m,P,L) #1e6
+                    dx = qp.solve()
+                except:
+                    break
+
+            x_ = x +2.0/(i+2.0)*dx
+        
+        if i>=self.max_iters-1:
+            print 'MI reached'
+
+        return ll_,x_
+
+
+    def plan(self,model,start,just_one=False):
+
+        self.start = start
+        self.model=model
+        
+        nm, n, nM = self.nm, self.no, self.nM
+
+        if just_one:
+            lls,x = self.plan_inner(n)
+            return x
+        
+        cx = {}
+        cll ={}
+        def f(nn):
+            nn = min(max(nn,nm),nM)
+            if not cll.has_key(nn):
+                ll,x = self.plan_inner(nn,self.xo)
+                tmp = - nn*ll.max() - self.h_cost*nn
+
+                print nn, tmp, ll.max()
+                cll[nn],cx[nn] = tmp,x
+
+            return cll[nn] 
+
+
+        rg = np.power(2,np.arange(0,3))
+        rg = np.concatenate((-rg,[0],rg))
+
+        for it in range(10):
+            
+            [f(n+r) for r in rg]
+            n = sorted(cll.iteritems(), key=lambda item: -item[1])[0][0]
+
+        n_ = min(max(n,nm),nM)
+        print n_,cll[n_]
+        self.no = min(max(nm,n_-1),nM)
+        self.xo = cx[n_][1:,:]
+
+        #cx[n_][:,-2:] += np.random.normal(size=cx[n_][:,-2:].size).reshape(cx[n_][:,-2:].shape)
+
+        return cx[n_]
+
+class PlannerFullModelOld(PlannerFullModel):
+    def predict(self,z):
+
+        ix = self.ix
+        iy = self.iy
+
+        x = z[:,self.ix]
+        y = z[:,self.iy]
+        dx = len(self.ix)
+        dy = len(self.iy)
 
         ex, exg, trash = self.model.conditional_expectation(x,iy,ix,
                     (True,True,False)) 
@@ -471,106 +582,25 @@ class Planner:
         return ll,xi,P,2*vi
 
         
-    predict_inner=predict_inner_exp
-    def init_traj(self,nt):
-        # initial guess
-        qp = QP(self.nx,self.nu,nt)
-        qp.dyn_constraint(self.dt)
-        qp.endpoints_constraint(self.start,self.end,self.um,self.uM)
-        qp.min_acc()
-        return qp.solve()
+class Planner(PlannerFullModel):
+    def __init__(self, dt,hi, stop, um, uM, inds, h_cost=1.0): 
+        PlannerFullModel.__init__(self,dt,hi,stop,um,uM,h_cost=h_cost)
+        self.ind_ddxdxxu = inds
 
-
-    def plan_inner(self,nt,x0=None):
-
-        if x0 is None:
-            x_ = self.init_traj(nt) 
-        else:
-            t = np.linspace(0,1,nt)
-            ts = np.linspace(0,1,x0.shape[0])
-            x_ = np.array([np.interp(t, ts, x) for x in x0.T]).T
-            
-        c = None
-
-        qp = QP(self.nx,self.nu,nt)
-        qp.dyn_constraint(self.dt)
-        qp.endpoints_constraint(self.start,self.end, self.um,self.uM)
-
-        for i in range(self.max_iters):
-
-            ll_,m,P,L = self.predict(x_) 
-            m -= np.einsum('nij,nj->ni',P,x_)
-            c_ = ll_.max()
+        self.iy = tuple(range(self.nx))
+        self.ix = tuple(range(self.nx,len(self.ind_ddxdxxu)))
         
-            if not c is None:
-                if np.abs(c_-c)<self.tols*max(c,c_,1):
-                    break
-            c = c_
-            x = x_
-
-            qp.min_mpl_obj(m,P,L,thrs=1e6) #1e6
-            try:
-                x_ = qp.solve()
-            except:
-                try:
-                    qp.min_mpl_obj(m,P,L) #1e6
-                    x_ = qp.solve()
-                except:
-                    break
-
-            dx = x_-x
-            x_ = x +2.0/(i+2.0)*dx
         
-        if i>=self.max_iters-1:
-            print 'MI reached'
 
-        return ll_,x_
-
-
-    def plan(self,model,start,end,just_one=False):
-
-        self.start = start
-        self.end = end
-        self.model=model
+    def predict(self,z):
         
-        nm, n, nM = self.nm, self.no, self.nM
-
-        if just_one:
-            lls,x = self.plan_inner(n)
-            return x
-
-        
-        cx = {}
-        cll ={}
-        def f(nn):
-            nn = min(max(nn,nm),nM)
-            if not cll.has_key(nn):
-                ll,x = self.plan_inner(nn,self.xo)
-                tmp = - nn*ll.max() - self.h_cost*nn
-
-                print nn, tmp, ll.max()
-                cll[nn],cx[nn] = tmp,x
-
-            return cll[nn] 
+        ll,m,gr,L = PlannerFullModel.predict(self,z[:,self.ind_ddxdxxu])
+        g_ = np.zeros((gr.shape[0],gr.shape[1],self.dim))
+        g_[:,:,self.ind_ddxdxxu] = gr
+        return ll,m,g_,L
         
 
 
-        rg = np.power(2,np.arange(0,3))
-        rg = np.concatenate((-rg,[0],rg))
-
-        for it in range(10):
-            
-            [f(n+r) for r in rg]
-            n = sorted(cll.iteritems(), key=lambda item: -item[1])[0][0]
-
-        n_ = min(max(n,nm),nM)
-        print n_,cll[n_]
-        self.no = min(max(nm,n_-1),nM)
-        self.xo = cx[n_][1:,:]
-
-        #cx[n_][:,-2:] += np.random.normal(size=cx[n_][:,-2:].size).reshape(cx[n_][:,-2:].shape)
-
-        return cx[n_]
 
 class Tests(unittest.TestCase):
     def setUp(self):

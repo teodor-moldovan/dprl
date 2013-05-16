@@ -62,12 +62,10 @@ class Distr(learning.GaussianNIW):
     def plot(self, nu, szs, **kwargs):
         learning.GaussianNIW.plot(self,nu,szs,slc=np.array([1,2]),**kwargs)
 
-class Planner(planning.Planner):
+class Planner(planning.PlannerFullModel):
     def __init__(self,dt,hi,stop,h_cost=1.0):        
-        planning.Planner.__init__(self,dt,hi,
-                1,1,np.array([-5]), np.array([+5]),h_cost)
-        self.stop=stop
-
+        planning.PlannerFullModel.__init__(self,dt,hi,
+                stop,np.array([-5]), np.array([+5]),h_cost)
 
 class MDPtests(unittest.TestCase):
     def test_rnd(self):
@@ -115,7 +113,7 @@ class MDPtests(unittest.TestCase):
         dt = .01
 
         planner = Planner(dt, 2.1, stop)
-        x = planner.plan(model,start,stop,just_one=True)
+        x = planner.plan(model,start,just_one=True)
         
         Pendulum().plot(x)
         plt.show()
