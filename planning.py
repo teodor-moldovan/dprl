@@ -369,7 +369,7 @@ class Planner:
         self.ind_ddxdxxu = np.arange(3*nx+nu)
 
         self.tols = 1e-2
-        self.max_iters = 100
+        self.max_iters = 500
         self.no = int(hi/float(self.dt))+1
         self.nM = 150
         self.nm = 3
@@ -545,26 +545,22 @@ class Planner:
         def f(nn):
             nn = min(max(nn,nm),nM)
             if not cll.has_key(nn):
-                ll,x = self.plan_inner(nn,None)
-                tmp = - ll.sum() - self.h_cost*nn
+                ll,x = self.plan_inner(nn,self.xo)
+                tmp = - nn*ll.max() - self.h_cost*nn
 
-                print nn, tmp, ll.sum()
+                print nn, tmp, ll.max()
                 cll[nn],cx[nn] = tmp,x
 
             return cll[nn] 
         
 
-        for it in range(10):
-            if f(n+1)<f(n):
-                d = -1
-            else:
-                d = +1
-            
-            for inc in range(15):
-                df = d*(2**(inc))
-                if f(n+2*df) <= f(n+df):
-                    break
 
+        rg = np.power(2,np.arange(0,3))
+        rg = np.concatenate((-rg,[0],rg))
+
+        for it in range(10):
+            
+            [f(n+r) for r in rg]
             n = sorted(cll.iteritems(), key=lambda item: -item[1])[0][0]
 
         n_ = min(max(n,nm),nM)

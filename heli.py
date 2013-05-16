@@ -65,7 +65,7 @@ class Heli2D(simulation.Simulation):
 
 
     def random_controls(self,n):
-        ctrls = ( (np.random.random(size=2*n).reshape(n,2) - .5)*.2
+        ctrls = ( (np.random.random(size=2*n).reshape(n,2) - .5)*1.0
                 + self.u_eq[np.newaxis,:])
         
         ctrls[ctrls>3.0] = 3.0
@@ -188,7 +188,7 @@ class Tests(unittest.TestCase):
         hvdp = learning.OnlineVDP(Distr(), 
                 w=.1, k = 80, tol=1e-4, max_items = 1000 )
 
-        planner = Planner(.05,1.0,h_cost=.5)
+        planner = Planner(.05,1.0,h_cost=1.0)
         
         #sm = simulation.ControlledSimFile(a,hvdp,planner)
         sm = simulation.ControlledSimDisp(a,hvdp,planner)

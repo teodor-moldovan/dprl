@@ -63,9 +63,9 @@ class Distr(learning.GaussianNIW):
         learning.GaussianNIW.plot(self,nu,szs,slc=np.array([1,2]),**kwargs)
 
 class Planner(planning.Planner):
-    def __init__(self,dt,hi,stop):        
+    def __init__(self,dt,hi,stop,h_cost=1.0):        
         planning.Planner.__init__(self,dt,hi,
-                1,1,np.array([-5]), np.array([+5]))
+                1,1,np.array([-5]), np.array([+5]),h_cost)
         self.stop=stop
 
 
@@ -136,7 +136,7 @@ class MDPtests(unittest.TestCase):
            
 
 if __name__ == '__main__':
-    single_test = 'test_online'
+    single_test = 'test_planning'
     if hasattr(MDPtests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(MDPtests(single_test))
