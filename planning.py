@@ -10,17 +10,14 @@ import scipy.optimize
 mosek_env = mosek.Env()
 mosek_env.init()
 
-class MyException(Exception):
-    pass
-
 class QP:
     def __init__(self,nx,nu,nt):
         self.nx = int(nx)
         self.nu = int(nu)
         self.nt = int(nt)
 
-        self.nv = nt*(3*nx+nu) + nt*nx  + 1
-        self.nc = nt*(2*nx) + nt*nx + nt
+        self.nv = nt*(3*nx+nu) + nt*nx + 1
+        self.nc = nt*(2*nx) + nt*nx + nt + 1
         
         self.iv_ddxdxxu = np.arange(nt*(3*nx+nu))
 
@@ -47,6 +44,8 @@ class QP:
 
         self.iv_q = np.int_(nt*(3*nx+nu) + nt*nx)
         self.ic_q = np.int_(3*nt*nx +np.arange(nt))
+
+        self.ic_tr = np.int_(nt*(2*nx) + nt*nx + nt)
 
         task = mosek_env.Task()
         task.append( mosek.accmode.var, self.nv)
@@ -165,6 +164,59 @@ class QP:
 
 
 
+    def plq_obj(self, P,L,q ):
+        
+        nx = self.nx
+        nu = self.nu
+        nt = self.nt
+        
+        mx = np.abs(np.max(L))
+        iv_z =  self.iv_p
+
+        self.task.putboundlist(  mosek.accmode.var,
+                iv_z, 
+                [mosek.boundkey.fr]*iv_z.size,
+                np.zeros(iv_z.size),np.zeros(iv_z.size) )
+        
+
+        i = np.zeros((nt,nx,3*nx+nu),int)
+        i += self.ic_p.reshape(nt,-1)[:,:,np.newaxis]
+        j = np.zeros((nt,nx,3*nx+nu),int)
+        j += self.iv_ddxdxxu.reshape(nt,-1)[:,np.newaxis,:]
+
+
+        self.task.putaijlist( i.reshape(-1), 
+                              j.reshape(-1), 
+                              P.reshape(-1)  )
+
+        self.task.putaijlist( self.ic_p, 
+                              self.iv_p, 
+                              -np.ones(self.ic_p.size)  )
+
+        ind_c = self.ic_p
+        self.task.putboundlist(  mosek.accmode.con,
+                            ind_c, 
+                            [mosek.boundkey.fx]*ind_c.size, 
+                            [0]*ind_c.size,[0]*ind_c.size)
+
+        i = np.zeros((nt,nx,nx),int)
+        i += self.iv_p.reshape(nt,-1)[:,:,np.newaxis]
+        j = np.zeros((nt,nx,nx),int)
+        j += self.iv_p.reshape(nt,-1)[:,np.newaxis,:]
+        
+
+        i = i.reshape(-1)
+        j = j.reshape(-1)
+        d = L.reshape(-1)
+        ind = (i>=j)
+       
+        self.task.putqobj(i[ind],j[ind], d[ind]/mx) 
+        self.task.putclist(self.iv_p, q.reshape(-1)/mx) 
+        self.task.putobjsense(mosek.objsense.minimize)
+
+
+
+
     def min_mpl_obj(self, m,P,L, thrs = float('inf')):
         
         nx = self.nx
@@ -236,7 +288,6 @@ class QP:
         d = L.reshape(-1)/mx
         k = k.reshape(-1)
         ind = (i>=j)
-       
 
         self.task.putqcon(k[ind],i[ind],j[ind], d[ind])
         self.task.putaijlist( self.ic_q, [self.iv_q]*nt, -np.ones(nt)  )
@@ -249,7 +300,38 @@ class QP:
 
 
         self.task.putclist( [self.iv_q], [1]  )
-        self.task.putobjsense(mosek.objsense.minimize)
+
+
+
+    def trust_region_constraint(self,L):
+
+        n =  2*self.nx + self.nu
+        nt = self.nt
+
+        self.mx_tr = np.abs(np.max(L))
+
+        i = np.zeros((nt,n,n),int)
+        i += self.iv_dxxu.reshape(nt,-1)[:,:,np.newaxis]
+        j = np.zeros((nt,n,n),int)
+        j += self.iv_dxxu.reshape(nt,-1)[:,np.newaxis,:]
+        k = np.zeros((nt,n,n),int)
+        k += self.ic_tr
+        
+
+        i = i.reshape(-1)
+        j = j.reshape(-1)
+        d = L.reshape(-1)/self.mx_tr
+        k = k.reshape(-1)
+        ind = (i>=j)
+
+        self.task.putqcon(k[ind],i[ind],j[ind], d[ind])
+
+        self.task.putboundlist(  mosek.accmode.con,
+                            [self.ic_tr], 
+                            [mosek.boundkey.fr], 
+                            [0],[0])
+
+
 
     def endpoints_constraint(self,xi,xf,um,uM,x = None):
         task = self.task
@@ -307,9 +389,17 @@ class QP:
 
         return
 
-    def solve(self):
+    def solve(self,tr=None):
 
         task = self.task
+
+        if not tr is None:
+            self.task.putboundlist(  mosek.accmode.con,
+                            [self.ic_tr], 
+                            [mosek.boundkey.up], 
+                            [tr/self.mx_tr],[tr/self.mx_tr])
+
+        self.task.putobjsense(mosek.objsense.minimize)
 
         #task.putintparam(mosek.iparam.intpnt_scaling,mosek.scalingtype.none);
         task.putintparam(mosek.iparam.check_convexity,mosek.checkconvexitytype.none);
@@ -325,8 +415,7 @@ class QP:
                 # mosek bug fix 
                 task._Task__progress_cb=None
                 task._Task__stream_cb=None
-                print solsta, prosta
-                raise MyException()
+                raise Exception(str(solsta)+", "+str(prosta))
 
         t0 = time.time()
         solve_b()
@@ -428,7 +517,12 @@ class PlannerFullModel:
         
         df = gr - np.einsum('nki,nk->nk',gr,ps)[:,:,np.newaxis]
         
-        R = np.einsum('nki,nkj,nk->nij',df,df,ps)
+        Rt = np.einsum('nki,nkj->nkij',df,df)
+        R = np.einsum('nkij,nk->nij',Rt,ps)
+        
+        
+        #ind = np.arange(R.shape[1])
+        #R[:,ind,ind] += 1e-6
 
         return R
         
@@ -457,39 +551,51 @@ class PlannerFullModel:
         qp = QP(self.nx,self.nu,nt)
         qp.dyn_constraint(self.dt)
 
+
+        tr = float(1e3*nt)
+
         for i in range(self.max_iters):
 
             ll_,m,P,L = self.predict(x_) 
-            #m -= np.einsum('nij,nj->ni',P,x_)
-            c_ = ll_.max()
+            q = np.einsum('ni,nij->nj',m,L)
+
+            c_ = ll_.sum()
             
-            #R = self.trust_region_hess(x_)
         
-            if not c is None:
-                if np.abs(c_-c)<self.tols*max(c,c_,1):
-                    break
-            c = c_
-            x = x_
+            if c is None or c_<c:
+                c = c_
+                ll = ll_
+                x = x_
 
-            qp.endpoints_constraint(self.start,self.stop, self.um,self.uM,x=x)
-            qp.min_mpl_obj(m,P,L,thrs=1e6) #1e6
+                R = self.trust_region_hess(x)
+
+                qp.endpoints_constraint(self.start,self.stop, 
+                        self.um,self.uM,x=x)
+                qp.plq_obj(P,L,q) #1e6
+                qp.trust_region_constraint(R)
+                
+                #print c, tr
+                tr *= 2.0
             
+            else:
+                tr/=8.0
 
-            try:
-                dx = qp.solve()
-            except:
-                try:
-                    qp.min_mpl_obj(m,P,L) #1e6
-                    dx = qp.solve()
-                except:
+            if tr<1e-1:
                     break
+            
+            try:
+                x_ = x + qp.solve(tr)
+            except KeyboardInterrupt:
+               raise
+            except Exception,err:
+                print err
+                continue
 
-            x_ = x +2.0/(i+2.0)*dx
         
         if i>=self.max_iters-1:
             print 'MI reached'
 
-        return ll_,x_
+        return ll,x
 
 
     def plan(self,model,start,just_one=False):
@@ -508,10 +614,10 @@ class PlannerFullModel:
         def f(nn):
             nn = min(max(nn,nm),nM)
             if not cll.has_key(nn):
-                ll,x = self.plan_inner(nn,self.xo)
-                tmp = - nn*ll.max() - self.h_cost*nn
+                ll,x = self.plan_inner(nn,None)
+                tmp = - ll.sum() - self.h_cost*nn
 
-                print nn, tmp, ll.max()
+                print nn, tmp, ll.sum()
                 cll[nn],cx[nn] = tmp,x
 
             return cll[nn] 
@@ -601,6 +707,22 @@ class Planner(PlannerFullModel):
         
 
 
+
+    def trust_region_hess(self,z):
+        
+        R = PlannerFullModel.trust_region_hess(self,z[:,self.ind_ddxdxxu])
+       
+        ind = (np.zeros(self.dim)==1)
+        ind[np.array(self.ind_ddxdxxu)] = True
+        ind = ind[self.nx:]
+        
+        ind_ = np.repeat(np.logical_and(ind[np.newaxis,:,np.newaxis],ind[np.newaxis,np.newaxis,:]),R.shape[0],0)
+        
+        R_ = np.zeros((R.shape[0],self.dim-self.nx,self.dim-self.nx))
+        R_[ind_]  = R.reshape(-1)
+        
+        return R_
+        
 
 class Tests(unittest.TestCase):
     def setUp(self):
