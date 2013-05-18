@@ -211,7 +211,7 @@ class QP:
         ind = (i>=j)
        
         self.task.putqobj(i[ind],j[ind], d[ind]/mx) 
-        self.task.putclist(self.iv_p, q.reshape(-1)/mx) 
+        self.task.putclist(self.iv_ddxdxxu, q.reshape(-1)/mx) 
         self.task.putobjsense(mosek.objsense.minimize)
 
 
@@ -467,7 +467,7 @@ class PlannerFullModel:
         self.ix = tuple(range(self.nx,self.dim))
         
         self.tols = 1e-2
-        self.max_iters = 50
+        self.max_iters = 500
         self.no = int(hi/float(self.dt))+1
         self.nM = 150
         self.nm = 3
@@ -532,6 +532,7 @@ class PlannerFullModel:
         vi = np.array(map(np.linalg.inv,vr))
         
         xi = (y-ex)
+        xiv = np.einsum('ni,nij->nj',xi,vi)
         
         pr = np.einsum('nij,nj->ni',vi,xi)
         ll = np.einsum('nj,nj->n',pr,xi)
@@ -539,7 +540,10 @@ class PlannerFullModel:
         P = np.repeat(np.eye(dy,dy)[np.newaxis,:,:],exg.shape[0],0)
         P = np.dstack((P,-exg))
         
-        return ll,xi,P,2*vi
+        q = 2*np.einsum('nj,njk->nk',xiv,P)
+        q[:,dy:] -= np.einsum('ni,nijk,nj->nk',xiv,vrg,xiv)
+
+        return ll,P,2*vi,q
 
         
     def predict_mm(self,z):
@@ -590,34 +594,6 @@ class PlannerFullModel:
         return R
         
 
-    def pseudo_trust_region_hess(self,z):
-        x = z[:,self.ix]
-        
-        mdl = self.model.marginal(self.ix)
-        #llk,gr,hsk = mdl.distr.posterior_ll(x,mdl.tau,(False,True,False),True)
-
-        grad = mdl.distr.prior.log_partition(mdl.tau,(False,True,False))[1]
-        d = mdl.distr.prior.dim
-        m = grad[:,:d]
-        v = grad[:,d:-2].reshape(-1,d,d)
-        
-        gr = m[np.newaxis,:,:] + 2*np.einsum('kij,nj->nki',v,x)
-
-
-        ps,psg,trash = mdl.pseudo_resp(x,(True,False,False))
-        
-        df = gr - np.einsum('nki,nk->nk',gr,ps)[:,:,np.newaxis]
-        
-        Rt = np.einsum('nki,nkj->nkij',df,df)
-        R = np.einsum('nkij,nk->nij',Rt,ps)
-        
-        
-        #ind = np.arange(R.shape[1])
-        #R[:,ind,ind] += 1e-6
-
-        return R
-        
-
     def init_traj(self,nt,x0=None):
         # initial guess
         if x0 is None:
@@ -644,19 +620,18 @@ class PlannerFullModel:
 
 
         tr0 = float(1e5)
+        flg = True
         tr = tr0
 
         for i in range(self.max_iters):
 
-            ll_,m,P,L = self.predict(x_) 
-            q = np.einsum('ni,nij->nj',m,L)
+            ll_,P,L,q = self.predict(x_) 
 
             c_ = ll_.sum()
             
         
-            if c is None or c_<c:
+            if (c is None or c_<c) and flg:
                 c = c_
-                ll = ll_
                 x = x_
 
                 R = self.trust_region_hess(x)
@@ -672,16 +647,17 @@ class PlannerFullModel:
             else:
                 tr/=8.0
 
-            if tr<1e-2:
+            if tr<1e-4:
                     break
             
             try:
                 x_ = x + qp.solve(tr)
+                flg = True
             except KeyboardInterrupt:
                raise
             except Exception,err:
                 print err
-                continue
+                flg = False
 
         
         if i>=self.max_iters-1:
@@ -792,10 +768,13 @@ class Planner(PlannerFullModel):
 
     def predict(self,z):
         
-        ll,m,gr,L = PlannerFullModel.predict(self,z[:,self.ind_ddxdxxu])
+        ll,gr,L,q = PlannerFullModel.predict(self,z[:,self.ind_ddxdxxu])
         g_ = np.zeros((gr.shape[0],gr.shape[1],self.dim))
         g_[:,:,self.ind_ddxdxxu] = gr
-        return ll,m,g_,L
+
+        q_ = np.zeros((q.shape[0],self.dim))
+        q_[:,self.ind_ddxdxxu] = q
+        return ll,g_,L,q_
         
 
 

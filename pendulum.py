@@ -129,7 +129,7 @@ class MDPtests(unittest.TestCase):
         planner = Planner(.05,2.3,np.array([0,0]))
 
         sm = simulation.ControlledSimDisp(a,hvdp,planner)
-        sm.run(6)
+        sm.run()#6
 
            
 
