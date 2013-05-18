@@ -318,9 +318,14 @@ class QP:
         k += self.ic_tr
         
 
+        L = L/self.mx_tr
+
+        ind = np.arange(L.shape[1])
+        L[:,ind,ind] += 1e-5
+
         i = i.reshape(-1)
         j = j.reshape(-1)
-        d = L.reshape(-1)/self.mx_tr
+        d = L.reshape(-1)
         k = k.reshape(-1)
         ind = (i>=j)
 
@@ -462,7 +467,7 @@ class PlannerFullModel:
         self.ix = tuple(range(self.nx,self.dim))
         
         self.tols = 1e-2
-        self.max_iters = 500
+        self.max_iters = 50
         self.no = int(hi/float(self.dt))+1
         self.nM = 150
         self.nm = 3
@@ -471,7 +476,7 @@ class PlannerFullModel:
         self.h_cost = h_cost
 
          
-    def predict(self,z):
+    def predict_new(self,z):
         
         ix = self.ix
         iy = self.iy
@@ -508,12 +513,98 @@ class PlannerFullModel:
         return ll,xi,P,2*vi
 
         
+    def predict_old(self,z):
+
+        ix = self.ix
+        iy = self.iy
+
+        x = z[:,self.ix]
+        y = z[:,self.iy]
+        dx = len(self.ix)
+        dy = len(self.iy)
+
+        ex, exg, trash = self.model.conditional_expectation(x,iy,ix,
+                    (True,True,False)) 
+        
+        vr, vrg, trash = self.model.var_cond_exp(x,iy,ix,
+                    (True,True,False)) 
+
+        vi = np.array(map(np.linalg.inv,vr))
+        
+        xi = (y-ex)
+        
+        pr = np.einsum('nij,nj->ni',vi,xi)
+        ll = np.einsum('nj,nj->n',pr,xi)
+
+        P = np.repeat(np.eye(dy,dy)[np.newaxis,:,:],exg.shape[0],0)
+        P = np.dstack((P,-exg))
+        
+        return ll,xi,P,2*vi
+
+        
+    def predict_mm(self,z):
+
+        ix = self.ix
+        iy = self.iy
+
+        x = z[:,self.ix]
+        y = z[:,self.iy]
+        dx = len(self.ix)
+        dy = len(self.iy)
+
+        ex, exg, trash = self.model.conditional_expectation(x,iy,ix,
+                    (True,True,False)) 
+        
+        vr, vrg, trash = self.model.conditional_variance(x,iy,ix,
+                    (True,True,False)) 
+
+        vi = np.array(map(np.linalg.inv,vr))
+        
+        xi = (y-ex)
+        
+        pr = np.einsum('nij,nj->ni',vi,xi)
+        ll = np.einsum('nj,nj->n',pr,xi)
+
+        P = np.repeat(np.eye(dy,dy)[np.newaxis,:,:],exg.shape[0],0)
+        P = np.dstack((P,-exg))
+        
+        return ll,xi,P,2*vi
+
+        
+    predict = predict_old
     def trust_region_hess(self,z):
         x = z[:,self.ix]
         
         mdl = self.model.marginal(self.ix)
         llk,gr,hsk = mdl.distr.posterior_ll(x,mdl.tau,(False,True,False),True)
-        ps,psg,trash = mdl.resp(x,(True,False,False))
+
+        ps,psg,trash = mdl.pseudo_resp(x,(True,False,False))
+        
+        df = gr - np.einsum('nki,nk->nk',gr,ps)[:,:,np.newaxis]
+        
+        Rt = np.einsum('nki,nkj->nkij',df,df)
+        R = np.einsum('nkij,nk->nij',Rt,ps)
+        
+        
+
+        return R
+        
+
+    def pseudo_trust_region_hess(self,z):
+        x = z[:,self.ix]
+        
+        mdl = self.model.marginal(self.ix)
+        #llk,gr,hsk = mdl.distr.posterior_ll(x,mdl.tau,(False,True,False),True)
+
+        grad = mdl.distr.prior.log_partition(mdl.tau,(False,True,False))[1]
+        d = mdl.distr.prior.dim
+        m = grad[:,:d]
+        v = grad[:,d:-2].reshape(-1,d,d)
+        
+        gr = m[np.newaxis,:,:] + 2*np.einsum('kij,nj->nki',v,x)
+
+
+        ps,psg,trash = mdl.pseudo_resp(x,(True,False,False))
         
         df = gr - np.einsum('nki,nk->nk',gr,ps)[:,:,np.newaxis]
         
@@ -552,7 +643,8 @@ class PlannerFullModel:
         qp.dyn_constraint(self.dt)
 
 
-        tr = float(1e3*nt)
+        tr0 = float(1e5)
+        tr = tr0
 
         for i in range(self.max_iters):
 
@@ -571,16 +663,16 @@ class PlannerFullModel:
 
                 qp.endpoints_constraint(self.start,self.stop, 
                         self.um,self.uM,x=x)
-                qp.plq_obj(P,L,q) #1e6
                 qp.trust_region_constraint(R)
+                qp.plq_obj(P,L,q) #1e6
                 
-                #print c, tr
-                tr *= 2.0
+                print '\t', c, tr
+                tr = min(tr*2.0,tr0)
             
             else:
                 tr/=8.0
 
-            if tr<1e-1:
+            if tr<1e-2:
                     break
             
             try:
@@ -595,7 +687,7 @@ class PlannerFullModel:
         if i>=self.max_iters-1:
             print 'MI reached'
 
-        return ll,x
+        return c,x
 
 
     def plan(self,model,start,just_one=False):
@@ -614,10 +706,10 @@ class PlannerFullModel:
         def f(nn):
             nn = min(max(nn,nm),nM)
             if not cll.has_key(nn):
-                ll,x = self.plan_inner(nn,None)
-                tmp = - ll.sum() - self.h_cost*nn
+                c,x = self.plan_inner(nn,None)
+                tmp = - c - self.h_cost*nn
 
-                print nn, tmp, ll.sum()
+                print nn, tmp, c
                 cll[nn],cx[nn] = tmp,x
 
             return cll[nn] 
