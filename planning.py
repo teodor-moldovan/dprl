@@ -627,8 +627,8 @@ class PlannerFullModel:
 
             ll_,P,L,q = self.predict(x_) 
 
+
             c_ = ll_.sum()
-            
         
             if (c is None or c_<c) and flg:
                 c = c_
@@ -648,7 +648,7 @@ class PlannerFullModel:
                 tr/=8.0
 
             if tr<1e-4:
-                    break
+                break
             
             try:
                 x_ = x + qp.solve(tr)
