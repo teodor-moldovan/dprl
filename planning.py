@@ -467,7 +467,7 @@ class PlannerFullModel:
         self.ix = tuple(range(self.nx,self.dim))
         
         self.tols = 1e-2
-        self.max_iters = 500
+        self.max_iters = 50
         self.no = int(hi/float(self.dt))+1
         self.nM = 150
         self.nm = 3
@@ -541,7 +541,7 @@ class PlannerFullModel:
         P = np.dstack((P,-exg))
         
         q = 2*np.einsum('nj,njk->nk',xiv,P)
-        q[:,dy:] -= np.einsum('ni,nijk,nj->nk',xiv,vrg,xiv)
+        #q[:,dy:] -= np.einsum('ni,nijk,nj->nk',xiv,vrg,xiv)
 
         return ll,P,2*vi,q
 
@@ -618,7 +618,7 @@ class PlannerFullModel:
         qp.dyn_constraint(self.dt)
 
 
-        tr0 = float(1e4)
+        tr0 = float(1e5)
         flg = True
         tr = tr0
 
@@ -639,12 +639,12 @@ class PlannerFullModel:
                 qp.plq_obj(P,L,q) #1e6
                 
                 print '\t', c, tr
-                tr = min(tr*10.0,tr0)
+                tr = min(tr*2.0,tr0)
             
             else:
-                tr/=100.0
+                tr/=8.0
 
-            if tr<1e-4:
+            if tr<1e-2:
                 break
             
             try:
