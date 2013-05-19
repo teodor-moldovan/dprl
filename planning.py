@@ -612,22 +612,19 @@ class PlannerFullModel:
     def plan_inner(self,nt,x0=None):
 
         x_ = self.init_traj(nt,x0) 
-            
         c = None
 
         qp = QP(self.nx,self.nu,nt)
         qp.dyn_constraint(self.dt)
 
 
-        tr0 = float(1e5)
+        tr0 = float(1e4)
         flg = True
         tr = tr0
 
-        for i in range(self.max_iters):
+        for i in range(self.max_iters): 
 
             ll_,P,L,q = self.predict(x_) 
-
-
             c_ = ll_.sum()
         
             if (c is None or c_<c) and flg:
@@ -642,10 +639,10 @@ class PlannerFullModel:
                 qp.plq_obj(P,L,q) #1e6
                 
                 print '\t', c, tr
-                tr = min(tr*2.0,tr0)
+                tr = min(tr*10.0,tr0)
             
             else:
-                tr/=8.0
+                tr/=100.0
 
             if tr<1e-4:
                 break
