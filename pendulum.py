@@ -112,7 +112,7 @@ class MDPtests(unittest.TestCase):
         #stop = None
         dt = .01
 
-        planner = Planner(dt, 2.1, stop)
+        planner = Planner(dt, 2.5, stop)
         x = planner.plan(model,start,just_one=True)
         
         Pendulum().plot(x)
@@ -124,12 +124,12 @@ class MDPtests(unittest.TestCase):
         a = Pendulum()
 
         hvdp = learning.OnlineVDP(Distr(), 
-                w=.1, k = 30, tol=1e-4, max_items = 1000 )
+                w=.1, k = 40, tol=1e-4, max_items = 1000 )
 
-        planner = Planner(.05,2.3,np.array([0,0]))
+        planner = Planner(.05,2.3,np.array([0,0]),h_cost=.5)
 
         sm = simulation.ControlledSimDisp(a,hvdp,planner)
-        sm.run()#6
+        sm.run(6)#6
 
            
 

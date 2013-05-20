@@ -11,10 +11,11 @@ mosek_env = mosek.Env()
 mosek_env.init()
 
 class QP:
-    def __init__(self,nx,nu,nt):
+    def __init__(self,nx,nu,nt,dt):
         self.nx = int(nx)
         self.nu = int(nu)
         self.nt = int(nt)
+        self.dt = dt
 
         self.nv = nt*(3*nx+nu) + nt*nx + 1
         self.nc = nt*(2*nx) + nt*nx + nt + 1
@@ -53,10 +54,11 @@ class QP:
 
         self.task = task
 
-    def dyn_constraint(self,dt):
+    def dyn_constraint(self):
         nx = self.nx
         nu = self.nu
         nt = self.nt
+        dt = self.dt
 
         indsj = np.arange((3*nx+nu)*nt).reshape(nt,3*nx+nu)
         j = lambda si,st : indsj[st,:][:,si].reshape(-1)
@@ -81,6 +83,7 @@ class QP:
                   -ox, ox,     .5*dt*ox, .5*dt*ox  ))
         
         a = scipy.sparse.coo_matrix((ad,(ai,aj))).tocsr().tocoo()
+        self.dyn_a = a
 
         self.task.putaijlist( a.row, a.col, a.data  )
 
@@ -170,7 +173,6 @@ class QP:
         nu = self.nu
         nt = self.nt
         
-        mx = np.abs(np.max(L))
         iv_z =  self.iv_p
 
         self.task.putboundlist(  mosek.accmode.var,
@@ -210,8 +212,8 @@ class QP:
         d = L.reshape(-1)
         ind = (i>=j)
        
-        self.task.putqobj(i[ind],j[ind], d[ind]/mx) 
-        self.task.putclist(self.iv_ddxdxxu, q.reshape(-1)/mx) 
+        self.task.putqobj(i[ind],j[ind], d[ind]) 
+        self.task.putclist(self.iv_ddxdxxu, q.reshape(-1)) 
         self.task.putobjsense(mosek.objsense.minimize)
 
 
@@ -240,6 +242,7 @@ class QP:
             mx = 1.0
         
         iv_z =  self.iv_p[ind.reshape(-1)]
+
 
         self.task.putboundlist(  mosek.accmode.var,
                 iv_z, 
@@ -308,20 +311,12 @@ class QP:
         n =  2*self.nx + self.nu
         nt = self.nt
 
-        self.mx_tr = np.abs(np.max(L))
-
         i = np.zeros((nt,n,n),int)
         i += self.iv_dxxu.reshape(nt,-1)[:,:,np.newaxis]
         j = np.zeros((nt,n,n),int)
         j += self.iv_dxxu.reshape(nt,-1)[:,np.newaxis,:]
         k = np.zeros((nt,n,n),int)
         k += self.ic_tr
-        
-
-        L = L/self.mx_tr
-
-        ind = np.arange(L.shape[1])
-        L[:,ind,ind] += 1e-5
 
         i = i.reshape(-1)
         j = j.reshape(-1)
@@ -338,6 +333,26 @@ class QP:
 
 
 
+    def minq(self,L):
+
+        n =  2*self.nx + self.nu
+        nt = self.nt
+
+        i = np.zeros((nt,n,n),int)
+        i += self.iv_dxxu.reshape(nt,-1)[:,:,np.newaxis]
+        j = np.zeros((nt,n,n),int)
+        j += self.iv_dxxu.reshape(nt,-1)[:,np.newaxis,:]
+
+        i = i.reshape(-1)
+        j = j.reshape(-1)
+        d = L.reshape(-1)
+        ind = (i>=j)
+
+        self.task.putqobj(i[ind],j[ind], d[ind])
+        self.task.putobjsense(mosek.objsense.minimize)
+
+
+
     def endpoints_constraint(self,xi,xf,um,uM,x = None):
         task = self.task
 
@@ -346,11 +361,36 @@ class QP:
                 [mosek.boundkey.fr]*self.nv,
                 np.ones(self.nv),np.ones(self.nv) )
 
+        # hack
+
+        if False:
+            indc = self.iv_ddxdxxu.reshape(self.nt,-1)[:,6]
+            if not x is None:
+                task.putboundlist(  mosek.accmode.var,
+                        indc, 
+                        [mosek.boundkey.ra]*indc.size,
+                        -2*np.pi*np.ones(indc.size)-x[:,6],2*np.pi*np.ones(indc.size)-x[:,6] )
+            else:
+                task.putboundlist(  mosek.accmode.var,
+                        indc, 
+                        [mosek.boundkey.ra]*indc.size,
+                        -2*np.pi*np.ones(indc.size),2*np.pi*np.ones(indc.size))
+
+                
+        # end hack
+
+
+
         ind_c = self.ic_dyn
+        vs = np.zeros(ind_c.size)
+        if not x is None:
+            vs[:self.dyn_a.shape[0]] = self.dyn_a*x.reshape(-1)[:self.dyn_a.shape[1]]
+        
         self.task.putboundlist(  mosek.accmode.con,
                             ind_c, 
                             [mosek.boundkey.fx]*ind_c.size, 
-                            np.zeros(ind_c.size),np.zeros(ind_c.size))
+                            -vs,-vs)
+
 
         if not xi is None:
             i = self.iv_first_dxx
@@ -392,6 +432,8 @@ class QP:
                 [mosek.boundkey.ra]*iu.size,
                 um,uM )
 
+
+
         return
 
     def solve(self,tr=None):
@@ -402,7 +444,7 @@ class QP:
             self.task.putboundlist(  mosek.accmode.con,
                             [self.ic_tr], 
                             [mosek.boundkey.up], 
-                            [tr/self.mx_tr],[tr/self.mx_tr])
+                            [tr],[tr])
 
         self.task.putobjsense(mosek.objsense.minimize)
 
@@ -448,7 +490,43 @@ class QP:
         task._Task__stream_cb=None
         
         xr = xx.reshape(self.nt, -1)
-        return xr
+        obj = task.getprimalobj(mosek.soltype.itr)
+        return xr,obj
+
+class ScaledQP(QP):
+    def __init__(self,nx,nu,nt,dt): 
+        QP.__init__(self,nx,nu,nt,dt)
+        self.mx_tr=None
+        self.mx=None
+
+    def trust_region_constraint(self,L):
+        self.mx_tr = np.abs(np.max(L))
+
+        L = L/ self.mx_tr
+
+        #ind = np.arange(L.shape[1])
+        #L[:,ind,ind] += 1e-4
+
+        QP.trust_region_constraint(self,L)
+
+    def plq_obj(self, P,L,q ):
+
+        self.mx = np.abs(np.max(L))
+        L = L/self.mx
+        q = q/self.mx
+
+        QP.plq_obj(self,P,L,q)
+
+    def solve(self,tr=None):
+        if not tr is None:
+            tr = tr/self.mx_tr
+
+        dx,obj = QP.solve(self,tr) 
+        
+        if not self.mx is None:
+            return dx,obj*self.mx
+        else:
+            return dx,obj
 
 class PlannerFullModel:
     def __init__(self, dt,hi, stop, um, uM, h_cost=1.0): 
@@ -467,7 +545,7 @@ class PlannerFullModel:
         self.ix = tuple(range(self.nx,self.dim))
         
         self.tols = 1e-2
-        self.max_iters = 50
+        self.max_iters = 500
         self.no = int(hi/float(self.dt))+1
         self.nM = 150
         self.nm = 3
@@ -540,10 +618,11 @@ class PlannerFullModel:
         P = np.repeat(np.eye(dy,dy)[np.newaxis,:,:],exg.shape[0],0)
         P = np.dstack((P,-exg))
         
-        q = 2*np.einsum('nj,njk->nk',xiv,P)
-        #q[:,dy:] -= np.einsum('ni,nijk,nj->nk',xiv,vrg,xiv)
+        #q = 2*np.einsum('nj,njk->nk',xiv,P)
+        if False:
+            q[:,dy:] -= np.einsum('ni,nijk,nj->nk',xiv,vrg,xiv)
 
-        return ll,P,2*vi,q
+        return ll,xi,P,2*vi
 
         
     def predict_mm(self,z):
@@ -582,7 +661,7 @@ class PlannerFullModel:
         mdl = self.model.marginal(self.ix)
         llk,gr,hsk = mdl.distr.posterior_ll(x,mdl.tau,(False,True,False),True)
 
-        ps,psg,trash = mdl.pseudo_resp(x,(True,False,False))
+        ps,psg,trash = mdl.resp(x,(True,True,False))
         
         df = gr - np.einsum('nki,nk->nk',gr,ps)[:,:,np.newaxis]
         
@@ -596,40 +675,151 @@ class PlannerFullModel:
 
     def init_traj(self,nt,x0=None):
         # initial guess
+
         if x0 is None:
-            qp = QP(self.nx,self.nu,nt)
-            qp.dyn_constraint(self.dt)
+            qp = QP(self.nx,self.nu,nt,self.dt)
+            qp.dyn_constraint()
             qp.endpoints_constraint(self.start,self.stop,self.um,self.uM)
             qp.min_acc()
-            x_ = qp.solve()
+            x_,trs = qp.solve()
         else:
             t = np.linspace(0,1,nt)
             ts = np.linspace(0,1,x0.shape[0])
             x_ = np.array([np.interp(t, ts, x) for x in x0.T]).T
+            
+            rt = float(x0.shape[0])/float(nt)
+            nx = self.nx
+            
+            x_[:,nx:2*nx] *= rt
+            x_[:,:nx] *= rt*rt
+            #x_[:,3*nx:] *= rt*rt
+
+            if True:
+                qp = ScaledQP(self.nx,self.nu,nt,self.dt)
+                qp.dyn_constraint()
+
+                R = self.trust_region_hess(x_)
+                qp.endpoints_constraint(self.start,self.stop, 
+                            self.um,self.uM,x=x_)
+                qp.minq(R) #1e6
+                dx,trs = qp.solve()
+                x_ += dx
+
+        
         return x_
 
 
-    def plan_inner(self,nt,x0=None):
+    def init_traj_exp(self,nt,x0=None):
+        # initial guess
+
+        x0 = np.vstack((self.start,self.stop))
+        x0 = np.hstack(( np.zeros((2,self.nx)) ,x0, np.zeros((2,self.nu)) ))
+        t = np.linspace(0,1,nt)
+        ts = np.linspace(0,1,x0.shape[0])
+        x_ = np.array([np.interp(t, ts, x) for x in x0.T]).T
+        return x_
+
+        if x0 is None:
+            qp = QP(self.nx,self.nu,nt,self.dt)
+            qp.dyn_constraint()
+            qp.endpoints_constraint(self.start,self.stop,self.um,self.uM)
+            qp.min_acc()
+            x_,trs = qp.solve()
+        else:
+            t = np.linspace(0,1,nt)
+            ts = np.linspace(0,1,x0.shape[0])
+            x_ = np.array([np.interp(t, ts, x) for x in x0.T]).T
+            
+            rt = float(x0.shape[0])/float(nt)
+            nx = self.nx
+            
+            x_[:,nx:2*nx] *= rt
+            x_[:,:nx] *= rt*rt
+            #x_[:,3*nx:] *= rt*rt
+
+            if True:
+                qp = ScaledQP(self.nx,self.nu,nt,self.dt)
+                qp.dyn_constraint()
+
+                R = self.trust_region_hess(x_)
+                qp.endpoints_constraint(self.start,self.stop, 
+                            self.um,self.uM,x=x_)
+                qp.minq(R) #1e6
+                dx,trs = qp.solve()
+                x_ += dx
+
+        
+        return x_
+
+
+    def plan_inner_fw(self,nt,x0=None):
 
         x_ = self.init_traj(nt,x0) 
-        c = None
 
-        qp = QP(self.nx,self.nu,nt)
-        qp.dyn_constraint(self.dt)
+        qp = ScaledQP(self.nx,self.nu,nt,self.dt)
+        qp.dyn_constraint()
 
+        for i in range(20): 
+
+            ll_,m_,P_,L_ = self.predict(x_) 
+            c_ = ll_.sum()
+
+            if i>0 and abs(c_-c) < self.tols*max(1.0,c,c_):
+                break
+            #print c_
+            
+            c,x,m,P,L = c_,x_,m_,P_,L_
+
+            qp.endpoints_constraint(self.start,self.stop, self.um,self.uM)
+            m -= np.einsum('nij,nj->ni',P,x)
+            qp.mpl_obj(m,P,L, thrs= 1e5)
+            
+            
+            try:
+                xn,do =  qp.solve()
+            except KeyboardInterrupt:
+                raise
+            except Exception,err:
+                print err
+                break
+
+            dx = xn - x
+            x_ = x+2.0/(2.0+i)*dx
+
+        if i>=self.max_iters-1:
+            print 'MI reached'
+
+        return c,x
+
+
+    def plan_inner_tr(self,nt,x0=None):
+
+        x_ = self.init_traj(nt,x0) 
+
+        qp = ScaledQP(self.nx,self.nu,nt,self.dt)
+        qp.dyn_constraint()
 
         tr0 = float(1e5)
-        flg = True
         tr = tr0
-
+            
         for i in range(self.max_iters): 
 
-            ll_,P,L,q = self.predict(x_) 
+            ll_,m_,P_,L_ = self.predict(x_) 
             c_ = ll_.sum()
-        
-            if (c is None or c_<c) and flg:
-                c = c_
-                x = x_
+
+            
+            if i==0:
+                r=1
+            else:
+                dc3 = c_-c
+                r = -dc3/abs(do)
+
+
+            if ( r>0 ) :
+
+                c,x,m,P,L = c_,x_,m_,P_,L_
+                xiv = np.einsum('ni,nij->nj',m,L)
+                q = np.einsum('nj,njk->nk',xiv,P)
 
                 R = self.trust_region_hess(x)
 
@@ -639,30 +829,32 @@ class PlannerFullModel:
                 qp.plq_obj(P,L,q) #1e6
                 
                 print '\t', c, tr
-                tr = min(tr*2.0,tr0)
-            
+                if r>.01 or True:
+                    tr = min(tr*2.0,tr0)
             else:
                 tr/=8.0
 
-            if tr<1e-2:
+            if i>0 and (tr<1e-3):
                 break
             
             try:
-                x_ = x + qp.solve(tr)
-                flg = True
+                dx,do =  qp.solve(tr)
             except KeyboardInterrupt:
-               raise
+                raise
             except Exception,err:
-                print err
-                flg = False
+                print err, tr
+                break
 
-        
+            x_ = x+dx
+
         if i>=self.max_iters-1:
             print 'MI reached'
+
 
         return c,x
 
 
+    plan_inner=plan_inner_tr
     def plan(self,model,start,just_one=False):
 
         self.start = start
@@ -688,12 +880,11 @@ class PlannerFullModel:
             return cll[nn] 
 
 
-        rg = np.power(2,np.arange(0,3))
-        rg = np.concatenate((-rg,[0],rg))
+        rg = [-4,-1,0,1,4]
 
-        for it in range(10):
+        for it in range(50):
             
-            [f(n+r) for r in rg]
+            [f(n+r) for r in rg+[-n/2]]
             n = sorted(cll.iteritems(), key=lambda item: -item[1])[0][0]
 
         n_ = min(max(n,nm),nM)
@@ -765,13 +956,11 @@ class Planner(PlannerFullModel):
 
     def predict(self,z):
         
-        ll,gr,L,q = PlannerFullModel.predict(self,z[:,self.ind_ddxdxxu])
+        ll,m,gr,L = PlannerFullModel.predict(self,z[:,self.ind_ddxdxxu])
         g_ = np.zeros((gr.shape[0],gr.shape[1],self.dim))
         g_[:,:,self.ind_ddxdxxu] = gr
-
-        q_ = np.zeros((q.shape[0],self.dim))
-        q_[:,self.ind_ddxdxxu] = q
-        return ll,g_,L,q_
+        
+        return ll,m,g_,L
         
 
 
