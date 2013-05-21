@@ -361,26 +361,6 @@ class QP:
                 [mosek.boundkey.fr]*self.nv,
                 np.ones(self.nv),np.ones(self.nv) )
 
-        # hack
-
-        if False:
-            indc = self.iv_ddxdxxu.reshape(self.nt,-1)[:,6]
-            if not x is None:
-                task.putboundlist(  mosek.accmode.var,
-                        indc, 
-                        [mosek.boundkey.ra]*indc.size,
-                        -2*np.pi*np.ones(indc.size)-x[:,6],2*np.pi*np.ones(indc.size)-x[:,6] )
-            else:
-                task.putboundlist(  mosek.accmode.var,
-                        indc, 
-                        [mosek.boundkey.ra]*indc.size,
-                        -2*np.pi*np.ones(indc.size),2*np.pi*np.ones(indc.size))
-
-                
-        # end hack
-
-
-
         ind_c = self.ic_dyn
         vs = np.zeros(ind_c.size)
         if not x is None:
@@ -494,6 +474,7 @@ class QP:
         return xr,obj
 
 class ScaledQP(QP):
+    #TODO: mpl scaling should also be here
     def __init__(self,nx,nu,nt,dt): 
         QP.__init__(self,nx,nu,nt,dt)
         self.mx_tr=None
@@ -654,7 +635,7 @@ class PlannerFullModel:
         return ll,xi,P,2*vi
 
         
-    predict = predict_old
+    predict = predict_new
     def trust_region_hess(self,z):
         x = z[:,self.ix]
         
@@ -706,10 +687,11 @@ class PlannerFullModel:
                 x_ += dx
 
         
+        x_[:,-self.nu:]=0
         return x_
 
 
-    def init_traj_exp(self,nt,x0=None):
+    def init_traj_straight(self,nt):
         # initial guess
 
         x0 = np.vstack((self.start,self.stop))
@@ -717,37 +699,6 @@ class PlannerFullModel:
         t = np.linspace(0,1,nt)
         ts = np.linspace(0,1,x0.shape[0])
         x_ = np.array([np.interp(t, ts, x) for x in x0.T]).T
-        return x_
-
-        if x0 is None:
-            qp = QP(self.nx,self.nu,nt,self.dt)
-            qp.dyn_constraint()
-            qp.endpoints_constraint(self.start,self.stop,self.um,self.uM)
-            qp.min_acc()
-            x_,trs = qp.solve()
-        else:
-            t = np.linspace(0,1,nt)
-            ts = np.linspace(0,1,x0.shape[0])
-            x_ = np.array([np.interp(t, ts, x) for x in x0.T]).T
-            
-            rt = float(x0.shape[0])/float(nt)
-            nx = self.nx
-            
-            x_[:,nx:2*nx] *= rt
-            x_[:,:nx] *= rt*rt
-            #x_[:,3*nx:] *= rt*rt
-
-            if True:
-                qp = ScaledQP(self.nx,self.nu,nt,self.dt)
-                qp.dyn_constraint()
-
-                R = self.trust_region_hess(x_)
-                qp.endpoints_constraint(self.start,self.stop, 
-                            self.um,self.uM,x=x_)
-                qp.minq(R) #1e6
-                dx,trs = qp.solve()
-                x_ += dx
-
         
         return x_
 
@@ -764,15 +715,15 @@ class PlannerFullModel:
             ll_,m_,P_,L_ = self.predict(x_) 
             c_ = ll_.sum()
 
-            if i>0 and abs(c_-c) < self.tols*max(1.0,c,c_):
-                break
+            #if i>0 and abs(c_-c) < self.tols*max(1.0,c,c_):
+            #    break
             #print c_
             
             c,x,m,P,L = c_,x_,m_,P_,L_
 
             qp.endpoints_constraint(self.start,self.stop, self.um,self.uM)
             m -= np.einsum('nij,nj->ni',P,x)
-            qp.mpl_obj(m,P,L, thrs= 1e5)
+            qp.mpl_obj(m,P,L, thrs= 1e6)
             
             
             try:
@@ -827,6 +778,7 @@ class PlannerFullModel:
                         self.um,self.uM,x=x)
                 qp.trust_region_constraint(R)
                 qp.plq_obj(P,L,q) #1e6
+                #qp.mpl_obj(m,P,L,thrs=1e6) #1e6
                 
                 print '\t', c, tr
                 if r>.01 or True:
@@ -834,7 +786,7 @@ class PlannerFullModel:
             else:
                 tr/=8.0
 
-            if i>0 and (tr<1e-3):
+            if i>0 and ((tr<1e-3) or c<1e-4):
                 break
             
             try:
@@ -896,54 +848,6 @@ class PlannerFullModel:
 
         return cx[n_]
 
-class PlannerFullModelOld(PlannerFullModel):
-    def predict(self,z):
-
-        ix = self.ix
-        iy = self.iy
-
-        x = z[:,self.ix]
-        y = z[:,self.iy]
-        dx = len(self.ix)
-        dy = len(self.iy)
-
-        ex, exg, trash = self.model.conditional_expectation(x,iy,ix,
-                    (True,True,False)) 
-        
-        ps,psg,trash =  self.model.marginal(ix).resp(x,(True,True,False))
-
-        tr,mx,tr,V1,V2,n =  self.model.distr.conditionals_cache(self.model.tau,
-                iy,ix)
-        
-        df = x[:,np.newaxis]-mx[np.newaxis,:]
-        cf = np.einsum('nkj,nkj->nk',np.einsum('nki,kij->nkj',df, V2),df )
-        
-        #V = V1/n[:,np.newaxis,np.newaxis]
-        #vr = np.einsum('kij,nk->nij',V,ps)
-        if False:
-            tmp = np.zeros(V1.shape)
-            i = np.arange(V1.shape[1])
-            tmp[:,i,i]=V1[:,i,i]
-            V1 = tmp
-
-        #V = V1[np.newaxis,:,:,:]*(1/n + cf)[:,:,np.newaxis,np.newaxis]        
-        V = V1[np.newaxis,:,:,:]*(1/n + cf)[:,:,np.newaxis,np.newaxis]        
-
-        vr = np.einsum('nkij,nk->nij',V,ps)
-
-        vi = np.array(map(np.linalg.inv,vr))
-        
-        xi = (y-ex)
-        
-        pr = np.einsum('nij,nj->ni',vi,xi)
-        ll = np.einsum('nj,nj->n',pr,xi)
-
-        P = np.repeat(np.eye(dy,dy)[np.newaxis,:,:],exg.shape[0],0)
-        P = np.dstack((P,-exg))
-        
-        return ll,xi,P,2*vi
-
-        
 class Planner(PlannerFullModel):
     def __init__(self, dt,hi, stop, um, uM, inds, h_cost=1.0): 
         PlannerFullModel.__init__(self,dt,hi,stop,um,uM,h_cost=h_cost)

@@ -13,7 +13,7 @@ class Heli2D(simulation.Simulation):
     """
     def __init__(self):
 
-        self.mu_w = 3.06/.3     # angular rate friction coefficient
+        self.mu_w = 3.06     # angular rate friction coefficient
         #self.mu_w = 3.06/.3     # angular rate friction coefficient
         self.mu = np.matrix(np.diag([.048,.0005]))/5.0  # friction
         self.tc = .5
@@ -31,11 +31,10 @@ class Heli2D(simulation.Simulation):
         self.sample_freq = 100.0
 
         self.random_traj_freq = 10.0 
-        self.random_traj_h = 1.0
+        self.random_traj_h = 2.0
         self.u_eq= np.array([1.1,0])
 
     def f(self,xv,u):
-
         g = self.g
         mw = self.mu_w
         mu = self.mu
@@ -66,7 +65,7 @@ class Heli2D(simulation.Simulation):
 
 
     def random_controls(self,n):
-        ctrls = ( (np.random.random(size=2*n).reshape(n,2) - .5)*1.0
+        ctrls = ( (np.random.random(size=2*n).reshape(n,2) - .5)*.5
                 + self.u_eq[np.newaxis,:])
         
         ctrls[ctrls>3.0] = 3.0
@@ -106,8 +105,8 @@ class Distr(learning.GaussianNIW):
         data = traj[:,[0,1,2,3,4,5,6,9,10]].copy()
 
         n = data.shape[0] 
-        nz = .001*np.random.normal(size =n*7).reshape(n,7)
-        data[:,:-2] += nz
+        nz = .001*np.random.normal(size =n*1).reshape(n,1)
+        data[:,:1] += nz
 
         return learning.GaussianNIW.sufficient_stats(self,
             data)
@@ -126,9 +125,8 @@ class Planner(planning.Planner):
 
     def plan(self,model,start,just_one=False):
         x= planning.Planner.plan(self,model,start,just_one=just_one)
-        x[:,-2:] += 0*np.random.normal(size=2*x.shape[0]).reshape(x.shape[0],2)
-        
-        x[:,-2:] = np.maximum(-3, np.minimum(3,x[:,-2:]) )
+        #x[:,-2:] += 0.1*np.random.normal(size=2*x.shape[0]).reshape(x.shape[0],2)
+        #x[:,-2:] = np.maximum(-3, np.minimum(3,x[:,-2:]) )
         return x
        
 
@@ -193,7 +191,7 @@ class Tests(unittest.TestCase):
         hvdp = learning.OnlineVDP(Distr(), 
                 w=.1, k = 80, tol=1e-4, max_items = 1000 )
 
-        planner = Planner(.05,1.0,h_cost=5.0)
+        planner = Planner(.05,1.0,h_cost=1.0)
         
         #sm = simulation.ControlledSimFile(a,hvdp,planner)
         sm = simulation.ControlledSimDisp(a,hvdp,planner)

@@ -74,8 +74,9 @@ class Distr(learning.GaussianNIW):
     def __init__(self):
         learning.GaussianNIW.__init__(self,5)
     def sufficient_stats(self,traj):
-        data = traj.copy()
-        return learning.GaussianNIW.sufficient_stats(self,data[:,[0,1,2,4,6]])
+        data = traj.copy()[:,[0,1,2,4,6]]
+        data[:,:-1] += 0.01*np.random.normal(size=data.shape[0]*4).reshape(data.shape[0],4)
+        return learning.GaussianNIW.sufficient_stats(self,data)
         
     def plot(self, nu, szs, **kwargs):
         plt.sca(plt.subplot(2,1,1))
@@ -134,7 +135,7 @@ class Tests(unittest.TestCase):
         a = CartPole()
 
         hvdp = learning.OnlineVDP(Distr(), 
-                w=.1, k = 80, tol=1e-4, max_items = 1000)
+                w=.01, k = 80, tol=1e-4, max_items = 1000)
 
         planner = Planner(.02,.5,h_cost=1.0)
         

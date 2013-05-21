@@ -149,6 +149,12 @@ class ControlledSim:
 
             model = hvdp.get_model()
             
+            #tau =  model.tau - .99*model.lbd
+            #ind = model.al > 1.0 + model.prior[-1]
+            #model.tau = tau[ind,:]
+            #model.al = model.al[ind]
+            #model.bt = model.bt[ind]
+            
             if np.linalg.norm(start-planner.stop) < .1:
                 nss += 1
                 if nss>50:

@@ -1,2 +1,2 @@
 all: 
-	python pendulum.py
+	python heli.py
