@@ -13,8 +13,8 @@ class Heli2D(simulation.Simulation):
     """
     def __init__(self):
 
-        self.mu_w = 3.06     # angular rate friction coefficient
-        #self.mu_w = 3.06/.3     # angular rate friction coefficient
+        #self.mu_w = 3.06     # angular rate friction coefficient
+        self.mu_w = 3.06/.3     # angular rate friction coefficient
         self.mu = np.matrix(np.diag([.048,.0005]))/5.0  # friction
         self.tc = .5
 
@@ -31,7 +31,7 @@ class Heli2D(simulation.Simulation):
         self.sample_freq = 100.0
 
         self.random_traj_freq = 10.0 
-        self.random_traj_h = 2.0
+        self.random_traj_h = 1.0
         self.u_eq= np.array([1.1,0])
 
     def f(self,xv,u):
@@ -65,7 +65,7 @@ class Heli2D(simulation.Simulation):
 
 
     def random_controls(self,n):
-        ctrls = ( (np.random.random(size=2*n).reshape(n,2) - .5)*.5
+        ctrls = ( (np.random.random(size=2*n).reshape(n,2) - .5)*1.0
                 + self.u_eq[np.newaxis,:])
         
         ctrls[ctrls>3.0] = 3.0

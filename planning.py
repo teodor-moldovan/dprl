@@ -535,7 +535,7 @@ class PlannerFullModel:
         self.h_cost = h_cost
 
          
-    def predict_new(self,z):
+    def predict_new(self,z,pseudo=True):
         
         ix = self.ix
         iy = self.iy
@@ -545,8 +545,10 @@ class PlannerFullModel:
         dx = len(ix)
         dy = len(iy)
 
-        #ps,psg,trash =self.model.marginal(ix).pseudo_resp(x,(True,False,False))
-        ps,psg,trash =self.model.marginal(ix).resp(x,(True,False,False))
+        if pseudo:
+            ps,psg,trash =self.model.marginal(ix).pseudo_resp(x,(True,False,False))
+        else:
+            ps,psg,trash =self.model.marginal(ix).resp(x,(True,False,False))
         
         nus = np.einsum('nk,ki->ni',ps,self.model.tau)
         
@@ -636,7 +638,7 @@ class PlannerFullModel:
 
         
     predict = predict_new
-    def trust_region_hess(self,z):
+    def true_trust_region_hess(self,z):
         x = z[:,self.ix]
         
         mdl = self.model.marginal(self.ix)
@@ -649,11 +651,38 @@ class PlannerFullModel:
         Rt = np.einsum('nki,nkj->nkij',df,df)
         R = np.einsum('nkij,nk->nij',Rt,ps)
         
+        return R
+
+    def pseudo_trust_region_hess(self,z):
+        x = z[:,self.ix]
         
+        mdl = self.model.marginal(self.ix)
+        #llk,gr,hsk = mdl.distr.posterior_ll(x,mdl.tau,(False,True,False),True)
+
+        grad = mdl.distr.prior.log_partition(mdl.tau,(False,True,False))[1]
+        d = mdl.distr.prior.dim
+        m = grad[:,:d]
+        v = grad[:,d:-2].reshape(-1,d,d)
+        
+        gr = m[np.newaxis,:,:] + 2*np.einsum('kij,nj->nki',v,x)
+
+
+        ps,psg,trash = mdl.pseudo_resp(x,(True,False,False))
+        
+        df = gr - np.einsum('nki,nk->nk',gr,ps)[:,:,np.newaxis]
+        
+        Rt = np.einsum('nki,nkj->nkij',df,df)
+        R = np.einsum('nkij,nk->nij',Rt,ps)
+        
+        
+        #ind = np.arange(R.shape[1])
+        #R[:,ind,ind] += 1e-6
 
         return R
+
         
 
+    trust_region_hess = true_trust_region_hess
     def init_traj(self,nt,x0=None):
         # initial guess
 
@@ -806,7 +835,7 @@ class PlannerFullModel:
         return c,x
 
 
-    plan_inner=plan_inner_tr
+    plan_inner=plan_inner_fw
     def plan(self,model,start,just_one=False):
 
         self.start = start
