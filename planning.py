@@ -219,7 +219,7 @@ class QP:
 
 
 
-    def min_mpl_obj(self, m,P,L, thrs = float('inf')):
+    def min_mpl_obj(self, m,P,L, thrs = float('inf'),eps=1e-5):
         
         nx = self.nx
         nu = self.nu
@@ -291,6 +291,10 @@ class QP:
         d = L.reshape(-1)/self.mx
         k = k.reshape(-1)
         ind = (i>=j)
+
+
+        self.task.putqobj(i[ind],j[ind], d[ind]*eps) 
+
 
         self.task.putqcon(k[ind],i[ind],j[ind], d[ind])
         self.task.putaijlist( self.ic_q, [self.iv_q]*nt, -np.ones(nt)  )
