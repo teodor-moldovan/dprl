@@ -22,7 +22,7 @@ class CartPole(simulation.Simulation):
         self.umin = -10.0     # action bounds
         self.umax = 10.0
         self.sample_freq = 100.0
-        self.friction = 0#.1
+        self.friction = .0
         
         self.nx = 2
         self.nu = 1
@@ -75,7 +75,7 @@ class Distr(learning.GaussianNIW):
         learning.GaussianNIW.__init__(self,5)
     def sufficient_stats(self,traj):
         data = traj.copy()[:,[0,1,2,4,6]]
-        data[:,:-1] += 0.01*np.random.normal(size=data.shape[0]*4).reshape(data.shape[0],4)
+        #data[:,:-1] += 0.01*np.random.normal(size=data.shape[0]*4).reshape(data.shape[0],4)
         return learning.GaussianNIW.sufficient_stats(self,data)
         
     def plot(self, nu, szs, **kwargs):
@@ -134,10 +134,10 @@ class Tests(unittest.TestCase):
         
         a = CartPole()
 
-        hvdp = learning.OnlineVDP(Distr(), 
+        hvdp = learning.OnlineVDP(learning.MixtureModel(Distr()), 
                 w=.1, k = 80, tol=1e-4, max_items = 1000)
 
-        planner = Planner(.01,.5,h_cost=1.0)
+        planner = Planner(.02,.5,h_cost=1.0)
         
         #sm = simulation.ControlledSimDisp(a,hvdp,planner)
         sm = simulation.ControlledSimFile(a,hvdp,planner)

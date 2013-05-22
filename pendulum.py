@@ -123,7 +123,7 @@ class MDPtests(unittest.TestCase):
         
         a = Pendulum()
 
-        hvdp = learning.OnlineVDP(Distr(), 
+        hvdp = learning.OnlineVDP(learning.MixtureModel(Distr()), 
                 w=.1, k = 40, tol=1e-4, max_items = 1000 )
 
         planner = Planner(.05,2.3,np.array([0,0]),h_cost=.5)

@@ -110,9 +110,9 @@ class QP:
         indn = indn[:,:,np.newaxis]*indn[:,np.newaxis,:]
         
         if np.sum(indn)>0:
-            mx = np.abs(np.max(L[indn]))
+            self.mx = np.abs(np.max(L[indn]))
         else:
-            mx = 1.0
+            self.mx = 1.0
         
         iv_z =  self.iv_p[ind.reshape(-1)]
 
@@ -158,7 +158,7 @@ class QP:
 
         i = i.reshape(-1)
         j = j.reshape(-1)
-        d = L.reshape(-1)/mx
+        d = L.reshape(-1)/self.mx
         ind = (i>=j)
        
         self.task.putqobj(i[ind],j[ind], d[ind]) 
@@ -237,9 +237,9 @@ class QP:
         indn = indn[:,:,np.newaxis]*indn[:,np.newaxis,:]
         
         if np.sum(indn)>0:
-            mx = np.abs(np.max(L[indn]))
+            self.mx = np.abs(np.max(L[indn]))
         else:
-            mx = 1.0
+            self.mx = 1.0
         
         iv_z =  self.iv_p[ind.reshape(-1)]
 
@@ -288,7 +288,7 @@ class QP:
 
         i = i.reshape(-1)
         j = j.reshape(-1)
-        d = L.reshape(-1)/mx
+        d = L.reshape(-1)/self.mx
         k = k.reshape(-1)
         ind = (i>=j)
 
@@ -525,7 +525,7 @@ class PlannerFullModel:
         self.iy = tuple(range(self.nx))
         self.ix = tuple(range(self.nx,self.dim))
         
-        self.tols = 1e-2
+        self.tols = 1e-3
         self.max_iters = 500
         self.no = int(hi/float(self.dt))+1
         self.nM = 150
@@ -535,7 +535,7 @@ class PlannerFullModel:
         self.h_cost = h_cost
 
          
-    def predict_new(self,z,pseudo=False):
+    def predict_new(self,z):
         
         ix = self.ix
         iy = self.iy
@@ -545,10 +545,8 @@ class PlannerFullModel:
         dx = len(ix)
         dy = len(iy)
 
-        if pseudo:
-            ps,psg,trash =self.model.marginal(ix).pseudo_resp(x,(True,False,False))
-        else:
-            ps,psg,trash =self.model.marginal(ix).resp(x,(True,False,False))
+        #ps,psg,trash =self.model.marginal(ix).pseudo_resp(x,(True,False,False))
+        ps,psg,trash =self.model.marginal(ix).resp(x,(True,False,False))
         
         nus = np.einsum('nk,ki->ni',ps,self.model.tau)
         
@@ -683,7 +681,7 @@ class PlannerFullModel:
         
 
     trust_region_hess = true_trust_region_hess
-    def init_traj(self,nt,x0=None):
+    def init_traj_min_acc(self,nt,x0=None):
         # initial guess
 
         if x0 is None:
@@ -720,7 +718,7 @@ class PlannerFullModel:
         return x_
 
 
-    def init_traj_straight(self,nt):
+    def init_traj_straight(self,nt,x0=None):
         # initial guess
 
         x0 = np.vstack((self.start,self.stop))
@@ -732,6 +730,7 @@ class PlannerFullModel:
         return x_
 
 
+    init_traj = init_traj_min_acc
     def plan_inner_fw(self,nt,x0=None):
 
         x_ = self.init_traj(nt,x0) 
@@ -739,20 +738,21 @@ class PlannerFullModel:
         qp = ScaledQP(self.nx,self.nu,nt,self.dt)
         qp.dyn_constraint()
 
-        for i in range(20): 
+        for i in range(self.max_iters): 
 
             ll_,m_,P_,L_ = self.predict(x_) 
-            c_ = ll_.sum()
+            c_ = nt*ll_.max()
 
-            #if i>0 and abs(c_-c) < self.tols*max(1.0,c,c_):
-            #    break
+            if i>0 and abs(c_-c) < self.tols*max(1.0,c,c_):
+                break
             #print c_
             
             c,x,m,P,L = c_,x_,m_,P_,L_
 
             qp.endpoints_constraint(self.start,self.stop, self.um,self.uM)
             m -= np.einsum('nij,nj->ni',P,x)
-            qp.mpl_obj(m,P,L, thrs= 1e6)
+            qp.min_mpl_obj(m,P,L)
+            #qp.mpl_obj(m,P,L, thrs= 1e6)
             
             
             try:
@@ -772,7 +772,7 @@ class PlannerFullModel:
         return c,x
 
 
-    def plan_inner_tr(self,nt,x0=None):
+    def plan_inner_tr(self,nt,x0=None,minmax=True):
 
         x_ = self.init_traj(nt,x0) 
 
@@ -780,12 +780,15 @@ class PlannerFullModel:
         qp.dyn_constraint()
 
         tr0 = float(1e5)
-        tr = tr0
+        tr = 1.0
             
         for i in range(self.max_iters): 
 
             ll_,m_,P_,L_ = self.predict(x_) 
-            c_ = ll_.sum()
+            if minmax:
+                c_ = nt*ll_.max()
+            else:
+                c_ = ll_.sum()
 
             
             if i==0:
@@ -802,15 +805,19 @@ class PlannerFullModel:
                 q = np.einsum('nj,njk->nk',xiv,P)
 
                 R = self.trust_region_hess(x)
+                qp.trust_region_constraint(R)
 
                 qp.endpoints_constraint(self.start,self.stop, 
                         self.um,self.uM,x=x)
-                qp.trust_region_constraint(R)
-                qp.plq_obj(P,L,q) #1e6
-                #qp.mpl_obj(m,P,L,thrs=1e6) #1e6
+                #qp.plq_obj(P,L,q) #1e6
+                if minmax:
+                    qp.min_mpl_obj(m,P,L) #1e6
+                else:
+                    qp.mpl_obj(m,P,L) #1e6
+                    
                 
                 print '\t', c, tr
-                if r>.01 or True:
+                if r>.1:
                     tr = min(tr*2.0,tr0)
             else:
                 tr/=8.0
@@ -853,7 +860,7 @@ class PlannerFullModel:
             nn = min(max(nn,nm),nM)
             if not cll.has_key(nn):
                 c,x = self.plan_inner(nn,None)
-                tmp = - c - self.h_cost*nn
+                tmp = - c - self.h_cost*max(0,nn)
 
                 print nn, tmp, c
                 cll[nn],cx[nn] = tmp,x
@@ -861,11 +868,11 @@ class PlannerFullModel:
             return cll[nn] 
 
 
-        rg = [-4,-1,0,1,4]
+        rg = [-16,-4,-1,0,1,4,16]
 
         for it in range(50):
             
-            [f(n+r) for r in rg+[-n/2]]
+            [f(n+r) for r in rg]
             n = sorted(cll.iteritems(), key=lambda item: -item[1])[0][0]
 
         n_ = min(max(n,nm),nM)
