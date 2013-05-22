@@ -535,7 +535,7 @@ class PlannerFullModel:
         self.h_cost = h_cost
 
          
-    def predict_new(self,z,pseudo=True):
+    def predict_new(self,z,pseudo=False):
         
         ix = self.ix
         iy = self.iy
@@ -835,7 +835,7 @@ class PlannerFullModel:
         return c,x
 
 
-    plan_inner=plan_inner_fw
+    plan_inner=plan_inner_tr
     def plan(self,model,start,just_one=False):
 
         self.start = start
