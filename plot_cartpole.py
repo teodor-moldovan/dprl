@@ -168,7 +168,7 @@ def video(seed):
 in_dir = '../../data/cartpole/ae192b60bc4a7de21b585a538eca556c62a799c7/'
 out_dir = in_dir+'figures/'
 
-dt = .01
+dt = .02
 theta_x_plots(legend=True)
 #video(357)
 
