@@ -192,10 +192,11 @@ class Tests(unittest.TestCase):
                 w=.1, k = 80, tol=1e-4, max_items = 1000 )
 
         planner = Planner(.05,1.0,h_cost=1.0)
+        planner.fx_thrs = 1e6
         
         #sm = simulation.ControlledSimFile(a,hvdp,planner)
         sm = simulation.ControlledSimDisp(a,hvdp,planner)
-        sm.run(5)  #5
+        sm.run()  #5
            
 
 

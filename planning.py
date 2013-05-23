@@ -538,6 +538,8 @@ class PlannerFullModel:
 
         self.xo = None
         self.h_cost = h_cost
+        self.fx_thrs = None
+        self.minmax = False
 
          
     def predict_new(self,z):
@@ -713,7 +715,11 @@ class PlannerFullModel:
         for i in range(20): 
 
             ll_,m_,P_,L_ = self.predict(x_) 
-            c_ = nt*ll_.max()
+            if self.minmax:
+                c_ = nt*ll_.max()
+            else:
+                c_ = ll_.sum()
+                
 
             if i>0 and abs(c_-c) < self.tols*max(1.0,c,c_):
                 break
@@ -723,9 +729,11 @@ class PlannerFullModel:
 
             qp.endpoints_constraint(self.start,self.stop, self.um,self.uM)
             m -= np.einsum('nij,nj->ni',P,x)
-            qp.min_mpl_obj(m,P,L,thrs=1e6)
-            #qp.mpl_obj(m,P,L, thrs= 1e6)
-            
+            if self.minmax:
+                qp.min_mpl_obj(m,P,L,thrs=self.fx_thrs)
+            else:
+                qp.mpl_obj(m,P,L,thrs=self.fx_thrs)
+
             
             try:
                 xn,do =  qp.solve()
@@ -744,7 +752,7 @@ class PlannerFullModel:
         return c,x
 
 
-    def plan_inner_tr(self,nt,x0=None,minmax=False):
+    def plan_inner_tr(self,nt,x0=None):
 
         x_ = self.init_traj(nt,x0) 
 
@@ -757,7 +765,7 @@ class PlannerFullModel:
         for i in range(self.max_iters): 
 
             ll_,m_,P_,L_ = self.predict(x_) 
-            if minmax:
+            if self.minmax:
                 c_ = nt*ll_.max()
             else:
                 c_ = ll_.sum()
@@ -784,11 +792,13 @@ class PlannerFullModel:
                 qp.endpoints_constraint(self.start,self.stop, 
                         self.um,self.uM,x=x)
                 #qp.plq_obj(P,L,q) #1e6
-                if minmax:
-                    qp.min_mpl_obj(m,P,L) #1e6
+                if self.minmax:
+                    qp.min_mpl_obj(m,P,L, thrs = self.fx_thrs) #1e6
                 else:
-                    #qp.mpl_obj(m,P,L,thrs =1e6) #1e6
-                    qp.plq_obj(P,L,q) #1e6
+                    if self.fx_thrs is not None:
+                        qp.mpl_obj(m,P,L,thrs = self.fx_thrs) #1e6
+                    else:
+                        qp.plq_obj(P,L,q) #1e6
                     
                 
                 print '\t', c, tr
@@ -800,7 +810,7 @@ class PlannerFullModel:
                 else:
                     tr/=8.0
 
-            if i>0 and not tr is None and ((tr<1e-2)):
+            if i>0 and not tr is None and ((tr<1e-5)):
                 break
             
             try:
@@ -838,7 +848,7 @@ class PlannerFullModel:
             nn = min(max(nn,nm),nM)
             if not cll.has_key(nn):
                 c,x = self.plan_inner(nn,None)
-                tmp = - c - self.h_cost*max(0,nn-10)
+                tmp = - c - self.h_cost*max(0,nn)
 
                 print nn, tmp, c
                 cll[nn],cx[nn] = tmp,x

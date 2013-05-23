@@ -134,7 +134,7 @@ class Tests(unittest.TestCase):
         a = CartPole()
 
         hvdp = learning.OnlineVDP(Distr(), 
-                w=.1, k = 80, tol=1e-4, max_items = 1000)
+                w=.01, k = 80, tol=1e-4, max_items = 1000)
 
         planner = Planner(.02,.5,h_cost=1.0)
         
