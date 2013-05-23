@@ -6,6 +6,7 @@ import warnings
 import time
 import matplotlib.pyplot as plt
 import scipy.optimize
+import dpcluster as learning
 
 mosek_env = mosek.Env()
 mosek_env.init()
@@ -540,40 +541,7 @@ class PlannerFullModel:
 
          
     def predict_new(self,z):
-        
-        ix = self.ix
-        iy = self.iy
-
-        x = z[:,ix]
-        y = z[:,iy]
-        dx = len(ix)
-        dy = len(iy)
-
-        #ps,psg,trash =self.model.marginal(ix).pseudo_resp(x,(True,False,False))
-        ps,psg,trash =self.model.marginal(ix).resp(x,(True,False,False))
-        
-        nus = np.einsum('nk,ki->ni',ps,self.model.tau)
-        
-        mygx,mx,exg,V1,V2,n =  self.model.distr.conditionals_cache(nus,iy,ix)
-        
-        
-        xi = y - (mygx + np.einsum('nij,nj->ni',exg,x))
-
-
-        P = np.repeat(np.eye(dy,dy)[np.newaxis,:,:],exg.shape[0],0)
-        P = np.dstack((P,-exg))
-
-        df = x-mx
-        cf = np.einsum('nj,nj->n',np.einsum('ni,nij->nj',df, V2),df )
-
-        V = V1*(1/n + cf)[:,np.newaxis,np.newaxis]        
-
-        vi = np.array(map(np.linalg.inv,V))
-        
-        pr = np.einsum('nij,nj->ni',vi,xi)
-        ll = np.einsum('nj,nj->n',pr,xi)
-
-        return ll,xi,P,2*vi
+        return learning.Predictor(self.model,self.ix,self.iy).predict_old(z)
 
         
     def predict_old(self,z):
@@ -742,7 +710,7 @@ class PlannerFullModel:
         qp = ScaledQP(self.nx,self.nu,nt,self.dt)
         qp.dyn_constraint()
 
-        for i in range(self.max_iters): 
+        for i in range(20): 
 
             ll_,m_,P_,L_ = self.predict(x_) 
             c_ = nt*ll_.max()
@@ -755,7 +723,7 @@ class PlannerFullModel:
 
             qp.endpoints_constraint(self.start,self.stop, self.um,self.uM)
             m -= np.einsum('nij,nj->ni',P,x)
-            qp.min_mpl_obj(m,P,L)
+            qp.min_mpl_obj(m,P,L,thrs=1e6)
             #qp.mpl_obj(m,P,L, thrs= 1e6)
             
             
@@ -783,8 +751,8 @@ class PlannerFullModel:
         qp = ScaledQP(self.nx,self.nu,nt,self.dt)
         qp.dyn_constraint()
 
-        tr0 = float(1e5)
-        tr = tr0
+        tr0 = float(1e4)
+        tr = None
             
         for i in range(self.max_iters): 
 
@@ -819,17 +787,20 @@ class PlannerFullModel:
                 if minmax:
                     qp.min_mpl_obj(m,P,L) #1e6
                 else:
-                    #qp.mpl_obj(m,P,L) #1e6
+                    #qp.mpl_obj(m,P,L,thrs =1e6) #1e6
                     qp.plq_obj(P,L,q) #1e6
                     
                 
                 print '\t', c, tr
-                if r>.1:
+                if r>.1 and not tr is None:
                     tr = min(tr*2.0,tr0)
             else:
-                tr/=8.0
+                if tr is None:
+                    tr = tr0
+                else:
+                    tr/=8.0
 
-            if i>0 and ((tr<1e-4)):
+            if i>0 and not tr is None and ((tr<1e-2)):
                 break
             
             try:
@@ -867,7 +838,7 @@ class PlannerFullModel:
             nn = min(max(nn,nm),nM)
             if not cll.has_key(nn):
                 c,x = self.plan_inner(nn,None)
-                tmp = - c - self.h_cost*max(0,nn)
+                tmp = - c - self.h_cost*max(0,nn-10)
 
                 print nn, tmp, c
                 cll[nn],cx[nn] = tmp,x
@@ -875,7 +846,7 @@ class PlannerFullModel:
             return cll[nn] 
 
 
-        rg = [-4,-1,0,1,4]
+        rg = [-16, -4,-1,0,1,4, 16]
 
         for it in range(50):
             

@@ -4,7 +4,6 @@ import numpy as np
 import numpy.random 
 import matplotlib.pyplot as plt
 
-
 import dpcluster as learning
 import planning
 import simulation
@@ -137,11 +136,11 @@ class Tests(unittest.TestCase):
         hvdp = learning.OnlineVDP(Distr(), 
                 w=.1, k = 80, tol=1e-4, max_items = 1000)
 
-        planner = Planner(.01,.5,h_cost=1.0)
+        planner = Planner(.02,.5,h_cost=1.0)
         
-        #sm = simulation.ControlledSimDisp(a,hvdp,planner)
-        sm = simulation.ControlledSimFile(a,hvdp,planner)
-        sm.run()# 32
+        sm = simulation.ControlledSimDisp(a,hvdp,planner)
+        #sm = simulation.ControlledSimFile(a,hvdp,planner)
+        sm.run(32)# 32
 
            
 
