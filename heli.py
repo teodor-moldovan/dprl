@@ -188,7 +188,7 @@ class Tests(unittest.TestCase):
         
         a = Heli2D()
 
-        hvdp = learning.OnlineVDP(learning.MixtureModel(Distr()), 
+        hvdp = learning.OnlineVDP(Distr(), 
                 w=.1, k = 80, tol=1e-4, max_items = 1000 )
 
         planner = Planner(.05,1.0,h_cost=1.0)

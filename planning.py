@@ -776,7 +776,7 @@ class PlannerFullModel:
         return c,x
 
 
-    def plan_inner_tr(self,nt,x0=None,minmax=True):
+    def plan_inner_tr(self,nt,x0=None,minmax=False):
 
         x_ = self.init_traj(nt,x0) 
 
@@ -784,7 +784,7 @@ class PlannerFullModel:
         qp.dyn_constraint()
 
         tr0 = float(1e5)
-        tr = 1.0
+        tr = tr0
             
         for i in range(self.max_iters): 
 
@@ -803,6 +803,8 @@ class PlannerFullModel:
 
 
             if ( r>0 ) :
+                if i>0 and (abs(c_-c) < self.tols*max(1.0,c,c_)):
+                    break
 
                 c,x,m,P,L = c_,x_,m_,P_,L_
                 xiv = np.einsum('ni,nij->nj',m,L)
@@ -826,7 +828,7 @@ class PlannerFullModel:
             else:
                 tr/=8.0
 
-            if i>0 and ((tr<1e-3) or c<1e-4):
+            if i>0 and ((tr<1e-4)):
                 break
             
             try:
@@ -872,7 +874,7 @@ class PlannerFullModel:
             return cll[nn] 
 
 
-        rg = [-16,-4,-1,0,1,4,16]
+        rg = [-4,-1,0,1,4]
 
         for it in range(50):
             
