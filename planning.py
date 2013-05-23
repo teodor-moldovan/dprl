@@ -819,7 +819,8 @@ class PlannerFullModel:
                 if minmax:
                     qp.min_mpl_obj(m,P,L) #1e6
                 else:
-                    qp.mpl_obj(m,P,L) #1e6
+                    #qp.mpl_obj(m,P,L) #1e6
+                    qp.plq_obj(P,L,q) #1e6
                     
                 
                 print '\t', c, tr
