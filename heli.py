@@ -196,7 +196,7 @@ class Tests(unittest.TestCase):
         
         #sm = simulation.ControlledSimFile(a,hvdp,planner)
         sm = simulation.ControlledSimDisp(a,hvdp,planner)
-        sm.run()  #5
+        sm.run(5)  #5
            
 
 

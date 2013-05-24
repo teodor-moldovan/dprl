@@ -95,6 +95,9 @@ class QP:
 
     def mpl_obj(self, m,P,L, thrs = float('inf')):
         
+        if thrs is None:
+            thrs = float('inf')
+        
         nx = self.nx
         nu = self.nu
         nt = self.nt
@@ -168,7 +171,8 @@ class QP:
 
 
 
-    def plq_obj(self, P,L,q ):
+    # something wrong with this. don't know what
+    def plq_obj___(self, P,L,q ):
         
         nx = self.nx
         nu = self.nu
@@ -222,6 +226,10 @@ class QP:
 
     def min_mpl_obj(self, m,P,L, thrs = float('inf'),eps=1e-5):
         
+
+        if thrs is None:
+            thrs = float('inf')
+
         nx = self.nx
         nu = self.nu
         nt = self.nt
@@ -370,7 +378,6 @@ class QP:
         vs = np.zeros(ind_c.size)
         if not x is None:
             vs[:self.dyn_a.shape[0]] = self.dyn_a*x.reshape(-1)[:self.dyn_a.shape[1]]
-        
         self.task.putboundlist(  mosek.accmode.con,
                             ind_c, 
                             [mosek.boundkey.fx]*ind_c.size, 
@@ -490,8 +497,8 @@ class ScaledQP(QP):
 
         L = L/ self.mx_tr
 
-        #ind = np.arange(L.shape[1])
-        #L[:,ind,ind] += 1e-4
+        ind = np.arange(L.shape[1])
+        L[:,ind,ind] += 1e-5
 
         QP.trust_region_constraint(self,L)
 
@@ -531,19 +538,20 @@ class PlannerFullModel:
         self.ix = tuple(range(self.nx,self.dim))
         
         self.tols = 1e-3
-        self.max_iters = 500
+        self.max_iters = 50
         self.no = int(hi/float(self.dt))+1
         self.nM = 150
         self.nm = 3
 
         self.xo = None
         self.h_cost = h_cost
+
         self.fx_thrs = None
         self.minmax = False
 
          
-    def predict_new(self,z):
-        return learning.Predictor(self.model,self.ix,self.iy).predict_old(z)
+    def predict_wls(self,z):
+        return learning.Predictor(self.model,self.ix,self.iy).predict_old(z,full_var=False)
 
         
     def predict_old(self,z):
@@ -609,7 +617,43 @@ class PlannerFullModel:
         return ll,xi,P,2*vi
 
         
-    predict = predict_new
+    def predict_wls_no_grad(self,z):
+        
+        ix = self.ix
+        iy = self.iy
+
+        x = z[:,ix]
+        y = z[:,iy]
+        dx = len(ix)
+        dy = len(iy)
+
+        #ps,psg,trash =self.model.marginal(ix).pseudo_resp(x,(True,False,False))
+        ps,psg,trash =self.model.marginal(ix).resp(x,(True,False,False))
+        
+        nus = np.einsum('nk,ki->ni',ps,self.model.tau)
+        
+        mygx,mx,exg,V1,V2,n =  self.model.distr.conditionals_cache(nus,iy,ix)
+        
+        
+        xi = y - (mygx + np.einsum('nij,nj->ni',exg,x))
+
+
+        P = np.repeat(np.eye(dy,dy)[np.newaxis,:,:],exg.shape[0],0)
+        P = np.dstack((P,-exg))
+
+        df = x-mx
+        cf = np.einsum('nj,nj->n',np.einsum('ni,nij->nj',df, V2),df )
+
+        V = V1*(1/n + cf)[:,np.newaxis,np.newaxis]        
+
+        vi = np.array(map(np.linalg.inv,V))
+        
+        pr = np.einsum('nij,nj->ni',vi,xi)
+        ll = np.einsum('nj,nj->n',pr,xi)
+
+        return ll,xi,P,2*vi
+
+    predict = predict_wls
     def true_trust_region_hess(self,z):
         x = z[:,self.ix]
         
@@ -711,8 +755,9 @@ class PlannerFullModel:
 
         qp = ScaledQP(self.nx,self.nu,nt,self.dt)
         qp.dyn_constraint()
+        qp.endpoints_constraint(self.start,self.stop, self.um,self.uM)
 
-        for i in range(20): 
+        for i in range(self.max_iters): 
 
             ll_,m_,P_,L_ = self.predict(x_) 
             if self.minmax:
@@ -721,13 +766,12 @@ class PlannerFullModel:
                 c_ = ll_.sum()
                 
 
-            if i>0 and abs(c_-c) < self.tols*max(1.0,c,c_):
+            if i>0 and abs(c_-c) < self.h_cost/float(self.max_iters-i)/2.0:
                 break
             #print c_
             
             c,x,m,P,L = c_,x_,m_,P_,L_
 
-            qp.endpoints_constraint(self.start,self.stop, self.um,self.uM)
             m -= np.einsum('nij,nj->ni',P,x)
             if self.minmax:
                 qp.min_mpl_obj(m,P,L,thrs=self.fx_thrs)
@@ -774,35 +818,35 @@ class PlannerFullModel:
             if i==0:
                 r=1
             else:
-                dc3 = c_-c
-                r = -dc3/abs(do)
+                #r = c-c_
+                r = -(c_-c)/abs(do)
 
 
             if ( r>0 ) :
-                if i>0 and (abs(c_-c) < self.tols*max(1.0,c,c_)):
+                if i>0 and abs(c_-c) < self.h_cost/float(self.max_iters-i)/2.0:
                     break
 
                 c,x,m,P,L = c_,x_,m_,P_,L_
-                xiv = np.einsum('ni,nij->nj',m,L)
-                q = np.einsum('nj,njk->nk',xiv,P)
+                #xiv = np.einsum('ni,nij->nj',m,L)
+                #q = np.einsum('nj,njk->nk',xiv,P)
 
                 R = self.trust_region_hess(x)
-                qp.trust_region_constraint(R)
 
-                qp.endpoints_constraint(self.start,self.stop, 
+                qp.endpoints_constraint(self.start,self.stop,
                         self.um,self.uM,x=x)
-                #qp.plq_obj(P,L,q) #1e6
+
+
+                qp.trust_region_constraint(R)
                 if self.minmax:
                     qp.min_mpl_obj(m,P,L, thrs = self.fx_thrs) #1e6
                 else:
-                    if self.fx_thrs is not None:
-                        qp.mpl_obj(m,P,L,thrs = self.fx_thrs) #1e6
-                    else:
-                        qp.plq_obj(P,L,q) #1e6
+                    qp.mpl_obj(m,P,L,thrs = self.fx_thrs) #1e6
+                    #qp.plq_obj(P,L,q) #1e6
+
                     
                 
                 print '\t', c, tr
-                if r>.1 and not tr is None:
+                if r>0 and not tr is None:
                     tr = min(tr*2.0,tr0)
             else:
                 if tr is None:
@@ -810,7 +854,8 @@ class PlannerFullModel:
                 else:
                     tr/=8.0
 
-            if i>0 and not tr is None and ((tr<1e-5)):
+            
+            if i>0 and ((not tr is None and tr<1e-5) or c<1e-5):
                 break
             
             try:
@@ -830,7 +875,7 @@ class PlannerFullModel:
         return c,x
 
 
-    plan_inner=plan_inner_tr
+    plan_inner=plan_inner_fw
     def plan(self,model,start,just_one=False):
 
         self.start = start

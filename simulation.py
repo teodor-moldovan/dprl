@@ -46,7 +46,23 @@ class Simulation:
 
         return self.sim_controls(ts,us)
 
-    def sim_controls(self, ts,us,x0=None,h=None):
+    def sim_controls_interp(self, ts,us,x0=None,h=None):
+        if h is None:
+            h = ts[-1]
+        if x0 is None:
+            x0 = self.x0
+         
+        if len(us.shape)>1:
+            pi = lambda t,x: np.array([np.interp(t, ts, u) for u in us.T])
+        else:
+            pi = lambda t,x: np.interp(t, ts, us)
+             
+
+        xs =  self.sim(x0,pi,h)
+        return xs
+          
+
+    def sim_controls_closest(self, ts,us,x0=None,h=None):
         if h is None:
             h = ts[-1]
         if x0 is None:
@@ -63,6 +79,7 @@ class Simulation:
         return xs
           
 
+    sim_controls = sim_controls_closest
     def random_controls(self,n):
         pass
 class HarmonicOscillator(Simulation):
