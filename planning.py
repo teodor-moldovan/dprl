@@ -845,7 +845,7 @@ class PlannerFullModel:
 
                     
                 
-                print '\t', c, tr
+                #print '\t', c, tr
                 if r>0 and not tr is None:
                     tr = min(tr*2.0,tr0)
             else:
@@ -875,7 +875,7 @@ class PlannerFullModel:
         return c,x
 
 
-    plan_inner=plan_inner_fw
+    plan_inner=plan_inner_tr
     def plan(self,model,start,just_one=False):
 
         self.start = start
@@ -889,11 +889,11 @@ class PlannerFullModel:
         
         cx = {}
         cll ={}
-        def f(nn):
+        def f_sum(nn):
             nn = min(max(nn,nm),nM)
             if not cll.has_key(nn):
                 c,x = self.plan_inner(nn,None)
-                tmp = - c - self.h_cost*max(0,nn)
+                tmp = c + self.h_cost*max(0,nn)
 
                 print nn, tmp, c
                 cll[nn],cx[nn] = tmp,x
@@ -901,15 +901,35 @@ class PlannerFullModel:
             return cll[nn] 
 
 
+
+        def f_min(nn):
+            nn = min(max(nn,nm),nM)
+            if not cll.has_key(nn):
+                c,x = self.plan_inner(nn,None)
+
+                if c < self.h_cost:
+                    tmp = self.h_cost *( 1.0 + nn/float(nM) )
+                else:
+                    tmp = c
+                    
+
+                print nn, tmp, c
+                cll[nn],cx[nn] = tmp,x
+
+            return cll[nn] 
+
+
+
+        f = f_sum
         rg = [-16, -4,-1,0,1,4, 16]
 
         for it in range(50):
             
             [f(n+r) for r in rg]
-            n = sorted(cll.iteritems(), key=lambda item: -item[1])[0][0]
+            n = sorted(cll.iteritems(), key=lambda item: item[1])[0][0]
 
         n_ = min(max(n,nm),nM)
-        print n_,cll[n_]
+        print 'acc ', n_,cll[n_]
         self.no = min(max(nm,n_-1),nM)
         self.xo = cx[n_][1:,:]
 
