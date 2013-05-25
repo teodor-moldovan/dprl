@@ -497,8 +497,8 @@ class ScaledQP(QP):
 
         L = L/ self.mx_tr
 
-        ind = np.arange(L.shape[1])
-        L[:,ind,ind] += 1e-4
+        #ind = np.arange(L.shape[1])
+        #L[:,ind,ind] += 1e-4
 
         QP.trust_region_constraint(self,L)
 
@@ -537,8 +537,7 @@ class PlannerFullModel:
         self.iy = tuple(range(self.nx))
         self.ix = tuple(range(self.nx,self.dim))
         
-        self.tols = 1e-3
-        self.max_iters = 50
+        self.max_iters = 40
         self.no = int(hi/float(self.dt))+1
         self.nM = 150
         self.nm = 3
@@ -824,9 +823,11 @@ class PlannerFullModel:
                 r = -(c_-c)/abs(do)
 
 
+            if i>0 and (abs(c_-c) < self.h_cost/float(self.max_iters-i)/2.0
+                or ((not tr is None) and tr<1e-3) or c<1e-3):
+                break
+
             if ( r>0 ) :
-                if i>0 and abs(c_-c) < self.h_cost/float(self.max_iters-i)/2.0:
-                    break
 
                 c,x,m,P,L = c_,x_,m_,P_,L_
                 #xiv = np.einsum('ni,nij->nj',m,L)
@@ -857,9 +858,6 @@ class PlannerFullModel:
                 else:
                     tr/=8.0
 
-            
-            if i>0 and ((not tr is None and tr<1e-5) or c<1e-5):
-                break
             
             try:
                 dx,do =  qp.solve(tr)

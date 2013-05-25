@@ -83,7 +83,7 @@ class Distr(learning.GaussianNIW):
 
 class Planner(planning.Planner):
     def __init__(self,dt=.01,h=.1,stop=np.array([0,0,0,0]),h_cost=1.0):        
-        planning.WrappingPlanner.__init__(self,dt,h,
+        planning.Planner.__init__(self,dt,h,
                 stop,np.array([-10]), np.array([+10]),
                 (0,1,2,4,6),
                 h_cost=h_cost)
@@ -146,9 +146,9 @@ class Tests(unittest.TestCase):
 
         planner = Planner(.02,.5,h_cost=2.0)
         
-        sm = simulation.ControlledSimDisp(a,hvdp,planner)
-        #sm = simulation.ControlledSimFile(a,hvdp,planner)
-        sm.run(32)# 32
+        #sm = simulation.ControlledSimDisp(a,hvdp,planner)
+        sm = simulation.ControlledSimFile(a,hvdp,planner)
+        sm.run()# 32
 
            
 
