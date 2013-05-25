@@ -65,7 +65,7 @@ class Distr(learning.GaussianNIW):
 class Planner(planning.PlannerFullModel):
     def __init__(self,dt,hi,stop,h_cost=1.0):        
         planning.PlannerFullModel.__init__(self,dt,hi,
-                stop,np.array([-5]), np.array([+5]),h_cost)
+                stop,np.array([-5]), np.array([+5]),h_cost) 
 
 class MDPtests(unittest.TestCase):
     def test_rnd(self):
@@ -126,7 +126,7 @@ class MDPtests(unittest.TestCase):
         hvdp = learning.OnlineVDP(Distr(), 
                 w=.1, k = 40, tol=1e-4, max_items = 1000 )
 
-        planner = Planner(.05,2.3,np.array([0,0]),h_cost=.5)
+        planner = Planner(.05,2.3,np.array([0,0]),h_cost=1.0)
 
         sm = simulation.ControlledSimDisp(a,hvdp,planner)
         sm.run(6)#6

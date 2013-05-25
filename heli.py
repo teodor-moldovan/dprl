@@ -31,7 +31,7 @@ class Heli2D(simulation.Simulation):
         self.sample_freq = 100.0
 
         self.random_traj_freq = 10.0 
-        self.random_traj_h = 1.0
+        self.random_traj_h = 2.0
         self.u_eq= np.array([1.1,0])
 
     def f(self,xv,u):
@@ -60,12 +60,14 @@ class Heli2D(simulation.Simulation):
 
     def sim(self, *args):
         x = simulation.Simulation.sim(self,*args) 
-        x[:,6] =  np.mod(x[:,6] + 2*np.pi,4*np.pi)-2*np.pi
+        x[:,6] =  np.mod(x[:,6] + .5*np.pi,2*np.pi)-.5*np.pi
+        #x[:,6] =  np.mod(x[:,6] + 2*np.pi,4*np.pi)-2*np.pi
         return x
 
 
     def random_controls(self,n):
-        ctrls = ( (np.random.random(size=2*n).reshape(n,2) - .5)*1.0
+        wts = np.array([.5,3])
+        ctrls = ( (np.random.random(size=2*n).reshape(n,2) - .5)*wts 
                 + self.u_eq[np.newaxis,:])
         
         ctrls[ctrls>3.0] = 3.0

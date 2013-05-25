@@ -166,12 +166,6 @@ class ControlledSim:
 
             model = hvdp.get_model()
             
-            #tau =  model.tau - .99*model.lbd
-            #ind = model.al > 1.0 + model.prior[-1]
-            #model.tau = tau[ind,:]
-            #model.al = model.al[ind]
-            #model.bt = model.bt[ind]
-            
             if np.linalg.norm(start-planner.stop) < .1:
                 nss += 1
                 if nss>50:
@@ -218,7 +212,20 @@ class ControlledSimDisp(ControlledSim):
 
     def output(self,traj,x,model):
         plt.clf()
+
+        a = self.system
+        start = x[0,a.nx:3*a.nx]
+        ts = self.planner.dt*np.arange(x.shape[0])
+        if a.nu>1:
+            us = x[:,3*a.nx:]
+        else: 
+            us = x[:,3*a.nx]
+
+
+        traj = a.sim_controls(ts,us,x0=start,h=ts[-1])
+
         model.plot_clusters()
+        self.system.plot(traj,linewidth=0,alpha=.2)
         self.system.plot(x,linewidth=0)
         plt.draw()
 

@@ -83,10 +83,18 @@ class Distr(learning.GaussianNIW):
 
 class Planner(planning.Planner):
     def __init__(self,dt=.01,h=.1,stop=np.array([0,0,0,0]),h_cost=1.0):        
-        planning.Planner.__init__(self,dt,h,
+        planning.WrappingPlanner.__init__(self,dt,h,
                 stop,np.array([-10]), np.array([+10]),
                 (0,1,2,4,6),
                 h_cost=h_cost)
+
+class Planner_(planning.WrappingPlanner):
+    def __init__(self,dt=.01,h=.1,stop=np.array([0,0,0,0]),h_cost=1.0):        
+        planning.WrappingPlanner.__init__(self,dt,h,
+                stop,np.array([-10]), np.array([+10]),
+                (0,1,2,4,6),4,
+                h_cost=h_cost)
+
 
 class Tests(unittest.TestCase):
     def test_rnd(self):
@@ -134,7 +142,7 @@ class Tests(unittest.TestCase):
         a = CartPole()
 
         hvdp = learning.OnlineVDP(Distr(), 
-                w=.01, k = 80, tol=1e-4, max_items = 10000)
+                w=.1, k = 80, tol=1e-4, max_items = 1000)
 
         planner = Planner(.02,.5,h_cost=2.0)
         

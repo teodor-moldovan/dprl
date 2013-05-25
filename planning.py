@@ -498,7 +498,7 @@ class ScaledQP(QP):
         L = L/ self.mx_tr
 
         ind = np.arange(L.shape[1])
-        L[:,ind,ind] += 1e-5
+        L[:,ind,ind] += 1e-4
 
         QP.trust_region_constraint(self,L)
 
@@ -699,13 +699,15 @@ class PlannerFullModel:
         
 
     trust_region_hess = true_trust_region_hess
-    def init_traj_min_acc(self,nt,x0=None):
+    def init_traj_min_acc(self,nt,x0=None,start=None):
+        if start is None:
+            start = self.start
         # initial guess
 
         if x0 is None:
             qp = QP(self.nx,self.nu,nt,self.dt)
             qp.dyn_constraint()
-            qp.endpoints_constraint(self.start,self.stop,self.um,self.uM)
+            qp.endpoints_constraint(start,self.stop,self.um,self.uM)
             qp.min_acc()
             x_,trs = qp.solve()
         else:
@@ -725,7 +727,7 @@ class PlannerFullModel:
                 qp.dyn_constraint()
 
                 R = self.trust_region_hess(x_)
-                qp.endpoints_constraint(self.start,self.stop, 
+                qp.endpoints_constraint(start,self.stop, 
                             self.um,self.uM,x=x_)
                 qp.minq(R) #1e6
                 dx,trs = qp.solve()
@@ -832,7 +834,8 @@ class PlannerFullModel:
 
                 R = self.trust_region_hess(x)
 
-                qp.endpoints_constraint(self.start,self.stop,
+                nx = self.nx
+                qp.endpoints_constraint(x[0,nx:3*nx],x[-1,nx:3*nx],
                         self.um,self.uM,x=x)
 
 
@@ -878,9 +881,8 @@ class PlannerFullModel:
     plan_inner=plan_inner_tr
     def plan(self,model,start,just_one=False):
 
-        self.start = start
         self.model=model
-        
+        self.start=start
         nm, n, nM = self.nm, self.no, self.nM
 
         if just_one:
@@ -933,8 +935,6 @@ class PlannerFullModel:
         self.no = min(max(nm,n_-1),nM)
         self.xo = cx[n_][1:,:]
 
-        #cx[n_][:,-2:] += np.random.normal(size=cx[n_][:,-2:].size).reshape(cx[n_][:,-2:].shape)
-
         return cx[n_]
 
 class Planner(PlannerFullModel):
@@ -972,6 +972,38 @@ class Planner(PlannerFullModel):
         R_[ind_]  = R.reshape(-1)
         
         return R_
+        
+
+class WrappingPlanner(Planner):
+    def __init__(self, dt,hi, stop, um, uM, inds, wrap, h_cost=1.0): 
+        Planner.__init__(self,dt,hi,stop,um,uM,inds,h_cost=h_cost)
+        self.wrap = wrap
+    def init_traj(self,nt,x0=None):
+        x = Planner.init_traj(self,nt,x0=x0)
+        
+        i = self.wrap-self.nx
+        
+        if self.start[i] >0:
+            df = -2*np.pi
+        else:
+            df = 2*np.pi
+
+        x_ = Planner.init_traj(self,nt,x0=x0,start=self.start+df)
+        
+        c  =  self.predict(x)[0].sum()
+        c_ =  self.predict(x_)[0].sum()
+        if c_ > c:
+            self.wrap_df = df
+            return x_
+        else:
+            self.wrap_df = 0
+            return x
+
+    def plan_inner(self,nt,x0=None):
+
+        c,x = Planner.plan_inner(self,nt,x0=x0)
+        x[:,self.wrap] -= self.wrap_df
+        return c,x
         
 
 class Tests(unittest.TestCase):
