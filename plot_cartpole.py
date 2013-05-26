@@ -165,7 +165,7 @@ def video(seed):
 
 #batch_cluster_plot()
 
-in_dir = '../../data/cartpole/2cd10f1679a472e9c0623dd6110300ed4f453ba9/'
+in_dir = '../../data/cartpole/8d9204cd9e848d91b658dd9ccc2732faba9a67fd/'
 out_dir = in_dir+'figures/'
 
 dt = .01
