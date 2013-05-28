@@ -13,7 +13,7 @@ import matplotlib.patches as mpatches
 
 matplotlib.rcParams.update({'font.size': 21})
 
-def parse_file(filename, plot_clusters=True):
+def parse_file(filename):
 
     fl = open(filename)
 
@@ -28,6 +28,11 @@ def parse_file(filename, plot_clusters=True):
 
     traj = np.vstack(trajs)
     traj = np.insert(traj,0,dt*np.arange(traj.shape[0]),axis=1 )
+        
+    if True:
+        dts = traj[:,3:7]
+        ind =  np.cumsum((dts*dts).sum(1) < .02) < 15
+        traj = traj[ind,:]
 
     return traj
 
@@ -38,8 +43,7 @@ def theta_x_plots(seeds=None, legend=False):
                 if fnmatch.fnmatch(f,"*.pkl")]
 
     filenames = [in_dir+'online_'+str(seed)+'.pkl' for seed in seeds]
-    data = [parse_file(filename,
-                plot_clusters=False) 
+    data = [parse_file(filename) 
                 for filename in filenames ]
 
     w,h = plt.gcf().get_size_inches()
@@ -67,23 +71,7 @@ def theta_x_plots(seeds=None, legend=False):
         plt.legend(seeds,loc='center left', bbox_to_anchor=(1, 0.5))
     plt.savefig(out_dir+'cartpole_positions.pdf', format='pdf', bbox_inches='tight') 
 
-def online_cluster_plot():
-    parse_file('./pickles/cartpole_online_1.pkl',plot_clusters=True)
-def batch_cluster_plot():
-    model = cPickle.load(open('./pickles/cartpole_batch_vdp.pkl','r'))
-
-    w,h = plt.gcf().get_size_inches()
-
-    model.plot_clusters()
-    plt.ylabel('Angular velocity (radians/second)')
-    plt.xlabel('Angle (radians)')
-
-    plt.gcf().set_size_inches(.5*3*w,18)
-    #plt.gcf().set_figheight(10)
-    #plt.gcf().set_size_inches(.5*3*w,.5*3*h)
-    plt.savefig(out_dir+'cartpole_batch_clusters.pdf', 
-            format='pdf', bbox_inches='tight') 
-def video(seed):
+def cartpole_video(seed):
     
     filename = in_dir+'online_'+str(seed)+'.pkl'
     outfilename = out_dir+'online_'+str(seed)+'.avi'
@@ -165,10 +153,10 @@ def video(seed):
 
 #batch_cluster_plot()
 
-in_dir = '../../data/cartpole/8d9204cd9e848d91b658dd9ccc2732faba9a67fd/'
+in_dir = '../../data/cartpole/a0b20ddf4b43c9125a81f75203e136350e3ab8a7/'
 out_dir = in_dir+'figures/'
 
 dt = .01
-theta_x_plots(legend=True)
+theta_x_plots(legend=False)
 #video(357)
 

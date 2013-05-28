@@ -539,7 +539,7 @@ class PlannerFullModel:
         
         self.max_iters = 40
         self.no = int(hi/float(self.dt))+1
-        self.nM = 150
+        self.nM = 75
         self.nm = 3
 
         self.xo = None
@@ -550,7 +550,40 @@ class PlannerFullModel:
 
          
     def predict_wls(self,z):
-        return learning.Predictor(self.model,self.ix,self.iy).predict_old(z,full_var=False)
+
+        lgh = (True,True,False)
+        pred = learning.Predictor(self.model,self.ix,self.iy)
+
+        ix = self.ix
+        iy = self.iy
+
+        x = z[:,ix]
+        y = z[:,iy]
+        dx = len(ix)
+        dy = len(iy)
+        
+        mu,exg,V1,V2,n,nu =  pred.precomp(x,lgh)[0]
+
+        yp, ypg, trs = pred.predict(x,lgh)
+        
+        xi = y - yp
+
+        P = np.repeat(np.eye(dy,dy)[np.newaxis,:,:],exg.shape[0],0)
+        P = np.dstack((P,-ypg))
+
+        df = x-mu[:,ix]
+        cf = np.einsum('nj,nj->n',np.einsum('ni,nij->nj',df, V2),df )
+
+        V = V1*((1.0/n + cf)/(nu - dy +1.0))[:,np.newaxis,np.newaxis]        
+
+        vi = np.array(map(np.linalg.inv,V))
+        
+        pr = np.einsum('nij,nj->ni',vi,xi)
+        ll = np.einsum('nj,nj->n',pr,xi)
+
+        return ll,xi,P,2*vi
+
+
 
         
     def predict_old(self,z):
@@ -797,7 +830,7 @@ class PlannerFullModel:
         return c,x
 
 
-    def plan_inner_tr(self,nt,x0=None):
+    def plan_inner_tr(self,nt,x0=None,req_prec=0):
 
         x_ = self.init_traj(nt,x0) 
 
@@ -823,8 +856,7 @@ class PlannerFullModel:
                 r = -(c_-c)/abs(do)
 
 
-            if i>0 and (abs(c_-c) < self.h_cost/float(self.max_iters-i)/2.0
-                or ((not tr is None) and tr<1e-3) or c<1e-3):
+            if i>0 and (((not tr is None) and tr<1e-3) or abs(c_-c) < req_prec/float(self.max_iters-i)):
                 break
 
             if ( r>0 ) :
@@ -889,6 +921,28 @@ class PlannerFullModel:
         
         cx = {}
         cll ={}
+        def f_min(nn):
+            nn = min(max(nn,nm),nM)
+            if not cll.has_key(nn):
+                h_c = 2.0*scipy.special.gammaincinv(.5*(nn*len(self.iy)),
+                    self.h_cost)
+
+                c,x = self.plan_inner(nn,None,req_prec=h_c/10.0)
+                #c = scipy.special.gammainc(.5*(nn*len(self.iy)),.5*c)
+                c/= h_c
+
+                if c < 1:
+                    tmp = ( 1.0 + nn/float(nM) )
+                else:
+                    tmp = c
+
+                print nn, tmp, c
+                cll[nn],cx[nn] = tmp,x
+
+            return cll[nn] 
+
+
+
         def f_sum(nn):
             nn = min(max(nn,nm),nM)
             if not cll.has_key(nn):
@@ -902,7 +956,7 @@ class PlannerFullModel:
 
 
 
-        def f_min(nn):
+        def f_min_old(nn):
             nn = min(max(nn,nm),nM)
             if not cll.has_key(nn):
                 c,x = self.plan_inner(nn,None)
@@ -920,7 +974,7 @@ class PlannerFullModel:
 
 
 
-        f = f_sum
+        f = f_min
         rg = [-16, -4,-1,0,1,4, 16]
 
         for it in range(50):
