@@ -146,9 +146,9 @@ class Tests(unittest.TestCase):
 
         planner = Planner(.02,.5,h_cost=.2) # .1 too cautious 
         
-        sm = simulation.ControlledSimDisp(a,hvdp,planner)
-        #sm = simulation.ControlledSimFile(a,hvdp,planner)
-        sm.run(32)# 32
+        #sm = simulation.ControlledSimDisp(a,hvdp,planner)
+        sm = simulation.ControlledSimFile(a,hvdp,planner)
+        sm.run()# 32
 
            
 
