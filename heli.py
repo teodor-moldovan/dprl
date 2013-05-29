@@ -66,7 +66,7 @@ class Heli2D(simulation.Simulation):
 
 
     def random_controls(self,n):
-        wts = np.array([.5,3])
+        wts = np.array([.5,.5])*.2
         ctrls = ( (np.random.random(size=2*n).reshape(n,2) - .5)*wts 
                 + self.u_eq[np.newaxis,:])
         
@@ -194,10 +194,10 @@ class Tests(unittest.TestCase):
                 w=.1, k = 80, tol=1e-4, max_items = 1000 )
 
         planner = Planner(.05,1.0,h_cost=.1) # .1, .15
-        planner.fx_thrs = 1e6
+        planner.fx_thrs = 1e5
         
-        sm = simulation.ControlledSimFile(a,hvdp,planner)
-        #sm = simulation.ControlledSimDisp(a,hvdp,planner)
+        #sm = simulation.ControlledSimFile(a,hvdp,planner)
+        sm = simulation.ControlledSimDisp(a,hvdp,planner)
         sm.run()  #5
            
 

@@ -75,7 +75,7 @@ def theta_x_plots(seeds=None, legend=False):
 
 
 
-in_dir = '../../data/heli2d/807379f4e74d66b151819fc5667a5efd3bd9d86e/'
+in_dir = '../../data/heli2d/8a2edcd3a4e740d176f683f85d5a682533ba87a0/'
 out_dir = in_dir+'figures/'
 
 dt = .01

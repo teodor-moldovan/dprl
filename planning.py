@@ -537,7 +537,7 @@ class PlannerFullModel:
         self.iy = tuple(range(self.nx))
         self.ix = tuple(range(self.nx,self.dim))
         
-        self.max_iters = 150
+        self.max_iters = 40
         self.no = int(hi/float(self.dt))+1
         self.nM = 100
         self.nm = 3
@@ -600,7 +600,7 @@ class PlannerFullModel:
                     (True,True,False)) 
         
         vr, vrg, trash = self.model.var_cond_exp(x,iy,ix,
-                    (True,True,False)) 
+                    (True,True,False),full_var=True) 
 
         vi = np.array(map(np.linalg.inv,vr))
         
@@ -783,7 +783,7 @@ class PlannerFullModel:
 
 
     init_traj = init_traj_min_acc
-    def plan_inner_fw(self,nt,x0=None):
+    def plan_inner_fw(self,nt,x0=None,req_prec=0.0):
 
         x_ = self.init_traj(nt,x0) 
 
@@ -800,9 +800,10 @@ class PlannerFullModel:
                 c_ = ll_.sum()
                 
 
-            if i>0 and abs(c_-c) < self.h_cost/float(self.max_iters-i)/2.0:
+            if (i>0 and
+                abs(c_-c) < req_prec/float(self.max_iters-i)
+                ):
                 break
-            #print c_
             
             c,x,m,P,L = c_,x_,m_,P_,L_
 
@@ -856,7 +857,10 @@ class PlannerFullModel:
                 r = -(c_-c)/abs(do)
 
 
-            if i>0 and (((not tr is None) and tr<1e-3) or abs(c_-c) < req_prec/float(self.max_iters-i)):
+            if i>0 and (((not tr is None) and tr<1e-3) 
+                #or abs(c_-c) < req_prec/float(self.max_iters-i)
+                or c<1e-3
+                ):
                 break
 
             if ( r>0 ) :
@@ -881,7 +885,7 @@ class PlannerFullModel:
 
                     
                 
-                #print '\t', c, tr
+                print '\t', c, tr
                 if r>0 and not tr is None:
                     tr = min(tr*2.0,tr0)
             else:
@@ -984,13 +988,13 @@ class PlannerFullModel:
 
         n_ = min(max(n,nm),nM)
 
-        c,x = self.plan_inner(n_,None,0.0)
-        print 'acc ', n_,c
+        #c,x = self.plan_inner(n_,None,0.0)
+        print 'acc ', n_,cll[n_]
 
         self.no = min(max(nm,n_-1),nM)
-        self.xo = x[1:,:]
+        self.xo = cx[n_][1:,:]
 
-        return x
+        return cx[n_]
 
 class Planner(PlannerFullModel):
     def __init__(self, dt,hi, stop, um, uM, inds, h_cost=1.0): 

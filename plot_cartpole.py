@@ -153,7 +153,7 @@ def cartpole_video(seed):
 
 #batch_cluster_plot()
 
-in_dir = '../../data/cartpole/efb54dd50021e124517d046886458005dea8d12f/'
+in_dir = '../../data/cartpole/8a2edcd3a4e740d176f683f85d5a682533ba87a0/'
 out_dir = in_dir+'figures/'
 
 dt = .01
