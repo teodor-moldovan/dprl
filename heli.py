@@ -193,7 +193,7 @@ class Tests(unittest.TestCase):
         hvdp = learning.OnlineVDP(Distr(), 
                 w=.1, k = 80, tol=1e-4, max_items = 1000 )
 
-        planner = Planner(.05,1.0,h_cost=.15) # .1, .15
+        planner = Planner(.05,1.0,h_cost=.1) # .1, .15
         planner.fx_thrs = 1e6
         
         sm = simulation.ControlledSimFile(a,hvdp,planner)

@@ -537,9 +537,9 @@ class PlannerFullModel:
         self.iy = tuple(range(self.nx))
         self.ix = tuple(range(self.nx,self.dim))
         
-        self.max_iters = 40
+        self.max_iters = 150
         self.no = int(hi/float(self.dt))+1
-        self.nM = 75
+        self.nM = 100
         self.nm = 3
 
         self.xo = None
@@ -983,11 +983,14 @@ class PlannerFullModel:
             n = sorted(cll.iteritems(), key=lambda item: item[1])[0][0]
 
         n_ = min(max(n,nm),nM)
-        print 'acc ', n_,cll[n_]
-        self.no = min(max(nm,n_-1),nM)
-        self.xo = cx[n_][1:,:]
 
-        return cx[n_]
+        c,x = self.plan_inner(n_,None,0.0)
+        print 'acc ', n_,c
+
+        self.no = min(max(nm,n_-1),nM)
+        self.xo = x[1:,:]
+
+        return x
 
 class Planner(PlannerFullModel):
     def __init__(self, dt,hi, stop, um, uM, inds, h_cost=1.0): 

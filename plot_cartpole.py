@@ -29,7 +29,7 @@ def parse_file(filename):
     traj = np.vstack(trajs)
     traj = np.insert(traj,0,dt*np.arange(traj.shape[0]),axis=1 )
         
-    if True:
+    if False:
         dts = traj[:,3:7]
         ind =  np.cumsum((dts*dts).sum(1) < .02) < 15
         traj = traj[ind,:]
@@ -153,10 +153,10 @@ def cartpole_video(seed):
 
 #batch_cluster_plot()
 
-in_dir = '../../data/cartpole/a0b20ddf4b43c9125a81f75203e136350e3ab8a7/'
+in_dir = '../../data/cartpole/efb54dd50021e124517d046886458005dea8d12f/'
 out_dir = in_dir+'figures/'
 
 dt = .01
-theta_x_plots(legend=False)
+theta_x_plots(legend=True)
 #video(357)
 

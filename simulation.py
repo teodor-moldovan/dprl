@@ -166,12 +166,13 @@ class ControlledSim:
 
             model = hvdp.get_model()
             
-            if np.linalg.norm(start-planner.stop) < .1:
+            if np.linalg.norm(start-planner.stop) < .15:
                 nss += 1
-                if nss>50:
+                if nss>15:
                     break 
 
             x = planner.plan(model,start)
+            x.flags.writeable = False
 
             self.output(traj,x,model)
 

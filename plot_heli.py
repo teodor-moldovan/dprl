@@ -1,6 +1,6 @@
 import matplotlib
 import cPickle
-#matplotlib.use('Agg')
+matplotlib.use('Agg')
 import numpy as np
 import matplotlib.pyplot as plt 
 import re
@@ -46,26 +46,36 @@ def theta_x_plots(seeds=None, legend=False):
     data = [parse_file(filename) 
                 for filename in filenames ]
         
+    w,h = plt.gcf().get_size_inches()
+    plt.clf()
+    plt.gcf().set_size_inches(3*w,h)
     for traj in data:
-        plt.scatter(traj[:,8],traj[:,9])
-        plt.show()
-    sdfs
+        plt.plot(traj[:,8], traj[:,9])
+
+    plt.xlabel('Location (meters)')
+    plt.ylabel('Altitude (meters)')
+    #plt.xlim(0,15)
+    #if legend:
+    #    plt.legend(seeds,loc='center left', bbox_to_anchor=(1, 0.5))
+    plt.savefig(out_dir+'traj.pdf', format='pdf', bbox_inches='tight') 
 
     w,h = plt.gcf().get_size_inches()
     plt.clf()
     plt.gcf().set_size_inches(3*w,h)
     for traj in data:
-        plt.plot(traj[:,0], traj[:,5])
+        plt.plot(traj[:,0], traj[:,7])
 
-    #plt.xlabel('Time (seconds)')
-    plt.ylabel('Angle (radians)')
+    plt.xlabel('Time (seconds)')
+    plt.ylabel('Orientation (radians)')
     #plt.xlim(0,15)
-    if legend:
-        plt.legend(seeds,loc='center left', bbox_to_anchor=(1, 0.5))
-    plt.savefig(out_dir+'cartpole_angles.pdf', format='pdf', bbox_inches='tight') 
+    #if legend:
+    #    plt.legend(seeds,loc='center left', bbox_to_anchor=(1, 0.5))
+    plt.savefig(out_dir+'angles.pdf', format='pdf', bbox_inches='tight') 
 
 
-in_dir = '../../data/heli2d/070b5c62c88565d911c10a8274f3c56eda13528b/'
+
+
+in_dir = '../../data/heli2d/807379f4e74d66b151819fc5667a5efd3bd9d86e/'
 out_dir = in_dir+'figures/'
 
 dt = .01
