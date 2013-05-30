@@ -126,10 +126,11 @@ class MDPtests(unittest.TestCase):
         hvdp = learning.OnlineVDP(Distr(), 
                 w=.1, k = 40, tol=1e-4, max_items = 1000 )
 
-        planner = Planner(.05,2.3,np.array([0,0]),h_cost=.1)
+        planner = Planner(.05,2.3,np.array([0,0]),h_cost=.2)
 
         sm = simulation.ControlledSimDisp(a,hvdp,planner)
-        sm.run(6)#6
+        #sm = simulation.ControlledSimFile(a,hvdp,planner)
+        sm.run()#6
 
            
 
