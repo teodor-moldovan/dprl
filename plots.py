@@ -29,17 +29,13 @@ def parse_file(filename):
     traj = np.vstack(trajs)
     traj = np.insert(traj,0,dt*np.arange(traj.shape[0]),axis=1 )
         
-    if False:
-        dts = traj[:,3:7]
-        ind =  np.cumsum((dts*dts).sum(1) < .02) < 15
-        traj = traj[ind,:]
-
     return traj
 
 
-def theta_x_plots(seeds=None, legend=False): 
-        
-    seeds = [int(re.findall(r'\d+',f)[-1]) for f in os.listdir(in_dir) 
+def cartpole_plots(seeds=None, legend=False): 
+    
+    if seeds is None:        
+        seeds = [int(re.findall(r'\d+',f)[-1]) for f in os.listdir(in_dir) 
                 if fnmatch.fnmatch(f,"*.pkl")]
 
     filenames = [in_dir+'online_'+str(seed)+'.pkl' for seed in seeds]
@@ -70,6 +66,29 @@ def theta_x_plots(seeds=None, legend=False):
     if legend:
         plt.legend(seeds,loc='center left', bbox_to_anchor=(1, 0.5))
     plt.savefig(out_dir+'cartpole_positions.pdf', format='pdf', bbox_inches='tight') 
+
+def pendulum_plots(seeds=None, legend=False): 
+    
+    if seeds is None:        
+        seeds = [int(re.findall(r'\d+',f)[-1]) for f in os.listdir(in_dir) 
+                if fnmatch.fnmatch(f,"*.pkl")]
+
+    filenames = [in_dir+'online_'+str(seed)+'.pkl' for seed in seeds]
+    data = [parse_file(filename) 
+                for filename in filenames ]
+
+    w,h = plt.gcf().get_size_inches()
+    plt.clf()
+    plt.gcf().set_size_inches(3*w,h)
+    for traj in data:
+        plt.plot(traj[:,0], traj[:,3])
+
+    plt.xlabel('Time (seconds)')
+    plt.ylabel('Angle (radians)')
+    #plt.xlim(0,15)
+    if legend:
+        plt.legend(seeds,loc='center left', bbox_to_anchor=(1, 0.5))
+    plt.savefig(out_dir+'pendulum_angles.pdf', format='pdf', bbox_inches='tight') 
 
 def cartpole_video(seed):
     
@@ -151,12 +170,70 @@ def cartpole_video(seed):
     #plt.show()
         
 
+
+def heli_plots(seeds=None, legend=False): 
+        
+    if seeds is None:
+        seeds = [int(re.findall(r'\d+',f)[-1]) for f in os.listdir(in_dir) 
+                if fnmatch.fnmatch(f,"*.pkl")]
+
+    filenames = [in_dir+'online_'+str(seed)+'.pkl' for seed in seeds]
+    data = [parse_file(filename) 
+                for filename in filenames ]
+        
+    w,h = plt.gcf().get_size_inches()
+    plt.clf()
+    plt.gcf().set_size_inches(w,h)
+    for traj in data:
+        plt.plot(traj[:,8], traj[:,9])
+
+    plt.scatter([0],[0],color='red',s=[1000],linewidth=0)
+
+    plt.xlabel('Position (meters)')
+    plt.ylabel('Altitude (meters)')
+
+    #plt.xlim(0,15)
+    #if legend:
+    #    plt.legend(seeds,loc='center left', bbox_to_anchor=(1, 0.5))
+    plt.savefig(out_dir+'heli_traj.pdf', format='pdf', bbox_inches='tight') 
+
+    plt.clf()
+    plt.gcf().set_size_inches(2*w,h)
+    for traj in data:
+        plt.plot(traj[:,0], traj[:,7])
+
+    plt.xlabel('Time (seconds)')
+    plt.ylabel('Orientation (radians)')
+    #plt.xlim(0,15)
+    #if legend:
+    #    plt.legend(seeds,loc='center left', bbox_to_anchor=(1, 0.5))
+    plt.savefig(out_dir+'heli_angles.pdf', format='pdf', bbox_inches='tight') 
+
+
+
+
 #batch_cluster_plot()
 
-in_dir = '../../data/cartpole/8a2edcd3a4e740d176f683f85d5a682533ba87a0/'
-out_dir = in_dir+'figures/'
-
 dt = .01
-theta_x_plots(legend=True)
-#video(357)
+
+if False:
+    in_dir = '../../data/cartpole/8a2edcd3a4e740d176f683f85d5a682533ba87a0/'
+    out_dir = in_dir+'figures/'
+
+    cartpole_plots(legend=False)
+    #video(357)
+
+if False:
+    in_dir = '../../data/heli2d/807379f4e74d66b151819fc5667a5efd3bd9d86e/'
+    out_dir = in_dir+'figures/'
+
+    heli_plots(seeds=[473])
+
+if True:
+    in_dir = '../../data/pendulum/add6a375189b13486f98e06a8dce38dee7c0a2c8/'
+    out_dir = in_dir+'figures/'
+
+    pendulum_plots(legend=False)
+
+
 
