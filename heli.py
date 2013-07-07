@@ -7,7 +7,7 @@ import simulation
 import dpcluster as learning
 import planning
 
-class Heli2D(simulation.Simulation):
+class Heli2D(simulation.Simulation, planning.SlackPlanner):
     """
     coordinate order: q,x,z
     """
@@ -27,6 +27,7 @@ class Heli2D(simulation.Simulation):
         self.nu = 2
         
         self.x0 = np.array([0,0,0, np.pi,0,0])
+        self.stop = np.zeros(6)
 
         self.sample_freq = 100.0
 
@@ -145,6 +146,21 @@ class Tests(unittest.TestCase):
         
 
 
+
+    def test_linearize(self):
+        a = Heli2D()
+        
+        us = np.array([[1.2,1.2],[1.2,.9],[1.1,1.1],[.8,1.3],[1.2,1.2],[1,1],[1,1],[1,1],[1,1]])
+
+        ts = np.arange(us.shape[0])*.1
+        traj = a.sim_controls(ts,us)
+        
+        M,d = a.linearize_full_traj(traj[:,a.nx:], 1.0/a.sample_freq) 
+
+        x_ = np.einsum('minl,nl->mi',M,traj[:,-a.nu:]) + d
+        np.testing.assert_almost_equal(x_, traj[:,a.nx:-a.nu], 1)
+        
+
     def test_rnd(self):
         a = Heli2D()
         
@@ -203,7 +219,7 @@ class Tests(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    single_test = 'test_online'
+    single_test = 'test_linearize'
     if hasattr(Tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(Tests(single_test))

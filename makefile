@@ -1,2 +1,2 @@
 all: 
-	python paper_plots.py
+	python cartpole.py

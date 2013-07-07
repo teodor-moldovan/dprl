@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import git
 import cPickle
 import os
+import time
 
 class Simulation:
     def sim(self, x0, pi,t=None):
@@ -82,6 +83,59 @@ class Simulation:
     sim_controls = sim_controls_closest
     def random_controls(self,n):
         pass
+    def batch_f(self,xu):
+        return np.array(map(lambda a:self.f(a[:-self.nu],a[-self.nu:]),xu))
+
+    def batch_rk4(self,xu,dt):
+        nx = self.nx
+
+        k1 = np.zeros(xu.shape)
+        xn = xu
+        k1[:,:nx]       = self.batch_f(xn)
+        k1[:,nx:2*nx]   = xn[:,:nx]
+
+        k2 = np.zeros(xu.shape)
+        xn = xu + .5*dt*k1
+        k2[:,:nx]       = self.batch_f(xn)
+        k2[:,nx:2*nx]   = xn[:,:nx]
+
+        k3 = np.zeros(xu.shape)
+        xn = xu + .5*dt*k2
+        k3[:,:nx]       = self.batch_f(xn)
+        k3[:,nx:2*nx]   = xn[:,:nx]
+
+        k4 = np.zeros(xu.shape)
+        xn = xu + dt*k3
+        k4[:,:nx]       = self.batch_f(xn)
+        k4[:,nx:2*nx]   = xn[:,:nx]
+
+        return xu + dt*(k1 + 2*k2 + 2*k3 + k4)/6.0
+
+        
+
+    def linearize(self,xu,dt):
+        nx = self.nx
+        nu = self.nu
+        d = 2*nx+nu
+
+        
+        f0 = self.batch_rk4(xu,dt)
+        
+        eps = 1e-8
+        dx = eps*np.eye(d)[:,np.newaxis,:]
+        xus = dx+ np.repeat(xu[np.newaxis,:,:],d,axis=0 ) 
+
+        f = self.batch_rk4(xus.reshape(-1,d),dt).reshape(xus.shape)
+        
+        fg = (f - f0[np.newaxis,:,:])/eps
+        fg = np.swapaxes(fg,  0,1)
+        fg = np.swapaxes(fg,  1,2)
+        
+        c =  (f0 - np.einsum('kij,kj->ki',fg,xu))[:,:-nu]
+        A = fg[:,:,:2*nx][:,:2*nx,:]
+        B = fg[:,:,-nu:][:,:2*nx,:]
+        return A, B, c
+
 class HarmonicOscillator(Simulation):
     def __init__(self,ze):
         self.ze = ze
@@ -255,10 +309,6 @@ class ControlledSimFile(ControlledSim):
 
     def output_final(self):
         self.fl.close()
-
-
-
-
 
 class Tests(unittest.TestCase):
     def setUp(self):

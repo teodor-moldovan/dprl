@@ -84,7 +84,7 @@ class MDPtests(unittest.TestCase):
         x = prob.distr.sufficient_stats(traj)
         prob.batch_learn(x, verbose = True)
 
-        cPickle.dump(prob,open('../data/pendulum/batch_vdp.pkl','w'))
+        cPickle.dump(prob,open('../../data/pendulum/batch_vdp.pkl','w'))
         prob.plot_clusters()
         plt.show()
         
@@ -105,15 +105,19 @@ class MDPtests(unittest.TestCase):
         
 
     def test_planning(self):
-        model = cPickle.load(open('../data/pendulum/batch_vdp.pkl','r'))
+        model = cPickle.load(open('../../data/pendulum/batch_vdp.pkl','r'))
 
         start = np.array([0,np.pi])
         stop = np.array([0,0])  # should finally be [0,0]
         #stop = None
         dt = .01
 
-        planner = Planner(dt, 2.1, stop)
-        x = planner.plan(model,start,just_one=True)
+        planner = Planner(dt, 2.4, stop)
+
+        planner.model=model
+        planner.start=start
+
+        lls,x = planner.plan_inner_tst(planner.no)
         
         Pendulum().plot(x)
         plt.show()
@@ -135,7 +139,7 @@ class MDPtests(unittest.TestCase):
            
 
 if __name__ == '__main__':
-    single_test = 'test_online'
+    single_test = 'test_planning'
     if hasattr(MDPtests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(MDPtests(single_test))

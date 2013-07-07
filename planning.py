@@ -169,8 +169,6 @@ class QP:
         self.task.putobjsense(mosek.objsense.minimize)
 
 
-
-
     # something wrong with this. don't know what
     def plq_obj___(self, P,L,q ):
         
@@ -221,101 +219,6 @@ class QP:
         self.task.putclist(self.iv_ddxdxxu, q.reshape(-1)) 
         self.task.putobjsense(mosek.objsense.minimize)
 
-
-
-
-    def min_mpl_obj(self, m,P,L, thrs = float('inf'),eps=1e-5):
-        
-
-        if thrs is None:
-            thrs = float('inf')
-
-        nx = self.nx
-        nu = self.nu
-        nt = self.nt
-        
-        dg =L[:,np.arange(L.shape[1]),np.arange(L.shape[1])] 
-        
-        ind = dg/np.min(dg) > thrs
-        
-        si = np.sum(ind)
-        if si>0 and False:
-            print 'hard constrained ', si
-        
-        indn = np.logical_not(ind)
-        indn = indn[:,:,np.newaxis]*indn[:,np.newaxis,:]
-        
-        if np.sum(indn)>0:
-            self.mx = np.abs(np.max(L[indn]))
-        else:
-            self.mx = 1.0
-        
-        iv_z =  self.iv_p[ind.reshape(-1)]
-
-
-        self.task.putboundlist(  mosek.accmode.var,
-                iv_z, 
-                [mosek.boundkey.fx]*iv_z.size,
-                np.zeros(iv_z.size),np.zeros(iv_z.size) )
-
-        iv_z =  self.iv_p[np.logical_not(ind).reshape(-1)]
-
-        self.task.putboundlist(  mosek.accmode.var,
-                iv_z, 
-                [mosek.boundkey.fr]*iv_z.size,
-                np.zeros(iv_z.size),np.zeros(iv_z.size) )
-        
-
-        i = np.zeros((nt,nx,3*nx+nu),int)
-        i += self.ic_p.reshape(nt,-1)[:,:,np.newaxis]
-        j = np.zeros((nt,nx,3*nx+nu),int)
-        j += self.iv_ddxdxxu.reshape(nt,-1)[:,np.newaxis,:]
-
-
-        self.task.putaijlist( i.reshape(-1), 
-                              j.reshape(-1), 
-                              P.reshape(-1)  )
-
-        self.task.putaijlist( self.ic_p, 
-                              self.iv_p, 
-                              -np.ones(self.ic_p.size)  )
-
-        ind_c = self.ic_p
-        self.task.putboundlist(  mosek.accmode.con,
-                            ind_c, 
-                            [mosek.boundkey.fx]*ind_c.size, 
-                            -m.reshape(-1),-m.reshape(-1))
-
-
-        i = np.zeros((nt,nx,nx),int)
-        i += self.iv_p.reshape(nt,-1)[:,:,np.newaxis]
-        j = np.zeros((nt,nx,nx),int)
-        j += self.iv_p.reshape(nt,-1)[:,np.newaxis,:]
-        k = np.zeros((nt,nx,nx),int)
-        k += self.ic_q[:,np.newaxis,np.newaxis]
-        
-
-        i = i.reshape(-1)
-        j = j.reshape(-1)
-        d = L.reshape(-1)/self.mx
-        k = k.reshape(-1)
-        ind = (i>=j)
-
-
-        self.task.putqobj(i[ind],j[ind], d[ind]*eps) 
-
-
-        self.task.putqcon(k[ind],i[ind],j[ind], d[ind])
-        self.task.putaijlist( self.ic_q, [self.iv_q]*nt, -np.ones(nt)  )
-
-        ind_c = self.ic_q
-        self.task.putboundlist(  mosek.accmode.con,
-                            ind_c, 
-                            [mosek.boundkey.up]*ind_c.size, 
-                            [0]*ind_c.size,[0]*ind_c.size)
-
-
-        self.task.putclist( [self.iv_q], [1]  )
 
 
 
@@ -423,8 +326,6 @@ class QP:
                 iu, 
                 [mosek.boundkey.ra]*iu.size,
                 um,uM )
-
-
 
         return
 
@@ -546,8 +447,6 @@ class PlannerFullModel:
         self.h_cost = h_cost
 
         self.fx_thrs = None
-        self.minmax = False
-
          
     def predict_wls(self,z):
 
@@ -794,11 +693,7 @@ class PlannerFullModel:
         for i in range(self.max_iters): 
 
             ll_,m_,P_,L_ = self.predict(x_) 
-            if self.minmax:
-                c_ = nt*ll_.max()
-            else:
-                c_ = ll_.sum()
-                
+            c_ = ll_.sum()
 
             if (i>0 and
                 abs(c_-c) < req_prec/float(self.max_iters-i)
@@ -808,10 +703,7 @@ class PlannerFullModel:
             c,x,m,P,L = c_,x_,m_,P_,L_
 
             m -= np.einsum('nij,nj->ni',P,x)
-            if self.minmax:
-                qp.min_mpl_obj(m,P,L,thrs=self.fx_thrs)
-            else:
-                qp.mpl_obj(m,P,L,thrs=self.fx_thrs)
+            qp.mpl_obj(m,P,L,thrs=self.fx_thrs)
 
             
             try:
@@ -844,10 +736,7 @@ class PlannerFullModel:
         for i in range(self.max_iters): 
 
             ll_,m_,P_,L_ = self.predict(x_) 
-            if self.minmax:
-                c_ = nt*ll_.max()
-            else:
-                c_ = ll_.sum()
+            c_ = ll_.sum()
 
             
             if i==0:
@@ -877,12 +766,7 @@ class PlannerFullModel:
 
 
                 qp.trust_region_constraint(R)
-                if self.minmax:
-                    qp.min_mpl_obj(m,P,L, thrs = self.fx_thrs) #1e6
-                else:
-                    qp.mpl_obj(m,P,L,thrs = self.fx_thrs) #1e6
-                    #qp.plq_obj(P,L,q) #1e6
-
+                qp.mpl_obj(m,P,L,thrs = self.fx_thrs) #1e6
                     
                 
                 print '\t', c, tr
@@ -913,19 +797,15 @@ class PlannerFullModel:
 
 
     plan_inner=plan_inner_tr
-    def plan(self,model,start,just_one=False):
+    def plan(self,model,start):
 
         self.model=model
         self.start=start
         nm, n, nM = self.nm, self.no, self.nM
 
-        if just_one:
-            lls,x = self.plan_inner(n)
-            return x
-        
         cx = {}
         cll ={}
-        def f_min(nn):
+        def f(nn):
             nn = min(max(nn,nm),nM)
             if not cll.has_key(nn):
                 h_c = 2.0*scipy.special.gammaincinv(.5*(nn*len(self.iy)),
@@ -947,38 +827,6 @@ class PlannerFullModel:
 
 
 
-        def f_sum(nn):
-            nn = min(max(nn,nm),nM)
-            if not cll.has_key(nn):
-                c,x = self.plan_inner(nn,None)
-                tmp = c + self.h_cost*max(0,nn)
-
-                print nn, tmp, c
-                cll[nn],cx[nn] = tmp,x
-
-            return cll[nn] 
-
-
-
-        def f_min_old(nn):
-            nn = min(max(nn,nm),nM)
-            if not cll.has_key(nn):
-                c,x = self.plan_inner(nn,None)
-
-                if c < self.h_cost:
-                    tmp = self.h_cost *( 1.0 + nn/float(nM) )
-                else:
-                    tmp = c
-                    
-
-                print nn, tmp, c
-                cll[nn],cx[nn] = tmp,x
-
-            return cll[nn] 
-
-
-
-        f = f_min
         rg = [-16, -4,-1,0,1,4, 16]
 
         for it in range(50):
@@ -1062,8 +910,258 @@ class WrappingPlanner(Planner):
 
         c,x = Planner.plan_inner(self,nt,x0=x0)
         x[:,self.wrap] -= self.wrap_df
-        return c,x
+        return c,x        
+
+
+class Linearizer:
+    def batch_rk4(self,f,y,h):
+
+        k1 = f(y)
+        k2 = f(y + .5*h*k1)
+        k3 = f(y + .5*h*k2)
+        k4 = f(y + h*k3)
         
+        return h/6.0*(k1+2*k2+2*k3+k4)
+        #return y + h/6.0*(k1+2*k2+2*k3+k4)
+        
+
+
+    def linearize_one_step(self,model, z, dt, eps = 1e-8):
+        pred = learning.Predictor(model,self.ix,self.iy)
+        nx,nu = self.nx, self.nu
+        inds = tuple(i-nx for i in self.ind_ddxdxxu[nx:])
+        
+        n,d = z.shape
+        a0,sg0 = pred.mnv(z[:,inds])
+        l0 = np.array(map(np.linalg.inv,sg0))   
+
+        dz = eps*np.eye(d)[:,np.newaxis,:]
+        dz = np.insert(dz,0,0,axis=0)
+        z = dz+ np.repeat(z[np.newaxis,:,:],dz.shape[0],axis=0 ) 
+        sh = z.shape
+        z = z.reshape(-1,sh[-1]) 
+
+        u = z[:,2*self.nx:2*self.nx+self.nu]
+        xi = z[:,-self.nx:]
+
+        w0 = np.hstack(( np.zeros((z.shape[0],1)), z[:,:2*self.nx]))
+        
+        def f(w):
+            vx = w[:,1:1+2*self.nx] 
+            v = w[:,1:1+self.nx] 
+            a,sg = pred.mnv(np.hstack((vx,u))[:,inds])
+            l = np.array(map(np.linalg.inv,sg))
+            lt = l.reshape(d+1,-1, l.shape[1],l.shape[2]) - l0[np.newaxis,:,:,:]
+            l = lt.reshape(l.shape)
+            
+            tmp = l*xi[:,:,np.newaxis] * xi[:,np.newaxis,:]
+            return np.hstack((tmp.sum(1).sum(1)[:,np.newaxis]/dt, a+xi,v)) 
+
+        rs = self.batch_rk4(f,w0,dt).reshape(sh[0],sh[1],-1)
+        df = (rs[1:,:,:] - rs[0,:,:])/eps
+
+        df = np.swapaxes(df,0,1)
+        df = np.swapaxes(df,1,2)
+        
+        c =  rs[0,:,:] - np.einsum('nij,nj->ni',df, z.reshape(sh)[0,:,:]  ) 
+
+        df = np.insert(df,0,0,axis=2)
+        
+        a = df[:,:,:2*nx+1]  + np.eye(2*nx+1)[np.newaxis,:,:]
+        b = df[:,:,2*nx+1:]  
+        
+        return a,b,c,sg0,l0
+        
+        
+        
+    def linearize_full_traj(self,a,b,c,x0):
+
+        n,nx,nx = a.shape
+        n,nx,nu = b.shape
+        
+        
+        M = np.zeros((n,nx,n,nu))
+        d = np.zeros((n,nx))
+        d[0] = x0
+
+        for i in range(1,n):
+            np.einsum('jnl,ij->inl',M[i-1],a[i-1], out= M[i])
+            M[i,:,i-1,:] += b[i-1]
+            np.einsum('ij,j->i',a[i-1],d[i-1], out=d[i])
+            d[i] += c[i-1]
+         
+        return M,d
+        
+
+    def min_acc_traj(self,a,b,nt):
+        t = np.linspace(0,1.0,nt)
+        d = a.size/2
+            
+        v0,x0 = a[:d],a[d:]
+        v1,x1 = b[:d],b[d:]
+            
+        a0 = 4*(x1-x0) - (3*v0+v1)
+        a1 = -4*(x1-x0) + (3*v1+v0)
+
+        xm, vm = x0 + .5*v0 + .25 * a0, v0 + .5*a0
+        
+        ts = t[t<=.5][:,np.newaxis]
+        xs0 = x0[np.newaxis,:] + ts*v0[np.newaxis,:] + .5*ts*ts*a0[np.newaxis,:]
+        vs0 = v0[np.newaxis,:] + ts*a0[np.newaxis,:]
+
+        ts = 1.0-t[t>.5][:,np.newaxis]
+        xs1 = x1[np.newaxis,:] - ts*v1[np.newaxis,:] + .5*ts*ts*a1[np.newaxis,:]
+        vs1 = v1[np.newaxis,:] - ts*a1[np.newaxis,:]
+            
+        return np.array(np.bmat([[vs0,xs0],[vs1,xs1]]))
+
+    def plan_uxi(self,A,b,l):
+
+        nx, nu = self.nx,self.nu
+
+        A_ = A[-1,1:,:,:].reshape(2*nx,-1)
+        b_ = self.stop - b[-1,1:]
+        q_ = A[-1,0,:,:].reshape(-1)
+        c_ = b[-1,0]
+        
+        nt,ni = l.shape[0], nx+nu
+        
+        i = np.tile(np.arange(nt*ni).reshape(nt,ni,1),[1,1,ni])[:,-nx:,-nx:]
+        j = np.tile(np.arange(nt*ni).reshape(nt,1,ni),[1,ni,1])[:,-nx:,-nx:]
+        
+        Q_ = scipy.sparse.coo_matrix( (l.reshape(-1),
+                (i.reshape(-1),j.reshape(-1))), shape = (nt*ni,nt*ni))
+            
+        um_ = np.tile(np.concatenate((self.um, -float('inf')*np.ones(nx))), nt)
+        uM_ = np.tile(np.concatenate((self.uM,  float('inf')*np.ones(nx))), nt)
+        # solve qp
+        sl_,cost_ = self.qp_solve(Q_,q_,c_, A_,b_,um_,uM_)
+        sl_ = sl_.reshape(-1,nx+nu)
+        return sl_,cost_
+
+    def plan_red(self,A,b,Sg):
+
+        nx, nu = self.nx,self.nu
+        
+        S = np.zeros((Sg.shape[0],nx,Sg.shape[0],nx))
+        tmp = range(Sg.shape[0])
+        S[tmp,:,tmp,:] = Sg[tmp]
+        S = .5*np.matrix(S.reshape(Sg.shape[0]*nx, Sg.shape[0]*nx))
+
+        M = np.matrix(A[-1,1:,:,nu:].reshape(2*nx,-1))
+        N = np.matrix(A[-1,1:,:,:nu].reshape(2*nx,-1))
+        p = np.matrix(self.stop - b[-1,1:]).T
+        
+        f = np.matrix(A[-1,0,:,nu:].reshape(-1)).T
+        g = np.matrix(A[-1,0,:,:nu].reshape(-1)).T
+        q = b[-1,0]
+        
+        tmp = M.T*(M*S*M.T).I
+        K_ = -tmp*N
+        K = S*K_
+        k_ = -f + tmp*(M*S*f + p)    
+        k = S*k_
+                
+        W = np.array(.5*K_.T*K)
+        w = np.array(K.T*(k_+f) + g).reshape(-1)
+        c = np.array((.5*k_+f).T*k + q )[0][0]
+        
+        um = np.repeat(self.um, Sg.shape[0])
+        uM = np.repeat(self.uM, Sg.shape[0])
+
+        u, costs = self.qp_simple(W,w,c,um,uM) 
+        return u,costs
+        
+
+    def qp_simple(self, Q,q,c, um, uM):
+
+        task = mosek_env.Task()
+        task.append( mosek.accmode.var, um.size)
+        task.putobjsense(mosek.objsense.minimize)
+        
+        Q = scipy.sparse.coo_matrix(Q)
+        i,j,d = Q.row,Q.col,Q.data
+        ind = (i>=j)
+        task.putqobj(i[ind],j[ind], 2*d[ind]) 
+
+        task.putintparam(mosek.iparam.check_convexity,mosek.checkconvexitytype.none);
+        
+        task.putclist(range(q.size), q) 
+        task.putcfix(c) 
+        
+        task.putboundlist(  mosek.accmode.var,
+                            range(um.size), 
+                            [mosek.boundkey.ra]*um.size, 
+                            um,uM)        
+
+        task.optimize()
+        task._Task__progress_cb=None
+        task._Task__stream_cb=None
+
+        [prosta, solsta] = task.getsolutionstatus(mosek.soltype.itr)
+        if (solsta!=mosek.solsta.optimal 
+                and solsta!=mosek.solsta.near_optimal):
+                # mosek bug fix 
+            raise Exception(str(solsta)+", "+str(prosta))
+
+        xx = np.zeros(um.size)
+
+        warnings.simplefilter("ignore", RuntimeWarning)
+        task.getsolutionslice(mosek.soltype.itr,
+                            mosek.solitem.xx,
+                            0,um.size, xx)
+
+        warnings.simplefilter("default", RuntimeWarning)
+        
+        return xx, task.getprimalobj(mosek.soltype.itr)
+
+    def qp_solve(self, Q, q, c, A, b, um, uM):
+
+        task = mosek_env.Task()
+        task.append( mosek.accmode.var, A.shape[1])
+        task.append( mosek.accmode.con, A.shape[0])
+        task.putobjsense(mosek.objsense.minimize)
+        
+        i,j,d = Q.row,Q.col,Q.data
+        ind = (i>=j)
+        task.putqobj(i[ind],j[ind], 2*d[ind]) 
+        
+        task.putclist(range(q.size), q) 
+        task.putcfix(c) 
+        
+        A = scipy.sparse.coo_matrix(A)
+        task.putaijlist(A.row,A.col,A.data) 
+        
+        task.putboundlist(  mosek.accmode.con,
+                            range(b.size), 
+                            [mosek.boundkey.fx]*b.size, 
+                            b,b)
+
+        task.putboundlist(  mosek.accmode.var,
+                            range(um.size), 
+                            [mosek.boundkey.ra]*um.size, 
+                            um,uM)        
+
+        task.optimize()
+        task._Task__progress_cb=None
+        task._Task__stream_cb=None
+
+        [prosta, solsta] = task.getsolutionstatus(mosek.soltype.itr)
+        if (solsta!=mosek.solsta.optimal 
+                and solsta!=mosek.solsta.near_optimal):
+                # mosek bug fix 
+            raise Exception(str(solsta)+", "+str(prosta))
+
+        xx = np.zeros(um.size)
+
+        warnings.simplefilter("ignore", RuntimeWarning)
+        task.getsolutionslice(mosek.soltype.itr,
+                            mosek.solitem.xx,
+                            0,um.size, xx)
+
+        warnings.simplefilter("default", RuntimeWarning)
+        
+        return xx, task.getprimalobj(mosek.soltype.itr)
 
 class Tests(unittest.TestCase):
     def setUp(self):
@@ -1072,32 +1170,18 @@ class Tests(unittest.TestCase):
         
         h = 1.0
         dt = .01
-
         nt = int(h/dt)+1
 
-        start = np.array([0,1])
-        stop = np.array([0,0])  # should finally be [0,0]
-       
-        planner = PlannerQP(1,1,nt)
+        d = 3
+        np.random.seed(2)
+
+        start = np.random.normal(size=2*d)
+        stop = np.random.normal(size=2*d)  # should finally be [0,0]
         
-        Q = np.zeros((nt,4,4))
-        Q[:,0,0] = 1.0
-        q = np.zeros((nt,4))
-        b = np.zeros(nt)
-
-        t1 = time.time()
-        planner.dyn_constraint(dt)
-        planner.endpoints_constraint(start,stop,np.array([-5]),np.array([5]))
-
+        trj = min_acc_traj(start,stop,nt)
+        np.testing.assert_equal(trj[0].reshape(-1),start)
+        np.testing.assert_equal(trj[-1].reshape(-1),stop)
         
-        planner.quad_objective(q,Q)
-
-        x = planner.solve()
-        print time.time()-t1
-        
-        #plt.scatter(x[:,2],x[:,1], c=x[:,3])  # qdd, qd, q, u
-        #plt.show()
-
         
     def test_sim(self):
         import simulation
@@ -1133,29 +1217,8 @@ class Tests(unittest.TestCase):
         self.assertLess(re,.01)
 
 
-    def test_canonic_qp(self):
-
-        qp = CanonicQP(3,2,10)
-        
-        m = np.zeros((qp.nt,qp.nx))
-        P0 = np.eye(qp.nx,qp.nx*3+qp.nu)
-        P = np.repeat(P0[np.newaxis,:,:],qp.nt,axis=0)
-        L = np.repeat(2*np.eye(qp.nx)[np.newaxis,:,:],qp.nt,axis=0)
-        Li = L/4
-
-        qp.dyn_constraint(.1)
-        qp.proj_constraint(P,m)
-        qp.dxx_constraint([0,0,0,0,0,0],[0,0,0,1,1,1])
-        qp.u_constraint([10,2])
-        qp.quad_obj(L)         
-        qp.quad_obj_inv(Li)         
-        
-        qp.solve_primal()
-        qp.solve_dual()
-        
-
 if __name__ == '__main__':
-    single_test = 'test_canonic_qp'
+    single_test = 'test_min_acc'
     if hasattr(Tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(Tests(single_test))

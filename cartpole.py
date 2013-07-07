@@ -3,6 +3,8 @@ from math import sin, cos, floor
 import numpy as np
 import numpy.random 
 import matplotlib.pyplot as plt
+import cPickle
+import scipy.sparse
 
 import dpcluster as learning
 import planning
@@ -81,7 +83,7 @@ class Distr(learning.GaussianNIW):
         plt.sca(plt.subplot(2,1,1))
         learning.GaussianNIW.plot(self,nu,szs,slc=np.array([2,3]),**kwargs)
 
-class Planner(planning.Planner):
+class Planner(planning.Planner, planning.Linearizer):
     def __init__(self,dt=.01,h=.1,stop=np.array([0,0,0,0]),h_cost=1.0):        
         planning.Planner.__init__(self,dt,h,
                 stop,np.array([-10]), np.array([+10]),
@@ -108,34 +110,71 @@ class Tests(unittest.TestCase):
 
         np.random.seed(2)
         a = CartPole()
-        traj = np.vstack([a.random_traj(5,control_freq=10) 
-                for i in range(20)])
-        
-        prob = learning.VDP(ReducedDistr(),
-                k = 100, w = 1.0, tol = 1e-7) # w = 1e-3
+        traj = np.vstack([a.random_traj(10) for t in range(20)])
         a.plot(traj,alpha=.1)
-        plt.show()
+        
+        prob = learning.VDP(Distr(),k = 100, w = 1e-2, tol = 1e-7) # w = 1e-3
+
         x = prob.distr.sufficient_stats(traj)
         prob.batch_learn(x, verbose = True)
         
-        cPickle.dump(prob,open('./pickles/cartpole_batch_vdp.pkl','w'))
+        cPickle.dump(prob,open('../../data/cartpole/batch_vdp.pkl','w'))
         prob.plot_clusters()
         plt.show()
         
     def test_planning(self):
-        model = cPickle.load(open('./pickles/cartpole_batch_vdp.pkl','r'))
-        cp = CartPole()
+        model = cPickle.load(open('../../data/cartpole/batch_vdp.pkl','r'))
 
         start =  np.array([0,0,np.pi,0])
         stop =  np.array([0,0,0,0])
         dt = .01
 
-        planner = ReducedPlanner(dt, 1.2, h_cost=1.0)
-        x = planner.plan(model,start,stop,just_one=False)
+        planner = Planner(dt, 1.2, stop)
+        planner.model=model
+        planner.start=start
 
-        model.plot_clusters()
-        cp.plot(x)
+        lls,x = planner.plan_inner(planner.no)
+
+        #model.plot_clusters()
+        CartPole().plot(x)
         plt.show()
+
+        
+    def test_linearize(self):
+        model = cPickle.load(open('../../data/cartpole/batch_vdp.pkl','r'))
+        np.random.seed(2)
+
+        p = Planner(h=.5)
+        start=np.array([0,0,np.pi,0])
+
+        trj = p.min_acc_traj(start,p.stop,p.no)
+        
+        u  = np.zeros((trj.shape[0],p.nu))
+        xi = np.random.normal(size=trj.shape[0]*p.nx).reshape(
+                (trj.shape[0],p.nx))
+        z = np.hstack((trj,u,xi))
+
+        a,b,c,Sg,L = p.linearize_one_step(model,z,p.dt)
+        xo = np.insert(z[0,:2*p.nx],0,0)
+        x = xo.copy()
+        
+        xs = []
+        for t in range(z.shape[0]):
+            xs.append(x)
+            x = (a[t]*x).sum(1) + (b[t]*z[t,-(p.nu+p.nx):]).sum(1) + c[t]
+        xs = np.array(xs)
+        
+        A,b =  p.linearize_full_traj(a,b,c,xo)
+        
+        rs =  np.einsum('minj,nj->mi',A, z[:,-(p.nu+p.nx):]) + b
+        np.testing.assert_almost_equal(rs,xs)
+         
+        w__, c__ = p.plan_red(A,b,Sg)
+        w_, c_ = p.plan_uxi(A,b,L)
+
+        np.testing.assert_almost_equal(w__,w_[:,0],3)
+        np.testing.assert_almost_equal(c__,c_, 3)
+        
         
     def test_online(self):
         
@@ -149,11 +188,10 @@ class Tests(unittest.TestCase):
         sm = simulation.ControlledSimDisp(a,hvdp,planner)
         #sm = simulation.ControlledSimFile(a,hvdp,planner)
         sm.run(32)# 32
-
            
 
 if __name__ == '__main__':
-    single_test = 'test_online'
+    single_test = 'test_linearize'
     if hasattr(Tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(Tests(single_test))
