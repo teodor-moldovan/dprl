@@ -134,12 +134,12 @@ class MDPtests(unittest.TestCase):
 
         sm = simulation.ControlledSimDisp(a,hvdp,planner)
         #sm = simulation.ControlledSimFile(a,hvdp,planner)
-        sm.run()#6
+        sm.run(6)#6
 
            
 
 if __name__ == '__main__':
-    single_test = 'test_planning'
+    single_test = 'test_online'
     if hasattr(MDPtests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(MDPtests(single_test))

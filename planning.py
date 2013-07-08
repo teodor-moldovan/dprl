@@ -926,10 +926,10 @@ class Linearizer:
         
 
 
-    def linearize_one_step(self,model, z, dt, eps = 1e-8):
+    def linearize_one_step(self,model, z, eps = 1e-8):
         pred = learning.Predictor(model,self.ix,self.iy)
         nx,nu = self.nx, self.nu
-        inds = tuple(i-nx for i in self.ind_ddxdxxu[nx:])
+        inds = tuple(i-nx for i in self.ind_ddxdxxu[nx:]) 
         
         n,d = z.shape
         a0,sg0 = pred.mnv(z[:,inds])
@@ -941,8 +941,9 @@ class Linearizer:
         sh = z.shape
         z = z.reshape(-1,sh[-1]) 
 
-        u = z[:,2*self.nx:2*self.nx+self.nu]
-        xi = z[:,-self.nx:]
+        u = z[:,2*nx:2*nx+nu]
+        xi = z[:,2*nx+nu:3*nx+nu]
+        dt = z[:,-1:]
 
         w0 = np.hstack(( np.zeros((z.shape[0],1)), z[:,:2*self.nx]))
         
@@ -955,8 +956,10 @@ class Linearizer:
             l = lt.reshape(l.shape)
             
             tmp = l*xi[:,:,np.newaxis] * xi[:,np.newaxis,:]
-            return np.hstack((tmp.sum(1).sum(1)[:,np.newaxis]/dt, a+xi,v)) 
+            d_cost = tmp.sum(1).sum(1)[:,np.newaxis]
+            return np.hstack((d_cost, a+xi,v)) 
 
+        
         rs = self.batch_rk4(f,w0,dt).reshape(sh[0],sh[1],-1)
         df = (rs[1:,:,:] - rs[0,:,:])/eps
 
@@ -978,7 +981,6 @@ class Linearizer:
 
         n,nx,nx = a.shape
         n,nx,nu = b.shape
-        
         
         M = np.zeros((n,nx,n,nu))
         d = np.zeros((n,nx))
@@ -1024,19 +1026,20 @@ class Linearizer:
         q_ = A[-1,0,:,:].reshape(-1)
         c_ = b[-1,0]
         
-        nt,ni = l.shape[0], nx+nu
+        nt,ni = l.shape[0], nx+nu+1
         
-        i = np.tile(np.arange(nt*ni).reshape(nt,ni,1),[1,1,ni])[:,-nx:,-nx:]
-        j = np.tile(np.arange(nt*ni).reshape(nt,1,ni),[1,ni,1])[:,-nx:,-nx:]
+        i = np.tile(np.arange(nt*ni).reshape(nt,ni,1),[1,1,ni])[:,nu:nu+nx,nu:nu+nx]
+
+        j = np.tile(np.arange(nt*ni).reshape(nt,1,ni),[1,ni,1])[:,nu:nu+nx,nu:nu+nx]
         
         Q_ = scipy.sparse.coo_matrix( (l.reshape(-1),
                 (i.reshape(-1),j.reshape(-1))), shape = (nt*ni,nt*ni))
             
-        um_ = np.tile(np.concatenate((self.um, -float('inf')*np.ones(nx))), nt)
-        uM_ = np.tile(np.concatenate((self.uM,  float('inf')*np.ones(nx))), nt)
+        um_ = np.tile(np.concatenate((self.um,-float('inf')*np.ones(nx),[.001])), nt)
+        uM_ = np.tile(np.concatenate((self.uM, float('inf')*np.ones(nx),[.1])), nt)
         # solve qp
         sl_,cost_ = self.qp_solve(Q_,q_,c_, A_,b_,um_,uM_)
-        sl_ = sl_.reshape(-1,nx+nu)
+        sl_ = sl_.reshape(-1,ni)
         return sl_,cost_
 
     def plan_red(self,A,b,Sg):
@@ -1056,13 +1059,15 @@ class Linearizer:
         g = np.matrix(A[-1,0,:,:nu].reshape(-1)).T
         q = b[-1,0]
         
-        tmp = M.T*(M*S*M.T).I
+        t0 = (M*S*M.T).I
+        tmp = M.T*t0
         K_ = -tmp*N
         K = S*K_
         k_ = -f + tmp*(M*S*f + p)    
         k = S*k_
-                
-        W = np.array(.5*K_.T*K)
+        
+
+        W = np.array(.5*N.T*t0*N)
         w = np.array(K.T*(k_+f) + g).reshape(-1)
         c = np.array((.5*k_+f).T*k + q )[0][0]
         
@@ -1070,6 +1075,19 @@ class Linearizer:
         uM = np.repeat(self.uM, Sg.shape[0])
 
         u, costs = self.qp_simple(W,w,c,um,uM) 
+        
+        tc = np.matrix(np.linalg.cholesky(t0)).T
+        Q = scipy.sparse.coo_matrix(.5*np.eye(t0.shape[0]))
+        q = np.concatenate((np.zeros(t0.shape[0]), w))
+        c = c
+        
+        A = np.hstack((-np.eye(t0.shape[0]), tc*N ))
+        b = np.zeros(t0.shape[0])
+        um = np.concatenate((-float('inf')*np.ones(t0.shape[0]), um))
+        uM = np.concatenate((float('inf')*np.ones(t0.shape[0]), uM))
+        u, costs = self.qp_solve(Q,q,c,A,b,um,uM) 
+        u = u[t0.shape[0]:]
+        
         return u,costs
         
 
@@ -1142,7 +1160,9 @@ class Linearizer:
                             [mosek.boundkey.ra]*um.size, 
                             um,uM)        
 
+        t = time.time()
         task.optimize()
+        print time.time()-t
         task._Task__progress_cb=None
         task._Task__stream_cb=None
 
