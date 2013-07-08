@@ -926,7 +926,7 @@ class Linearizer:
         
 
 
-    def linearize_one_step(self,model, z, dt, eps = 1e-8):
+    def linearize_one_step(self,model, z, eps = 1e-8):
         pred = learning.Predictor(model,self.ix,self.iy)
         nx,nu = self.nx, self.nu
         inds = tuple(i-nx for i in self.ind_ddxdxxu[nx:]) 
@@ -943,6 +943,7 @@ class Linearizer:
 
         u = z[:,2*nx:2*nx+nu]
         xi = z[:,2*nx+nu:3*nx+nu]
+        dt = z[:,-1:]
 
         w0 = np.hstack(( np.zeros((z.shape[0],1)), z[:,:2*self.nx]))
         
@@ -955,7 +956,7 @@ class Linearizer:
             l = lt.reshape(l.shape)
             
             tmp = l*xi[:,:,np.newaxis] * xi[:,np.newaxis,:]
-            d_cost = tmp.sum(1).sum(1)[:,np.newaxis]/dt
+            d_cost = tmp.sum(1).sum(1)[:,np.newaxis]
             return np.hstack((d_cost, a+xi,v)) 
 
         
@@ -1025,7 +1026,7 @@ class Linearizer:
         q_ = A[-1,0,:,:].reshape(-1)
         c_ = b[-1,0]
         
-        nt,ni = l.shape[0], nx+nu
+        nt,ni = l.shape[0], nx+nu+1
         
         i = np.tile(np.arange(nt*ni).reshape(nt,ni,1),[1,1,ni])[:,nu:nu+nx,nu:nu+nx]
 
@@ -1034,8 +1035,8 @@ class Linearizer:
         Q_ = scipy.sparse.coo_matrix( (l.reshape(-1),
                 (i.reshape(-1),j.reshape(-1))), shape = (nt*ni,nt*ni))
             
-        um_ = np.tile(np.concatenate((self.um,-float('inf')*np.ones(nx))), nt)
-        uM_ = np.tile(np.concatenate((self.uM, float('inf')*np.ones(nx))), nt)
+        um_ = np.tile(np.concatenate((self.um,-float('inf')*np.ones(nx),[.001])), nt)
+        uM_ = np.tile(np.concatenate((self.uM, float('inf')*np.ones(nx),[.1])), nt)
         # solve qp
         sl_,cost_ = self.qp_solve(Q_,q_,c_, A_,b_,um_,uM_)
         sl_ = sl_.reshape(-1,ni)
