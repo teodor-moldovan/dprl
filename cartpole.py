@@ -166,14 +166,15 @@ class Tests(unittest.TestCase):
         xs = np.array(xs)
         
         A,b =  p.linearize_full_traj(a,b,c,xo)
-        
+         
         rs =  np.einsum('minj,nj->mi',A, z[:,-(p.nu+p.nx):]) + b
         np.testing.assert_almost_equal(rs,xs)
          
+        #Q,q = p.linearize_log_barrier(z[:,-p.nu:], 2.0, p.um, p.uM)
+        
         w_, c_ = p.plan_uxi(A,b,L)
         w__, c__ = p.plan_red(A,b,Sg)
 
-        np.testing.assert_almost_equal(w__,w_[:,0],3)
         np.testing.assert_almost_equal(c__,c_, 3)
         
         

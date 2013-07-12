@@ -1073,7 +1073,7 @@ class Linearizer:
         um = np.repeat(self.um, Sg.shape[0])
         uM = np.repeat(self.uM, Sg.shape[0])
 
-        u, costs = self.qp_simple(W,w,c,um,uM) 
+        #u, costs = self.qp_simple(W,w,c,um,uM) 
         
         tc = np.matrix(np.linalg.cholesky(t0)).T
         Q = scipy.sparse.coo_matrix(.5*np.eye(t0.shape[0]))
@@ -1090,10 +1090,54 @@ class Linearizer:
         return u,costs
         
 
-    def qp_simple(self, Q,q,c, um, uM):
+    def plan_red_full(self,A,b,Sg):
+
+        nx, nu = self.nx,self.nu
+        nt = A.shape[0]
+        
+        S = np.zeros((Sg.shape[0],nx,Sg.shape[0],nx))
+        tmp = range(Sg.shape[0])
+        S[tmp,:,tmp,:] = Sg[tmp]
+        S = .5*np.matrix(S.reshape(Sg.shape[0]*nx, Sg.shape[0]*nx))
+
+        M = np.matrix(A[-1,1:,:,nu:].reshape(2*nx,-1))
+        N = np.matrix(A[-1,1:,:,:nu].reshape(2*nx,-1))
+        p = np.matrix(self.stop - b[-1,1:]).T
+        
+        f = np.matrix(A[-1,0,:,nu:].reshape(-1)).T
+        g = np.matrix(A[-1,0,:,:nu].reshape(-1)).T
+        q = b[-1,0]
+        
+        t0 = (M*S*M.T).I
+        tmp = M.T*t0
+        K_ = -tmp*N
+        K = S*K_
+        k_ = -f + tmp*(M*S*f + p)    
+        k = S*k_
+
+        W = np.array(.5*N.T*t0*N)
+        w = np.array(K.T*(k_+f) + g).reshape(-1)
+        c = np.array((.5*k_+f).T*k + q )[0][0]
+        
+        um = np.repeat(self.um, Sg.shape[0])
+        uM = np.repeat(self.uM, Sg.shape[0])
+        
+        W = np.bmat([[W,-W],[-W,W]])
+        w = np.concatenate((w,-w))
+        uM = np.repeat(self.uM, Sg.shape[0]*2)
+
+        u, costs = self.pqp(np.array(W),np.array(w),np.array(uM)) 
+        #u, costs = self.qp_simple(W,w,uM) 
+        costs += c
+        u = u[:nt]-u[nt:] 
+        
+        return u,costs
+        
+
+    def qp_simple(self, Q,q, uM):
 
         task = mosek_env.Task()
-        task.append( mosek.accmode.var, um.size)
+        task.append( mosek.accmode.var, uM.size)
         task.putobjsense(mosek.objsense.minimize)
         
         Q = scipy.sparse.coo_matrix(Q)
@@ -1104,14 +1148,15 @@ class Linearizer:
         task.putintparam(mosek.iparam.check_convexity,mosek.checkconvexitytype.none);
         
         task.putclist(range(q.size), q) 
-        task.putcfix(c) 
         
         task.putboundlist(  mosek.accmode.var,
-                            range(um.size), 
-                            [mosek.boundkey.ra]*um.size, 
-                            um,uM)        
+                            range(uM.size), 
+                            [mosek.boundkey.ra]*uM.size, 
+                            0*uM, uM)        
 
+        t = time.time()
         task.optimize()
+        print time.time()-t
         task._Task__progress_cb=None
         task._Task__stream_cb=None
 
@@ -1121,16 +1166,40 @@ class Linearizer:
                 # mosek bug fix 
             raise Exception(str(solsta)+", "+str(prosta))
 
-        xx = np.zeros(um.size)
+        xx = np.zeros(uM.size)
 
         warnings.simplefilter("ignore", RuntimeWarning)
         task.getsolutionslice(mosek.soltype.itr,
                             mosek.solitem.xx,
-                            0,um.size, xx)
+                            0,uM.size, xx)
 
         warnings.simplefilter("default", RuntimeWarning)
         
         return xx, task.getprimalobj(mosek.soltype.itr)
+
+    def pqp(self, Q,h, u):
+        
+        #h = -h
+        Q*=2.0
+        
+        r = np.maximum(np.diag(Q), np.maximum(-Q,0).sum(0))+1.0
+        s = 1.0
+        
+        hp = np.maximum( h,0) + s
+        hm = np.maximum(-h,0) + s
+        
+        Qp = np.maximum( Q,0) + np.diag(r)
+        Qm = np.maximum(-Q,0) + np.diag(r)
+        
+        y = u.copy()/10.0
+        
+        for it in range(1000):
+            rt = (hm + (Qm*y).sum(0))/(hp + (Qp*y).sum(0))
+            y = np.minimum(y*rt,u)
+            c = .5*(Q*y[np.newaxis,:]*y[:,np.newaxis]).sum() + (h*y).sum()
+
+        return y,c
+
 
     def qp_solve(self, Q, q, c, A, b, um, uM):
 
