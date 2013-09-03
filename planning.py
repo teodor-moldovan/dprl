@@ -1070,6 +1070,7 @@ class Linearizer:
         w = np.array(K.T*(k_+f) + g).reshape(-1)
         c = np.array((.5*k_+f).T*k + q )[0][0]
         
+        
         um = np.repeat(self.um, Sg.shape[0])
         uM = np.repeat(self.uM, Sg.shape[0])
 
@@ -1082,12 +1083,96 @@ class Linearizer:
         
         A = np.hstack((-np.eye(t0.shape[0]), tc*N ))
         b = np.zeros(t0.shape[0])
-        um = np.concatenate((-float('inf')*np.ones(t0.shape[0]), um))
-        uM = np.concatenate((float('inf')*np.ones(t0.shape[0]), uM))
-        u, costs = self.qp_solve(Q,q,c,A,b,um,uM) 
-        u = u[t0.shape[0]:]
+        um_ = np.concatenate((-float('inf')*np.ones(t0.shape[0]), um))
+        uM_ = np.concatenate((float('inf')*np.ones(t0.shape[0]), uM))
+        u, costs = self.qp_solve(Q,q,c,A,b,um_,uM_) 
+        u = u[t0.shape[0]:].reshape(-1,nu)
         
-        return u,costs
+        xi = (K*np.matrix(u) + k).reshape(-1,nx)
+        rt = np.hstack((u,xi))
+        u0 = u
+        
+        C = np.matrix(A)
+        q = np.matrix(q).T        
+        
+        u = self.qp_lb_solve(Q,C,q,uM,um)
+        print np.hstack((u0,u.reshape(-1,nu)))
+
+        return rt,costs
+        
+
+    def plan_red_(self,A,b,Sg):
+
+        nx, nu = self.nx,self.nu
+        
+        S = np.zeros((Sg.shape[0],nx,Sg.shape[0],nx))
+        tmp = range(Sg.shape[0])
+        S[tmp,:,tmp,:] = Sg[tmp]
+        S = .5*np.matrix(S.reshape(Sg.shape[0]*nx, Sg.shape[0]*nx))
+
+        M = np.matrix(A[-1,1:,:,nu:].reshape(2*nx,-1))
+        N = np.matrix(A[-1,1:,:,:nu].reshape(2*nx,-1))
+        p = np.matrix(self.stop - b[-1,1:]).T
+        
+        f = np.matrix(A[-1,0,:,nu:].reshape(-1)).T
+        g = np.matrix(A[-1,0,:,:nu].reshape(-1)).T
+        q = b[-1,0]
+        
+        t0 = (M*S*M.T).I
+        tmp = M.T*t0
+        K_ = -tmp*N
+        K = S*K_
+        k_ = -f + tmp*(M*S*f + p)    
+        k = S*k_
+        
+
+        W = np.array(.5*N.T*t0*N)
+        w = np.array(K.T*(k_+f) + g).reshape(-1)
+        c = np.array((.5*k_+f).T*k + q )[0][0]
+        
+        
+        um = np.repeat(self.um, Sg.shape[0])
+        uM = np.repeat(self.uM, Sg.shape[0])
+
+        #u, costs = self.qp_simple(W,w,c,um,uM) 
+        
+        tc = np.matrix(np.linalg.cholesky(t0)).T
+        Q = scipy.sparse.coo_matrix(.5*np.eye(t0.shape[0]))
+        q = np.concatenate((np.zeros(t0.shape[0]), w))
+        c = c
+        
+        A = np.hstack((-np.eye(t0.shape[0]), tc*N ))
+        b = np.zeros(t0.shape[0])
+        um_ = np.concatenate((-float('inf')*np.ones(t0.shape[0]), um))
+        uM_ = np.concatenate((float('inf')*np.ones(t0.shape[0]), uM))
+        u, costs = self.qp_solve(Q,q,c,A,b,um_,uM_) 
+        u = u[t0.shape[0]:].reshape(-1,nu)
+        
+        xi = (K*np.matrix(u) + k).reshape(-1,nx)
+        rt = np.hstack((u,xi))
+        u0 = u
+        
+        C = np.matrix(A)
+        q = np.matrix(q).T        
+        lbd = 1.0*np.ones(um.size)
+        lbd_g = 0.0*np.ones(um.size)
+        u = np.zeros(um.size) 
+
+        for it in range(10):
+            Q = np.matrix(np.diag(np.concatenate((np.ones(t0.shape[0]), lbd)))) 
+            q_ = 0*np.matrix(np.concatenate((np.zeros(t0.shape[0]), lbd_g))).T
+
+            u_ = (Q*C.T*(C*Q*C.T).I*C*Q -Q)*(q+q_)
+            u_ = np.array(u_).reshape(-1)[t0.shape[0]:]
+            
+            r = np.maximum(((u_)/(uM-u)), ((u_)/(um-u)))
+            lbd = 1.0/np.maximum(r,1.0)
+            
+            
+            print np.hstack((u0,u_.reshape(-1,nu)))
+            print u_[5]
+
+        return rt,costs
         
 
     def plan_red_full(self,A,b,Sg):
@@ -1133,6 +1218,31 @@ class Linearizer:
         
         return u,costs
         
+
+    def qp_lb_solve(self, Q,C,q,uM,um):
+
+        lbd = 1.0*np.ones(um.size)
+        lbd_g = 0.0*np.ones(um.size)
+        u = np.zeros(um.size) 
+
+        k = 1.0
+        for it in range(20):
+            k /=2.0
+            Q = np.matrix(np.diag(np.concatenate((np.ones(C.shape[0]), lbd)))) 
+            q_ = np.matrix(np.concatenate((np.zeros(C.shape[0]), lbd_g))).T
+
+            u_ = (Q*C.T*(C*Q*C.T).I*C*Q -Q)*(q+q_)
+            u_ = np.array(u_).reshape(-1)[C.shape[0]:]
+            
+            r = np.maximum(((u_-u)/(uM-u)), ((u_-u)/(um-u)))
+            u += (u_-u)/max(r.max(),1.0)*(1.0-k)
+            
+            lbd = k * ( 1.0/((uM-u)**2) + (1.0/(u-um)**2) )  
+            lbd_g = -u*lbd + k*( 1.0/(uM-u) - 1.0/(u-um) )
+
+            lbd = 1.0/lbd
+        return u
+
 
     def qp_simple(self, Q,q, uM):
 

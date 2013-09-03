@@ -150,7 +150,7 @@ class Tests(unittest.TestCase):
         trj = p.min_acc_traj(start,p.stop,p.no)
         
         u  = np.zeros((trj.shape[0],p.nu))
-        xi = np.random.normal(size=trj.shape[0]*p.nx).reshape(
+        xi = 0*np.random.normal(size=trj.shape[0]*p.nx).reshape(
                 (trj.shape[0],p.nx))
 
         z = np.hstack((trj,u,xi))
@@ -170,12 +170,11 @@ class Tests(unittest.TestCase):
         rs =  np.einsum('minj,nj->mi',A, z[:,-(p.nu+p.nx):]) + b
         np.testing.assert_almost_equal(rs,xs)
          
-        #Q,q = p.linearize_log_barrier(z[:,-p.nu:], 2.0, p.um, p.uM)
-        
         w_, c_ = p.plan_uxi(A,b,L)
         w__, c__ = p.plan_red(A,b,Sg)
 
         np.testing.assert_almost_equal(c__,c_, 3)
+        np.testing.assert_almost_equal(w__,w_, 3)
         
         
     def test_online(self):
