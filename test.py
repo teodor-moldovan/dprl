@@ -1,11 +1,12 @@
 import unittest
-from dpcluster.cuda import *
+from clustering import *
+from tools import *
 import time
 import scipy.linalg
 import pycuda.driver as drv
 import pycuda.scan
 
-class Tests(unittest.TestCase):
+class TestsTools(unittest.TestCase):
     def test_chol(self):
         l,m = 32*8*11,32
         np.random.seed(6)
@@ -349,6 +350,7 @@ class Tests(unittest.TestCase):
 
 
 
+class TestsClustering(unittest.TestCase):
     def test_niw_cond(self):
         l,p,q = 32*8*11,32,4
         #l,p,q = 8*12,32,4
@@ -813,9 +815,10 @@ class Tests(unittest.TestCase):
 
 if __name__ == '__main__':
     single_test = 'test_sbp'
-    if hasattr(Tests, single_test):
+    tests = TestsClustering
+    if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
-        dev_suite.addTest(Tests(single_test))
+        dev_suite.addTest(tests(single_test))
         unittest.TextTestRunner().run(dev_suite)
     else:
         unittest.main()
