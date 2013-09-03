@@ -1,2 +1,2 @@
 all: 
-	python cartpole.py
+	python test.py
