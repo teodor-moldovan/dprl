@@ -5,34 +5,75 @@ from pycuda.compiler import SourceModule
 import pycuda.scan
 from pycuda import gpuarray
 from pytools import memoize
+import functools
 from pycuda.gpuarray import GPUArray
 from collections import OrderedDict
 import numpy as np
 import re
 import atexit
+import time
 
 from jinja2 import Template
 
 cublas_handle = cublas.cublasCreate()
 atexit.register(lambda : cublas.cublasDestroy(cublas_handle) )
-#cuda_allc = pycuda.tools.DeviceMemoryPool()
-#atexit.register(lambda : cuda_allc.stop_holding() )
 
+memoize_cache = {}
+memoize_funcs = {}
+def memoize_closure(obj):
+     ck = obj.__name__
+     if ck in memoize_funcs:
+        return memoize_funcs[ck]
+
+     cache = memoize_cache[ck] = {}  
+ 
+     @functools.wraps(obj)
+     def memoizer(*args):
+         if args not in cache:
+             #print 'cache miss ',obj
+             cache[args] = obj(*args)
+         return cache[args]
+        
+     memoize_funcs[ck] = memoizer
+     return memoizer
+
+# timing tools
+def tic():
+        start = pycuda.driver.Event()
+        end = pycuda.driver.Event()
+
+        start.record()
+        start.synchronize()
+        return start,end
+
+def toc((start,end)):
+        end.record()
+        end.synchronize()  
+        msecs_ = start.time_till(end)
+        print "GPU ", msecs_, 'ms'  
+        return msecs_
+        
 
 ## sliced array utils
 class array(GPUArray):
     def __init__(self,sz):
         GPUArray.__init__(self,sz,np.float32)
+        self.newhash()
+        self.slc = self.canonical_slice(None,self.shape)
+        self.brd = True
+        
+    def newhash(self):
+        self.hash_id = np.random.random()
+        
+
+    def __hash__(self):
+        return hash((self.ptr,self.shape,self.hash_id))
     def __getitem__(self,slc):
         r = self.view()
         r.__class__ = self.__class__
-        r.slc = slc
-        try:
-            r.brd = self.brd
-        except:
-            pass
-
-
+        r.slc = self.canonical_slice(slc,self.shape)
+        r.brd = self.brd
+        r.hash_id = self.hash_id
         return r
 
 
@@ -41,50 +82,29 @@ class array(GPUArray):
         r = self.view()
         r.__class__ = self.__class__
         r.brd = False
-        try:
-            r.slc = self.slc
-        except:
-            pass
-
+        r.slc = self.slc
+        r.hash_id = self.hash_id
         return r
 
-    def canonical_slice(self):
-        a = self
-        sh = a.shape
+    @staticmethod
+    def canonical_slice(s,sh):
 
-        try:
-            s = a.slc
-        except:
-            s = tuple(None for i in range(len(sh)))
+        if s is None:
+            s = [slice(None,None,None),]* len(sh)
         
         if type(s)==slice:
-            s = (s,)
+            s = [s,]
         
-        if len(s)>len(sh):
-            sh_ = list(sh)
-            for i in range(len(s)):
-                if s[i] is None:
-                    sh_.insert(i,1)
-            sh = sh_
-
-        def internal(i):
-            ts = s[i]
-            if ts is None:
-                ts = slice(None,None,None)
-            #if not isinstance(ts, slice):
-            #    ts = slice(int(ts),int(ts)+1,None) 
-            
-            try:
-                ti = ts.indices(sh[i])
-            except:
-                ti = ts.indices(1)
-            return ti
-
-        try:
-            brd = tuple((self.brd for a in range(len(s))))
-        except:
-            brd = tuple((True for a in range(len(s))))
-        return tuple(internal(i)+(sh[i],brd[i]) for i in range(len(s)))
+        s = list(s)
+        
+        sh_ = list(sh)
+        for i in range(len(s)):
+            if s[i] is None:
+                sh_.insert(i,1)
+                s[i] = slice(None,None,None)
+        sh = sh_
+        rs = tuple(s[i].indices(sh[i])+(sh[i],) for i in range(len(s)))
+        return rs
 
 
     @property
@@ -122,16 +142,13 @@ class array(GPUArray):
             a.ptr+a.shape[0]*a.strides[0],a.strides[0],
             dtype=cublas.ctypes.c_void_p)
 
-
-
-
 def to_gpu(s):
     d = array(s.shape)
     d.set(s.astype(np.float32))
     return d
 
 @memoize
-def broadcast(cs):
+def broadcast(cs,brds):
     
     def dm(c):
         return 1 + (c[1]-1-c[0])/c[2] 
@@ -140,35 +157,31 @@ def broadcast(cs):
         raise TypeError
     
     szs = tuple(( tuple((dm(c) for c in ct)) for ct in cs))
+    szs_ = tuple(( tuple((dm(c) for c in ct)) for ct,m in zip(cs,brds) if m ) )
 
-    tt = tuple(( tuple((c[4] for c in ct)) for ct in cs))
-    
-    no_bc_set = tuple((set([c for c,m in zip(sz,mk) if m]) 
-            for sz,mk in  zip(zip(*szs), zip(*tt)) ))
+    no_bc_set = tuple(( set(sz)  for sz in zip(*szs_)  ))
     bc_set = tuple(( set(sz)  for sz in zip(*szs)  ))
         
-
     mxs = tuple(( stn if len(stb-set((1,)))>1 else stb
         for stb, stn in zip(bc_set,no_bc_set)  ))
     
-    mx = tuple((max(st) for st in mxs ))
+    mx = tuple((max(st) for st in mxs )) 
+    szs = tuple(( mx if b else s  for s,b in zip(szs,brds) ))
     
-
-    szs = tuple(( tuple((mxx if c[4] else dm(c)  for mxx,c in zip(mx,ct))) 
-                for ct in cs))
     
-    if not len(set([np.prod(sz) for sz in szs]))==1:
+    st = set([np.prod(sz) for sz in szs])
+    if not len(st)==1:
         raise TypeError
     
     md = tuple((tuple(reversed(np.cumprod(tuple(reversed(sz)))))[1:]+(1,) 
             for sz in szs  )) 
             
     co = [] 
-    for ct in cs:
+    for ct,b in zip(cs,brds):
         m = 1
         coo = []
-        for c,mxx in zip(reversed(ct),reversed(mx)):
-            coo.append(( (c[2] if dm(c)==mxx or (not c[4]) else 0)*m, (c[0])*m))
+        for c in reversed(ct):
+            coo.append(( (c[2] if dm(c)>1 or (not b) else 0)*m, (c[0])*m))
             m*= c[3]
         co.append(tuple(coo))
 
@@ -181,7 +194,9 @@ def broadcast(cs):
             for dd,of in zip(md,ds)
         ))
 
-    return nds,mx
+    gs,bs = grid_block_sizes(st.pop())
+
+    return nds,gs,bs
 
 indexing_template = Template("""
 
@@ -312,7 +327,8 @@ def k_solve_triangular(m,n,bd,bck,identity):
     #define N {{ n }}
     #define BD {{ bd }}
 
-    __global__ void solve_triangular(float  lgf[][M][M],float xgf[][M][N]) {
+    __global__ void solve_triangular(float  lgf[][M][M],float xgf[][M][N],
+            float dgf[][M][N]) {
 
         __shared__ float shrx[BD][N][M];
 
@@ -320,6 +336,7 @@ def k_solve_triangular(m,n,bd,bck,identity):
 
         float (*lg)[M][M] = &lgf[blockIdx.z * blockDim.z + threadIdx.z];
         float (*xg)[M][N]=&xgf[blockIdx.z * blockDim.z + threadIdx.z];
+        float (*dg)[M][N]=&dgf[blockIdx.z * blockDim.z + threadIdx.z];
         float (*x)[M]= &shrx[threadIdx.z][threadIdx.x];         
         
         for (int i=0; i<M; i++){
@@ -332,7 +349,7 @@ def k_solve_triangular(m,n,bd,bck,identity):
             float tt = s/d;
             (*x)[i] = tt;
             {% if not bck %}
-            (*xg)[i][k] = tt;
+            (*dg)[i][k] = tt;
             {% endif %}
         }
 
@@ -346,7 +363,7 @@ def k_solve_triangular(m,n,bd,bck,identity):
             }
             (*x)[i] = s/d;
             float tt = s/d;
-            (*xg)[i][k] = tt;
+            (*dg)[i][k] = tt;
         }
         {% endif %}
 
@@ -357,11 +374,20 @@ def k_solve_triangular(m,n,bd,bck,identity):
     tmp = template.render(m=int(m),n=int(n),bd=int(bd),bck=bool(bck),identity=bool(identity))
     f = SourceModule(tmp).get_function("solve_triangular")
     #f.set_cache_config(pycuda.driver.func_cache.PREFER_NONE)
-    return f.prepare('PP')
+    return f.prepare('PPP')
 
-def solve_triangular(l,x,back_substitution = False, identity=False, bd = 1):
+def solve_triangular(l,x,d=None,
+            back_substitution = False, identity=False, bd = 1):
+    if d is None:
+        d = x;
+
     k,m,m = l.shape
-    k,m,n = x.shape
+        
+    if len(x.shape)==3:
+        k,m,n = x.shape
+    else:
+        k,m = x.shape
+        n = 1
         
     if l.gpudata==x.gpudata:
         raise NotImplementedError
@@ -369,7 +395,7 @@ def solve_triangular(l,x,back_substitution = False, identity=False, bd = 1):
     if k % bd != 0:
         raise NotImplementedError
 
-    return k_solve_triangular(m,n,bd,back_substitution,identity).prepared_call((1,1,k/bd),(n,1,bd),l.gpudata,x.gpudata )
+    return k_solve_triangular(m,n,bd,back_substitution,identity).prepared_call((1,1,k/bd),(n,1,bd),l.gpudata,x.gpudata,d.gpudata)
 
 
 
@@ -470,8 +496,7 @@ def chol2log_det(s,d):
 
 
 @memoize
-def k_ufunc(fnc,nds,name,preface):
-   
+def parse_func(fnc):
     identifier = re.compile(r"\b[^\d\W]\w*\b",)
     ids = re.findall(identifier,fnc)
     
@@ -479,14 +504,21 @@ def k_ufunc(fnc,nds,name,preface):
 
     fidentifier = re.compile(r"\b[^\d\W]\w*[(].*?[)]",)
     
-    funcs = set([re.findall(identifier,f)[0] for f in  re.findall(fidentifier,fnc)] )
+    funcs = set([re.findall(identifier,f)[0] 
+            for f in  re.findall(fidentifier,fnc)] )
     
     na = 0
     for i in ids:
         if i not in funcs:
             fnc = re.sub(r"\b%s\b" % i,'(*p'+str(na+1)+')',fnc )
             na+= 1
+    
+    return fnc,na
 
+    
+@memoize
+def k_ufunc(fnc,nds,name,preface):
+    fnc,na = parse_func(fnc)
 
     template = Template("""
 
@@ -510,28 +542,321 @@ def k_ufunc(fnc,nds,name,preface):
     tmp += indexing_template.render(nds=nds)
     tmp += template.render(name=name,nds=nds,fnc=fnc)
     
-    
     perm_mod = SourceModule(tmp)
     return perm_mod.get_function("ufunc_"+name).prepare('P'*len(nds))
 
-class ufunc:
-    def __init__(self,fnc,name='noname',preface=''):
+
+def ufunc(fnc,name='noname',preface=''):
+    def call(*args)  :
+        
+        cs = tuple((a.slc for a in args ))
+        brds = tuple((a.brd for a in args ))
+        nds,gs,bs = broadcast(cs,brds)
+
+        k_ufunc(fnc, nds,name,preface).prepared_call(
+                (gs,1,1),(bs,1,1),*[p.gpudata for p in args] )
+        
+    return call
+
+
+
+@memoize
+def k_rowwise(fnc,nds,name):
+    
+    template = Template("""
+
+    __global__ void rowwise_{{ name }}(
+        {% for i in nds %} float *g{{ loop.index }}{% if not loop.last%},{% endif %}{% endfor %} 
+        ) {
+
+
+        int ind = blockIdx.x * blockDim.x  + threadIdx.x; 
+
+        {% for n in nds %}
+        float *p{{ loop.index }} = g{{ loop.index }} + ind* {{ n }};{% endfor %} 
+
+        {{ fnc }} 
+    }
+
+    """) 
+
+    
+    tmp = template.render(name=name,nds=nds,fnc=fnc)
+    
+    perm_mod = SourceModule(tmp)
+    return perm_mod.get_function("rowwise_"+name).prepare('P'*len(nds))
+
+
+def rowwise(fnc,name='noname'):
+        
+    def call(*args)  :
+         
+        t = time.time()
+        s = set([a.shape[0] for a in args])
+        if len(s)>1:
+            raise TypeError
+        
+        ns = tuple(( a.shape[1] if len(a.shape)==2 else 1 for a in args  ))
+        gs,bs = grid_block_sizes(s.pop())
+        
+        k_rowwise(fnc, ns,name).prepared_call(
+                (gs,1,1),(bs,1,1),*[p.gpudata for p in args] )
+        
+    return call
+
+
+
+# experimental
+@memoize
+def k_mm_batched(m,k,n,dm,dn):
+
+    template = Template("""
+
+    __global__ void mm(float *ag, float *bg, float *cg ) {
+
+        int i = threadIdx.x*{{ dm }};
+        int j = threadIdx.y*{{ dn }};
+        int l = blockIdx.z * blockDim.z + threadIdx.z;
+        
+        {% for rq,(sm,sn) in rng  %} 
+        if (i{{ sm }}{{ m - dm + 1}} and j{{ sn }}{{ n - dn + 1}}) {
+        
+        {% for r,q in rq %}
+        float *a{{ r }}_{{ q }} = ag+l*{{ m*o }} + i*{{ o }} + {{ r*o }};
+        float *b{{ r }}_{{ q }} = bg+l*{{ o*n }} + j + {{ q }};
+        float *c{{ r }}_{{ q }} = cg+l*{{ m*n }} + i*{{ n }} + 
+                        {{ r*n }} + j + {{ q }}; 
+        float s{{ r }}_{{ q }} = 0;
+        {% endfor %}
+
+        for (int k =0; k<{{ o }}; k++ ){
+
+            {% for r,q in rq %}
+            s{{ r }}_{{ q }} += *(a{{ r }}_{{ q }} + k)  * *(b{{ r }}_{{ q }} + k*{{ n }} );{% endfor %}
+        }
+        
+        {% for r,q in rq %}
+        *c{{ r }}_{{ q }} = s{{ r }}_{{ q }};{% endfor %}
+        return;
+        };
+        {% endfor %}
+    
+    }
+
+    """)
+
+    tmp = ''
+    #tmp += indexing_template.render(nds=nds)
+    
+    rng = [([(i,j) for i in range(ddm) for j in range(ddn) ],(sm,sn))
+            for ddm,sm in zip((dm, m%dm),('<','>=')) 
+            for ddn,sn in zip((dn, n%dn),('<','>=')) 
+            if ddm > 0 and ddn>0]
+    
+    tmp += template.render(m=int(m),n=int(n),o=int(k),dm = int(dm), dn=int(dn),
+            rng=rng 
+             )
+
+    perm_mod = SourceModule(tmp)
+    f = perm_mod.get_function("mm")
+    return f.prepare('PPP')
+
+def mm_batched(a,b,c, dm=1,dn=2 ):
+
+    if not( a.shape[0]==b.shape[0] and b.shape[0]==c.shape[0] ):
+        raise TypeError
+
+    if not( a.shape[1]==c.shape[1] and b.shape[2]==c.shape[2] 
+            and a.shape[2]==b.shape[1] ):
+        raise TypeError
+    
+    l,m,k = a.shape
+    l,k,n = b.shape
+    l,m,n = c.shape
+    bs = (m/dm+int(m%dm>0),n/dn+int(n%dn>0),1)
+    
+    return k_mm_batched(m,k,n,dm,dn).prepared_call((1,1,l),bs,
+        a.gpudata,b.gpudata,c.gpudata)
+
+
+
+
+@memoize
+def k_cumprod(l,m,dm):
+    
+    n = m
+    dn = dm
+
+    template = Template("""
+
+    __device__ void mult(float *ag, float *bg, float *cg) {
+
+        int i = threadIdx.x*{{ dm }};
+        int j = threadIdx.y*{{ dn }};
+        
+        
+        {% for rq,(sm,sn) in rng  %} 
+        if (i{{ sm }}{{ m - dm + 1}} and j{{ sn }}{{ n - dn + 1}}){ 
+        
+        {% for r,q in rq %}
+        float *a{{ r }}_{{ q }} = ag+ i*{{ m }} + {{ r*m }};
+        float *b{{ r }}_{{ q }} = bg+ j + {{ q }};
+        float *c{{ r }}_{{ q }} = cg+ i*{{ n }} + 
+                        {{ r*n }} + j + {{ q }}; 
+        float s{{ r }}_{{ q }} = 0;
+        {% endfor %}
+
+        for (int k =0; k<{{ m }}; k++ ){
+
+            {% for r,q in rq %}
+            s{{ r }}_{{ q }} += *(a{{ r }}_{{ q }} + k)  * *(b{{ r }}_{{ q }} + k*{{ n }} );{% endfor %}
+        }
+        
+        {% for r,q in rq %}
+        *c{{ r }}_{{ q }} = s{{ r }}_{{ q }};{% endfor %}
+        return;
+        };
+
+        {% endfor %} 
+    
+    };
+
+    __device__ void asgn(float *ag, float *bg) {
+
+        int i = threadIdx.x*{{ dm }};
+        int j = threadIdx.y*{{ dn }};
+        
+        
+        {% for rq,(sm,sn) in rng  %} 
+        if (i{{ sm }}{{ m - dm + 1}} and j{{ sn }}{{ n - dn + 1}}){ 
+        
+        {% for r,q in rq %}
+        int d = i*{{ n }} + {{ r*n }} + j + {{ q }} ;
+        *(ag+ d) =  *(bg+ d); 
+        {% endfor %}
+
+        return;
+        };
+
+        {% endfor %} 
+    
+    };
+
+
+    __global__ void cumprod(float *ag) {
+
+        int i = threadIdx.x*{{ dm }};
+        int j = threadIdx.y*{{ dn }};
+        
+        __shared__ float ts[{{ m }}][{{ m }}];
+        __shared__ float ds[{{ m }}][{{ m }}];
+        
+        float *t = &ts[0][0];
+        float *d = &ds[0][0];
+        
+        
+        {% for rq,(sm,sn) in rng  %} 
+        if (i{{ sm }}{{ m - dm + 1}} and j{{ sn }}{{ n - dn + 1}}){ 
+        
+        {% for r,q in rq %}
+        ts[i+{{ r }}][j+{{ q }}] =((i+{{ r }}) == (j+ {{ q }})) ? 1.0f : 0.0f; 
+        {% endfor %}
+        };
+
+        {% endfor %} 
+        
+
+        for (int k=0; k<{{ l }}; k++){
+            mult(t,ag+k*{{ m*m }},d); 
+            __syncthreads();
+            asgn(ag+k*{{ m*m }},d); 
+        }
+
+
+    };
+
+    """)
+
+    tmp = ''
+    #tmp += indexing_template.render(nds=nds)
+    
+    rng = [([(i,j) for i in range(ddm) for j in range(ddn) ],(sm,sn))
+            for ddm,sm in zip((dm, m%dm),('<','>=')) 
+            for ddn,sn in zip((dn, n%dn),('<','>=')) 
+            if ddm > 0 and ddn>0]
+    
+    tmp += template.render(m=int(m),n=int(n),dm = int(dm), dn=int(dn),
+            l = int(l),rng=rng 
+             )
+
+    perm_mod = SourceModule(tmp)
+    f = perm_mod.get_function("cumprod")
+    return f.prepare('P')
+
+def cumprod(a,dm=1 ):
+
+    
+    l,m,m = a.shape
+
+    bs = (m/dm+int(m%dm>0),m/dm+int(m%dm>0),1)
+    
+    return k_cumprod(l,m,dm).prepared_call((1,1,1),bs,a.gpudata)
+
+
+
+# slow implementation
+@memoize
+def k_row_reduction(fnc,name ):
+   
+    fnc,na = parse_func(fnc)
+
+    template = Template("""
+
+    __global__ void row_reduction_{{ name }}(float *gs, float *gd, int n ) {
+
+        int ind = blockIdx.x * blockDim.x  + threadIdx.x; 
+        float *s = gs + ind*n; 
+        float *d = gd + ind; 
+ 
+        float p;
+        float *p1 = &p;
+        *p1 = *s;
+
+        for (int i=1; i<n; i++){
+        
+        float *p2 = s+i;
+        {{ fnc }}; }
+
+        *d = *p1;
+    }
+    """) 
+
+    
+    tmp = template.render(fnc=fnc, name = name)
+     
+    perm_mod = SourceModule(tmp)
+    return perm_mod.get_function("row_reduction_"+name).prepare('PPI')
+
+class row_reduction:
+    def __init__(self,fnc,name='noname'):
         self.fnc = fnc
         self.name = name
-        self.preface = preface
 
-    def __call__(self,*args)  :
+    def __call__(self, s,d)  :
+                
+        l,k = s.shape
+        if not d.shape==(l,):
+            raise TypeError
+
+        gs,bs = grid_block_sizes(np.prod(l))
         
-        cs = tuple(((a.canonical_slice()) for a in args ))
-        nds,szs = broadcast(cs)
-
-        gs,bs = grid_block_sizes(np.prod(szs))
-        
-        return k_ufunc(self.fnc, nds,self.name,self.preface).prepared_call(
-                (gs,1,1),(bs,1,1),*[p.gpudata for p in args] )
+        return k_row_reduction(self.fnc, self.name).prepared_call(
+                (gs,1,1),(bs,1,1), s.gpudata, d.gpudata, np.int32(k)  )
 
 
 
+row_max = row_reduction('a = b>a ? b : a')
+row_sum = row_reduction('a += b')
 def batch_matrix_mult(a,b,c):
 
     if a.is_transposed:
@@ -596,4 +921,39 @@ def matrix_mult(a,b,c):
         c.gpudata, ldc,
         )
     
+# high level
+def numdiff(f,x0,eps=1e-4):
+
+    @memoize_closure
+    def tools_numdiff_ws(l,n,pt,eps):
+        x = array((l,n+1,n))
+        eps = to_gpu(eps*np.eye(n))[None,:,:]
+        x0b = x0[:,None,:]
+        return x[:,1:,:],x[:,0:1,:],eps,x0b
+
+    l,n = x0.shape
+        
+    x,xb,epb,x0b = tools_numdiff_ws(l,n,x0.ptr,eps)
+    
+    ufunc('a=b+e')(x,x0b,epb) 
+    ufunc('a=b')(xb,x0b) 
+   
+    x.shape = (l*(n+1),n) 
+    d_ = f(x)[:]
+     
+    m = d_.shape[1]
+    d_.shape = (l,n+1,m)
+
+    @memoize_closure
+    def tools_numdiff_db(l,m,n,ptr): 
+        d = array((l,m))
+        dr = array((l,n,m))
+        return  d, d[:,None,:], dr,  d_[:,0:1, :], d_[:,1:, :]
+
+    d,d1,dr,d1_,dr_ = tools_numdiff_db(l,m,n,d_.ptr)
+    
+    ufunc('a=b')(d1,d1_ )
+    ufunc('a=(b-c)/'+str(eps)+'f')(dr,dr_, d1_) 
+
+    return d,dr
 

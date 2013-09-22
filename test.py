@@ -1,8 +1,9 @@
 import unittest
 from clustering import *
-from tools import *
+from cartpole import *
 import time
 import scipy.linalg
+import scipy.special
 import pycuda.driver as drv
 import pycuda.scan
 
@@ -23,13 +24,13 @@ class TestsTools(unittest.TestCase):
         e = to_gpu(so.astype(np.float32))
         d = array((l,m,m))
 
-        chol_batched(e,d)
+        chol_batched(e,d,2)
 
-        chol_batched(e,d)
+        chol_batched(e,d,2)
 
         start.record()
         start.synchronize()
-        chol_batched(e,d)
+        chol_batched(e,d,2)
         end.record()
         end.synchronize()
         
@@ -247,8 +248,9 @@ class TestsTools(unittest.TestCase):
         a = to_gpu(an)
         b = to_gpu(bn)        
         c = to_gpu(cn)        
+        d = to_gpu(dn)
         d = to_gpu(dn).no_broadcast 
-
+        
         ufunc('c = b + a')(c, b, a[:,3:4,1:4]  )  
         cn = bn + an[:,3:4,1:4] 
         
@@ -271,6 +273,17 @@ class TestsTools(unittest.TestCase):
         ufunc('d *=2.0')(d)
         dn *= 2.0
         np.testing.assert_almost_equal( dn, d.get(),4 )
+
+
+        an = np.random.normal(size=32*8*11*100).reshape(32*8*11,100)
+        bn = np.random.normal(size=100).reshape(100)
+        a = to_gpu(an)
+        b = to_gpu(bn)        
+
+        ufunc('d = ld *  d')(a,b[None,:])
+        np.testing.assert_almost_equal( an*bn[np.newaxis,:], a.get(),4 )
+        
+
 
     def test_mm(self):
         k,l,m = 32*8*11,100,32*32
@@ -316,10 +329,9 @@ class TestsTools(unittest.TestCase):
         bn = np.random.normal(size=q*m*k).reshape(q,k,m)
      
         t = time.time()
-        rs = np.array(map(lambda p : np.dot(p[0],p[1]), zip(an,bn)   ) )
+        rs =np.einsum('qlk,qkm->qlm', an,bn)
+        rs_o =np.einsum('qlk,qok->qlo', an,an)
 
-        rs_o = np.array(map(lambda a : np.dot(a,a.T), an   ) )
-        
         msecs = (time.time()-t)*1000
         print 'CPU ',msecs ,'ms'
         
@@ -350,14 +362,284 @@ class TestsTools(unittest.TestCase):
 
 
 
+    def test_mm_batched_n(self):
+        q,l,m,k = 10,33,34,35
+        
+        np.random.seed(1)
+
+        an = np.random.normal(size=q*l*k).reshape(q,l,k)
+        bn = np.random.normal(size=q*m*k).reshape(q,k,m)
+        rs = np.zeros((q,l,m))
+     
+        t = time.time()
+        np.einsum('qlk,qkm->qlm', an,bn,out=rs)
+        msecs = (time.time()-t)*1000
+        print 'CPU ',msecs ,'ms'
+        
+        a = to_gpu(an.astype(np.float32))
+        b = to_gpu(bn.astype(np.float32))
+        d = array((q,l,m))
+
+        mm_batched(a,b,d) 
+        t = tic()
+        mm_batched(a,b,d) 
+        toc(t)
+        
+        np.testing.assert_almost_equal( d.get(),rs,5)
+
+
+
+    def test_cum_prod(self):
+        l,q = 10,32
+        
+        np.random.seed(1)
+
+        an0 = np.random.normal(size=l*q*q).reshape(l,q,q)
+        
+        an = an0.copy()
+        
+        t = time.time()
+        r = np.eye(q)
+        for i in range(l):
+            d = np.matrix(an[i])*np.matrix(r)
+            an[i] = d
+            r = d
+        msecs = (time.time()-t)*1000
+        print 'CPU ',msecs ,'ms'
+            
+     
+        a = to_gpu(an.astype(np.float32))
+        cumprod(a)
+
+        a = to_gpu(an.astype(np.float32))
+        t=tic()
+        cumprod(a)
+        msecs_ = toc(t)
+        print "Speedup: ", msecs/msecs_
+        r = a.get()/an
+        np.testing.assert_almost_equal( r,1,4)
+
+
+    def test_rr_sum(self):
+        l,k = 32*8*11,100
+
+        an = np.random.normal(size=l*k).reshape(l,k)
+     
+        t = time.time()
+        rs = np.sum(an,axis=1)
+        
+        msecs = (time.time()-t)*1000
+        print 'CPU ',msecs ,'ms'
+        
+        a = to_gpu(an.astype(np.float32))
+        e = array((l,)) 
+        
+        fnc = row_reduction('a += b')
+
+        start = drv.Event()
+        end = drv.Event()
+
+        fnc(a,e)
+
+        start.record()
+        start.synchronize()
+        fnc(a,e)
+
+        end.record()
+        end.synchronize()
+        
+        msecs_ = start.time_till(end)
+        print "GPU ", msecs_, 'ms'
+        print "Speedup: ", msecs/msecs_
+
+        np.testing.assert_almost_equal( e.get(),rs,3)
+
+
+
+
+    def test_rr_max(self):
+        l,k = 32*8*11,100
+
+        an = np.random.normal(size=l*k).reshape(l,k)
+     
+        t = time.time()
+        rs = np.max(an,axis=1)
+        
+        msecs = (time.time()-t)*1000
+        print 'CPU ',msecs ,'ms'
+        
+        a = to_gpu(an.astype(np.float32))
+        e = array((l,)) 
+        
+        fnc = row_reduction('a = b>a ? b : a')
+
+        start = drv.Event()
+        end = drv.Event()
+
+        fnc(a,e)
+
+        start.record()
+        start.synchronize()
+        fnc(a,e)
+
+        end.record()
+        end.synchronize()
+        
+        msecs_ = start.time_till(end)
+        print "GPU ", msecs_, 'ms'
+        print "Speedup: ", msecs/msecs_
+
+        np.testing.assert_almost_equal( e.get(),rs,3)
+
+
+    def test_numdiff(self):
+        l,m,n = 11*8, 32,28
+
+        
+        np.random.seed(1)
+        xn = np.random.normal(size=l*n).reshape(l,n)
+        an = np.random.normal(size=m*n).reshape(m,n)
+        
+        x = to_gpu(xn)
+
+        tpl = Template(
+        """
+        float s=0;
+        
+        {% for i in rm %}s=0;
+        {% for j in rn %}s += *(p1 + {{ j }})*{{ an[i][j] }};
+        {% endfor %}
+        *(p2+{{ i }}) = s;{% endfor %}
+
+        """
+        ).render(rm=range(m),rn=range(n),an=an)
+
+        f_k = rowwise(tpl)
+
+        
+        def f(y):
+            @memoize_closure
+            def test_num_diff_f_ws(l,m):
+                return array((l,m))
+            d = test_num_diff_f_ws(y.shape[0],m) 
+            f_k(y,d)
+            return d
+
+        x.newhash()    
+        d,df = numdiff(f,x,eps=1e-2) 
+        x.newhash()    
+        d,df = numdiff(f,x,eps=1e-2)
+        x.newhash()    
+        d,df = numdiff(f,x,eps=1e-2)
+        x.newhash()    
+        d,df = numdiff(f,x,eps=1e-2)
+
+        x.newhash()    
+        t = tic()
+        d,df = numdiff(f,x,eps=1e-2)
+        toc(t)
+
+        np.testing.assert_array_almost_equal(df.get()[0], an.T,4)
+        
+        
+
 class TestsClustering(unittest.TestCase):
+    def test_niw_ss(self):
+        l,m = 32*8*11, 32
+
+        xn = np.random.normal(size=l*m).reshape(l,m)
+        dn = np.zeros((l,m*(m+1)+2))
+
+        x = to_gpu(xn.astype(np.float32))
+        
+        t = time.time()
+        dn[:,:m] = xn
+        dn[:,m:m*(m+1)] = (xn[:,:,np.newaxis]*xn[:,np.newaxis,:]).reshape(l,-1)
+        dn[:,-2:] = 1.0
+        msecs = (time.time()-t)*1000
+        print 'CPU ',msecs ,'ms'
+
+        start = drv.Event()
+        end = drv.Event()
+
+        s = NIW(m,l)
+
+        d = s.sufficient_statistics(x)
+
+
+        start.record()
+        start.synchronize()
+        x.newhash()
+        d = s.sufficient_statistics(x)
+        end.record()
+        end.synchronize()
+
+        msecs_ = start.time_till(end)
+        print "GPU ", msecs_, 'ms'
+        print "Speedup: ", msecs/msecs_
+        np.testing.assert_almost_equal( d.get()/dn,1.0,4)
+        
+         
+         
+    def test_niw_nat(self):
+
+        l,p = 32*8*11,40
+
+        d = NIW(p,l)
+        np.random.seed(6)
+
+        tau = np.random.random(size=l*(p*(p+1)+2)).reshape(l,p*(p+1)+2)
+
+        l1 = tau[:,:p]
+        l2 = tau[:,p:-2].reshape(-1,p,p)
+        l3 = tau[:,-2]
+        l4 = tau[:,-1]
+
+        n = l3
+        nu = l4 - 2 - p
+        mu = l1/l3[:,np.newaxis]
+        
+        df = l1[:,:,np.newaxis]*l1[:,np.newaxis,:]/l3[:,np.newaxis,np.newaxis]
+        psi = l2-df
+        
+        t  = to_gpu(tau) 
+
+        d.from_nat(t)
+        d.from_nat(t)
+        d.from_nat(t)
+        d.from_nat(t)
+        d.from_nat(t)
+
+        start = drv.Event()
+        end = drv.Event()
+
+        start.record()
+        start.synchronize()
+
+        t.newhash()
+        d.from_nat(t)
+
+        end.record()
+        end.synchronize()
+
+        msecs_ = start.time_till(end)
+        print "GPU ", msecs_, 'ms'  
+
+        
+        np.testing.assert_array_almost_equal(d.n.get(),n,4)
+        np.testing.assert_array_almost_equal(d.nu.get(),nu,4)
+        np.testing.assert_array_almost_equal(d.mu.get(),mu,3)
+        np.testing.assert_array_almost_equal(d.psi.get(),psi,3)
+
+        np.testing.assert_array_almost_equal(d.get_nat().get(),tau,2)
+
+
+
     def test_niw_cond(self):
         l,p,q = 32*8*11,32,4
-        #l,p,q = 8*12,32,4
+        l,p,q = 8*12,32,4
 
         s = NIW(p,l)
-        d = NIW(q,l)
-        d.alloc()
 
         np.random.seed(6)
         so = np.random.normal(size=l*p*p).reshape(l,p,p)
@@ -400,19 +682,22 @@ class TestsClustering(unittest.TestCase):
         s.nu  = to_gpu(  nu.astype(np.float32))
         x = to_gpu(  x.astype(np.float32))
 
-        s.conditional(x, d )
-        s.conditional(x, d )
-        s.conditional(x, d )
-        s.conditional(x, d )
+        d = s.conditional(x)
+        d = s.conditional(x)
+        d = s.conditional(x)
+        d_ = s.conditional(x)
 
         start = drv.Event()
         end = drv.Event()
 
         start.record()
         start.synchronize()
-        s.conditional(x, d )
+        x.newhash()
+        d = s.conditional(x)
         end.record()
         end.synchronize()
+
+        self.assertEqual(d.psi.ptr,d_.psi.ptr)
 
         msecs_ = start.time_till(end)
         print "GPU ", msecs_, 'ms'  
@@ -426,44 +711,45 @@ class TestsClustering(unittest.TestCase):
 
 
 
-    def test_niw_ss(self):
-        l,m = 32*8*11, 32
+    def test_niw_marginal(self):
+        l,p,q = 32*8*11,40,32
 
-        xn = np.random.normal(size=l*m).reshape(l,m)
-        dn = np.zeros((l,m*(m+1)+2))
+        s = NIW(p,l)
 
-        x = to_gpu(xn.astype(np.float32))
-        d = to_gpu(dn.astype(np.float32))
+        np.random.seed(6)
+        so = np.random.normal(size=l*p*p).reshape(l,p,p)
+        psi = np.einsum('nij,nkj->nik',so,so)
+        mu = np.random.normal(size=l*p).reshape(l,p)
+        n = np.random.random(size=l)*10+p
+        nu = np.random.random(size=l)*10+2*p
         
-        t = time.time()
-        dn[:,:m] = xn
-        dn[:,m:m*(m+1)] = (xn[:,:,np.newaxis]*xn[:,np.newaxis,:]).reshape(l,-1)
-        dn[:,-2:] = 1.0
-        msecs = (time.time()-t)*1000
-        print 'CPU ',msecs ,'ms'
+        s.mu  = to_gpu(  mu.astype(np.float32))
+        s.psi = to_gpu( psi.astype(np.float32))
+        s.n   = to_gpu(   n.astype(np.float32))
+        s.nu  = to_gpu(  nu.astype(np.float32))
 
+        d_ = s.marginal(q)
 
         start = drv.Event()
         end = drv.Event()
 
-        s = NIW(m,l)
-
-        s.sufficient_statistics(x,d)
-
-
         start.record()
         start.synchronize()
-        s.sufficient_statistics(x,d)
+
+        s.mu.newhash()
+        d = s.marginal(q)
+
         end.record()
         end.synchronize()
+        self.assertEqual(d.psi.ptr,d_.psi.ptr)
 
         msecs_ = start.time_till(end)
-        print "GPU ", msecs_, 'ms'
-        print "Speedup: ", msecs/msecs_
-        np.testing.assert_almost_equal( d.get()/dn,1.0,4)
-        
-         
-         
+        print "GPU ", msecs_, 'ms'  
+        np.testing.assert_array_almost_equal(d.n.get(),n,4)
+        np.testing.assert_array_almost_equal(d.nu.get(),nu-(p-q),4)
+        np.testing.assert_array_almost_equal(d.mu.get(),mu[:,-q:],4)
+        np.testing.assert_array_almost_equal(d.psi.get(),psi[:,-q:,-q:],4)
+
     def test_niw_predll(self):
         l,k,p = 100,32*8*11,32
         #l,k,p = 100,40*12,32
@@ -527,37 +813,25 @@ class TestsClustering(unittest.TestCase):
         start = drv.Event()
         end = drv.Event()
 
-        fn = s.prepared_predictive_posterior_ll()
-        fn = s.prepared_predictive_posterior_ll()
-        fn = s.prepared_predictive_posterior_ll()
 
-        if True:
-            start.record()
-            start.synchronize()
-            fn = s.prepared_predictive_posterior_ll()
-            end.record()
-            end.synchronize()
-
-            msecs_ = start.time_till(end)
-            print 'Prep,  ',
-            print "GPU ", msecs_, 'ms'  
-
-
-        fn(x,d)
-        fn(x,d)
-        fn(x,d)
+        d = s.predictive_posterior_ll(x)
+        d = s.predictive_posterior_ll(x)
+        d = s.predictive_posterior_ll(x)
         
 
         if True:
             start.record()
             start.synchronize()
-            fn(x,d)
+            x.newhash()
+            d_ = s.predictive_posterior_ll(x)
             end.record()
             end.synchronize()
 
             msecs_ = start.time_till(end)
             print 'Exec,  ',
             print "GPU ", msecs_, 'ms'  
+
+        self.assertEqual(d.ptr,d_.ptr)
 
         rt = np.abs(d.get()-rs)/np.abs(rs)
 
@@ -566,7 +840,7 @@ class TestsClustering(unittest.TestCase):
 
     def test_niw_expll(self):
         l,k,p = 100,32*8*11,32
-        #l,k,p = 100,40*12,32
+        #l,k,p = 10,40*12,32
 
         s = NIW(p,l)
 
@@ -626,31 +900,16 @@ class TestsClustering(unittest.TestCase):
         start = drv.Event()
         end = drv.Event()
 
-        fn = s.prepared_expected_ll()
-        fn = s.prepared_expected_ll()
-        fn = s.prepared_expected_ll()
-        fn = s.prepared_expected_ll()
+        d = s.expected_ll(x)
+        d = s.expected_ll(x)
+        d = s.expected_ll(x)
+        d_ = s.expected_ll(x)
 
         if True:
             start.record()
             start.synchronize()
-            fn = s.prepared_expected_ll()
-            end.record()
-            end.synchronize()
-
-            msecs_ = start.time_till(end)
-            print 'Prep,  ',
-            print "GPU ", msecs_, 'ms'  
-
-        fn(x,d)
-        fn(x,d)
-        fn(x,d)
-        fn(x,d)
-
-        if True:
-            start.record()
-            start.synchronize()
-            fn(x,d)
+            x.newhash()
+            d = s.expected_ll(x)
             end.record()
             end.synchronize()
 
@@ -658,6 +917,7 @@ class TestsClustering(unittest.TestCase):
             print 'Exec,  ',
             print "GPU ", msecs_, 'ms'  
         
+        self.assertEqual(d.ptr,d_.ptr)
 
         rt = np.abs(d.get()-rs)/np.abs(rs)
 
@@ -665,101 +925,10 @@ class TestsClustering(unittest.TestCase):
         
 
 
-    def test_niw_marginal(self):
-        l,p,q = 32*8*11,40,32
-
-        s = NIW(p,l)
-        d = NIW(q,l)
-        d.alloc()
-
-        np.random.seed(6)
-        so = np.random.normal(size=l*p*p).reshape(l,p,p)
-        psi = np.einsum('nij,nkj->nik',so,so)
-        mu = np.random.normal(size=l*p).reshape(l,p)
-        n = np.random.random(size=l)*10+p
-        nu = np.random.random(size=l)*10+2*p
-        
-        s.mu  = to_gpu(  mu.astype(np.float32))
-        s.psi = to_gpu( psi.astype(np.float32))
-        s.n   = to_gpu(   n.astype(np.float32))
-        s.nu  = to_gpu(  nu.astype(np.float32))
-
-        s.marginal(d )
-
-        start = drv.Event()
-        end = drv.Event()
-
-        start.record()
-        start.synchronize()
-
-        s.marginal(d )
-
-        end.record()
-        end.synchronize()
-
-        msecs_ = start.time_till(end)
-        print "GPU ", msecs_, 'ms'  
-        np.testing.assert_array_almost_equal(d.n.get(),n,4)
-        np.testing.assert_array_almost_equal(d.nu.get(),nu-(p-q),4)
-        np.testing.assert_array_almost_equal(d.mu.get(),mu[:,-q:],4)
-        np.testing.assert_array_almost_equal(d.psi.get(),psi[:,-q:,-q:],4)
-
-    def test_niw_nat(self):
-
-        l,p = 32*8*11,40
-
-        d = NIW(p,l)
-        d.alloc()
-        np.random.seed(6)
-
-        tau = np.random.random(size=l*(p*(p+1)+2)).reshape(l,p*(p+1)+2)
-
-        l1 = tau[:,:p]
-        l2 = tau[:,p:-2].reshape(-1,p,p)
-        l3 = tau[:,-2]
-        l4 = tau[:,-1]
-
-        n = l3
-        nu = l4 - 2 - p
-        mu = l1/l3[:,np.newaxis]
-        
-        df = l1[:,:,np.newaxis]*l1[:,np.newaxis,:]/l3[:,np.newaxis,np.newaxis]
-        psi = l2-df
-        
-        t  = to_gpu(tau) 
-
-        d.from_nat(t)
-        d.from_nat(t)
-        d.from_nat(t)
-        d.from_nat(t)
-        d.from_nat(t)
-
-        start = drv.Event()
-        end = drv.Event()
-
-        start.record()
-        start.synchronize()
-
-        d.from_nat(t)
-
-        end.record()
-        end.synchronize()
-
-        msecs_ = start.time_till(end)
-        print "GPU ", msecs_, 'ms'  
-
-        
-        np.testing.assert_array_almost_equal(d.n.get(),n,4)
-        np.testing.assert_array_almost_equal(d.nu.get(),nu,4)
-        np.testing.assert_array_almost_equal(d.mu.get(),mu,3)
-        np.testing.assert_array_almost_equal(d.psi.get(),psi,3)
-
-
     def test_sbp(self):
 
         l = 100
         s = SBP(l)
-        s.alloc()
 
         np.random.seed(3)
         aln = np.random.random(size=l)*10
@@ -772,21 +941,18 @@ class TestsClustering(unittest.TestCase):
         s.from_counts(al)
         
         
-        d = array((l,))
-
         # r = 
 
         start = drv.Event()
         end = drv.Event()
 
-        s.expected_ll(d) 
-        s.expected_ll(d) 
-        s.expected_ll(d) 
-        s.expected_ll(d) 
+        d = s.expected_ll() 
+        d = s.expected_ll() 
 
         start.record()
         start.synchronize()
-        s.expected_ll(d) 
+        s.al.newhash()
+        d = s.expected_ll() 
         end.record()
         end.synchronize()        
         msecs_ = start.time_till(end)
@@ -798,14 +964,15 @@ class TestsClustering(unittest.TestCase):
         start = drv.Event()
         end = drv.Event()
 
-        s.predictive_posterior_ll(d)
-        s.predictive_posterior_ll(d)
-        s.predictive_posterior_ll(d)
-        s.predictive_posterior_ll(d)
+        d = s.predictive_posterior_ll()
+        d = s.predictive_posterior_ll()
+        d = s.predictive_posterior_ll()
+        d = s.predictive_posterior_ll()
 
         start.record()
         start.synchronize()
-        s.predictive_posterior_ll(d)
+        s.al.newhash()
+        d = s.predictive_posterior_ll()
         end.record()
         end.synchronize()        
         msecs_ = start.time_till(end)
@@ -813,9 +980,335 @@ class TestsClustering(unittest.TestCase):
 
         #np.testing.assert_array_almost_equal(d.get(),r,4)
 
+    def test_mix_pred_resp(self):
+        l,k,p = 100,32*11*8,32
+
+        
+        sbp = SBP(l)
+        clusters = NIW(p,l)
+        mix =  Mixture(sbp,clusters)
+        
+
+        np.random.seed(3)
+        aln = np.random.random(size=l)*10
+        a  = 3.0
+
+        mix.sbp.a = to_gpu(np.array((a,))) 
+        al = to_gpu(aln)
+        
+        mix.sbp.from_counts(al)
+        
+
+        so  = np.random.normal(size=l*p*p).reshape(l,p,p).astype(np.float32)
+        psi = 1000*np.einsum('nij,nkj->nik',so,so).astype(np.float32)
+        mu  = np.random.normal(size=l*p).reshape(l,p).astype(np.float32)
+        x   = np.random.normal(size=k*p).reshape(k,p).astype(np.float32)
+        n  = (np.random.random(size=l)*10+2.0).astype(np.float32)
+        nu = (np.random.random(size=l)*10+2*p).astype(np.float32) 
+
+
+        mix.clusters.mu  = to_gpu(  mu.astype(np.float32))
+        mix.clusters.psi = to_gpu( psi.astype(np.float32))
+        mix.clusters.n   = to_gpu(   n.astype(np.float32))
+        mix.clusters.nu  = to_gpu(  nu.astype(np.float32))
+
+        x = to_gpu(  x.astype(np.float32))
+        
+
+        x.newhash()
+        d = mix.predictive_posterior_resps(x)
+        x.newhash()
+        d = mix.predictive_posterior_resps(x)
+        x.newhash()
+        d = mix.predictive_posterior_resps(x)
+        
+        start = drv.Event()
+        end = drv.Event()
+
+        start.record()
+        start.synchronize()
+        x.newhash()
+        d = mix.predictive_posterior_resps(x)
+
+        end.record()
+        end.synchronize()
+
+        msecs_ = start.time_till(end)
+        print "GPU ", msecs_, 'ms'  
+        np.testing.assert_array_almost_equal(d.get().sum(axis=1),1,4)
+
+
+
+
+    def test_mix_pseudo_resp(self):
+        l,k,p = 100,32*11*8,32
+
+        sbp = SBP(l)
+        clusters = NIW(p,l)
+        mix =  Mixture(sbp,clusters)
+
+        np.random.seed(3)
+        aln = np.random.random(size=l)*10
+        a  = 3.0
+
+        mix.sbp.a = to_gpu(np.array((a,))) 
+        al = to_gpu(aln)
+        
+        mix.sbp.from_counts(al)
+        
+
+        so  = np.random.normal(size=l*p*p).reshape(l,p,p).astype(np.float32)
+        psi = 1000*np.einsum('nij,nkj->nik',so,so).astype(np.float32)
+        mu  = np.random.normal(size=l*p).reshape(l,p).astype(np.float32)
+        x   = np.random.normal(size=k*p).reshape(k,p).astype(np.float32)
+        n  = (np.random.random(size=l)*10+2.0).astype(np.float32)
+        nu = (np.random.random(size=l)*10+2*p).astype(np.float32) 
+
+
+        mix.clusters.mu  = to_gpu(  mu.astype(np.float32))
+        mix.clusters.psi = to_gpu( psi.astype(np.float32))
+        mix.clusters.n   = to_gpu(   n.astype(np.float32))
+        mix.clusters.nu  = to_gpu(  nu.astype(np.float32))
+
+        x = to_gpu(  x.astype(np.float32))
+        
+        x.newhash()
+        d = mix.pseudo_resps(x)
+        x.newhash()
+        d = mix.pseudo_resps(x)
+        x.newhash()
+        d = mix.pseudo_resps(x)
+        
+        start = drv.Event()
+        end = drv.Event()
+
+        start.record()
+        start.synchronize()
+        x.newhash()
+        d = mix.pseudo_resps(x)
+
+        end.record()
+        end.synchronize()
+
+        msecs_ = start.time_till(end)
+        print "GPU ", msecs_, 'ms'  
+
+        np.testing.assert_array_almost_equal(d.get().sum(axis=1),1,4)
+
+
+
+    def test_mix_marginal(self):
+        l,p,q = 100,32,5
+
+        sbp = SBP(l)
+        clusters = NIW(p,l)
+        mix =  Mixture(sbp,clusters)
+
+        np.random.seed(3)
+        aln = np.random.random(size=l)*10
+        a  = 3.0
+
+        mix.sbp.a = to_gpu(np.array((a,))) 
+        al = to_gpu(aln)
+        
+        mix.sbp.from_counts(al)
+        
+
+        so  = np.random.normal(size=l*p*p).reshape(l,p,p).astype(np.float32)
+        psi = 1000*np.einsum('nij,nkj->nik',so,so).astype(np.float32)
+        mu  = np.random.normal(size=l*p).reshape(l,p).astype(np.float32)
+        n  = (np.random.random(size=l)*10+2.0).astype(np.float32)
+        nu = (np.random.random(size=l)*10+2*p).astype(np.float32) 
+
+
+        mix.clusters.mu  = to_gpu(  mu.astype(np.float32))
+        mix.clusters.psi = to_gpu( psi.astype(np.float32))
+        mix.clusters.n   = to_gpu(   n.astype(np.float32))
+        mix.clusters.nu  = to_gpu(  nu.astype(np.float32))
+
+        
+        d = mix.marginal(q)
+        d = mix.marginal(q)
+        d = mix.marginal(q)
+        
+        start = drv.Event()
+        end = drv.Event()
+
+        start.record()
+        start.synchronize()
+        mix.clusters.mu.newhash()
+        d = mix.marginal(q)
+        end.record()
+        end.synchronize()
+
+        msecs_ = start.time_till(end)
+        print "GPU ", msecs_, 'ms'  
+
+    def test_pred(self):
+        l,p,q = 100,32,28
+        k = 10*p
+
+        sbp = SBP(l)
+        clusters = NIW(p,l)
+        mix =  Mixture(sbp,clusters)
+        
+
+        np.random.seed(3)
+        aln = np.random.random(size=l)*10
+        a  = 3.0
+
+        mix.sbp.a = to_gpu(np.array((a,))) 
+        al = to_gpu(aln)
+        
+        mix.sbp.from_counts(al)
+        
+        so  = np.random.normal(size=l*p*p).reshape(l,p,p).astype(np.float32)
+        psi = 1000*np.einsum('nij,nkj->nik',so,so).astype(np.float32)
+        mu  = np.random.normal(size=l*p).reshape(l,p).astype(np.float32)
+        n  = (np.random.random(size=l)*10+2.0).astype(np.float32)
+        nu = (np.random.random(size=l)*10+2*p).astype(np.float32) 
+        x = np.random.normal(size=k*q).reshape(k,q).astype(np.float32)
+        xi = np.random.normal(size=k*(p-q)).reshape(k,p-q).astype(np.float32)
+
+
+        mix.clusters.mu  = to_gpu(  mu.astype(np.float32))
+        mix.clusters.psi = to_gpu( psi.astype(np.float32))
+        mix.clusters.n   = to_gpu(   n.astype(np.float32))
+        mix.clusters.nu  = to_gpu(  nu.astype(np.float32))
+
+        x  = to_gpu(  x.astype(np.float32))
+        xi = to_gpu(  xi.astype(np.float32))
+        
+        prd = Predictor(mix)
+
+        for i in range(10):
+            x.newhash()
+            xi.newhash()
+            prd.predict(x,xi)
+
+        x.newhash()
+        xi.newhash()
+        t=tic()
+        d = prd.predict(x,xi)
+        toc(t)
+
+
+class TestsCartpole(unittest.TestCase):
+    def test_f(self):
+        l = 32*11*8
+        c = Cartpole()
+        
+        np.random.seed(1)
+        xn = np.random.random(size=l*(c.nx)).reshape(l,c.nx)
+        x = to_gpu(xn)
+
+        un = np.random.random(size=l*(c.nu)).reshape(l,c.nu)
+        u = to_gpu(un)
+        
+        
+        c.f(x,u)
+        c.f(x,u)
+
+        t = tic()
+        x.newhash()
+        c.f(x,u)
+        toc(t)
+        
+        
+         
+         
+    def test_int(self):
+        h = 1.56
+        dt = .01
+        l = int(h/dt)
+        c = Cartpole()
+        
+        #np.random.seed(1)
+        x = to_gpu(np.array((0,0,0.1,0)))
+
+        un = 0*np.random.normal(size=l*(c.nu)).reshape(l,c.nu)
+        u = to_gpu(un)
+        
+        hn = np.log(dt)*np.ones(l).reshape(l,1)
+        h = to_gpu(hn)
+        r = c.integrate(x,u,h)
+
+        self.assertTrue( r[-1,-1]<1e-4 )
+        
+
+         
+    def test_bint(self):
+        l = 32*11*8
+        dt = .1
+        c = Cartpole()
+        
+        np.random.seed(1)
+        xn = np.random.random(size=l*(c.nx)).reshape(l,c.nx)
+        x = to_gpu(xn)
+
+        un = np.random.random(size=l*(c.nu)).reshape(l,c.nu)
+        u = to_gpu(un)
+        
+        hn = np.log(dt)*np.ones(l).reshape(l,1)
+        h = to_gpu(hn)
+        
+
+        r = c.batch_integrate(x,u,h)
+        r = c.batch_integrate(x,u,h)
+        
+        x.newhash()
+        
+        tm = tic()
+        r = c.batch_integrate(x,u,h)
+        toc(tm)
+
+         
+
+    def test_blin(self):
+        l = 10
+        dt =.1
+        c = Cartpole()
+        
+        np.random.seed(1)
+
+        x = np.random.random(size=l*(c.nx)).reshape(l,c.nx)
+        u = np.random.random(size=l*(c.nu)).reshape(l,c.nu)
+        h = np.log(dt)*np.ones(l).reshape(l,1)
+        
+        r = c.batch_linearize(x,u,h)
+
+        if True:
+            r = c.batch_linearize(x,u,h)
+            r = c.batch_linearize(x,u,h)
+            r = c.batch_linearize(x,u,h)
+
+            t=tic()
+            a,b = c.batch_linearize(x,u,h)
+            toc(t) 
+             
+
+    def test_lin_traj(self):
+        l = 100
+        dt =.1
+        c = Cartpole()
+        
+        np.random.seed(1)
+        x = np.random.random(size=l*(c.nx)).reshape(l,c.nx)
+        u = np.random.random(size=l*(c.nu)).reshape(l,c.nu)
+        h = np.log(dt)*np.ones(l).reshape(l,1)
+          
+        pl = ShortestPathPlanner(c)
+        
+        pl.traj_linearize(x,u,h)
+
+        t = time.time()
+        pl.traj_linearize(x,u,h)
+        print (time.time()-t)*1000
+
+
 if __name__ == '__main__':
-    single_test = 'test_sbp'
-    tests = TestsClustering
+    single_test = 'test_lin_traj'
+    tests = TestsCartpole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))
