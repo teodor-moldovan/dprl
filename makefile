@@ -1,2 +1,2 @@
 all: 
-	python exampleHS15.py
+	python test.py

@@ -1250,8 +1250,7 @@ class TestsCartpole(unittest.TestCase):
         u = to_gpu(un)
         
         hn = np.log(dt)*np.ones(l).reshape(l,1)
-        h = to_gpu(hn)
-        
+        h = to_gpu(hn)        
 
         r = c.batch_integrate(x,u,h)
         r = c.batch_integrate(x,u,h)
@@ -1285,29 +1284,17 @@ class TestsCartpole(unittest.TestCase):
             t=tic()
             a,b = c.batch_linearize(x,u,h)
             toc(t) 
+        print a.shape
+        print b.shape
              
+    def test_pp(self):
 
-    def test_lin_traj(self):
-        l = 100
-        dt =.1
-        c = Cartpole()
+        pp = ShortestPathPlanner(Cartpole(),50)
+        pp.solve(np.array([0,0,np.pi,0]), np.array([0,0,0,0]))
         
-        np.random.seed(1)
-        x = np.random.random(size=l*(c.nx)).reshape(l,c.nx)
-        u = np.random.random(size=l*(c.nu)).reshape(l,c.nu)
-        h = np.log(dt)*np.ones(l).reshape(l,1)
-          
-        pl = ShortestPathPlanner(c)
-        
-        pl.traj_linearize(x,u,h)
-
-        t = time.time()
-        pl.traj_linearize(x,u,h)
-        print (time.time()-t)*1000
-
 
 if __name__ == '__main__':
-    single_test = 'test_lin_traj'
+    single_test = 'test_pp'
     tests = TestsCartpole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()

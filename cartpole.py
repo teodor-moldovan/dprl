@@ -3,7 +3,9 @@ import pylab as plt
 
 class Cartpole(DynamicalSystem):
     def __init__(self):
-        DynamicalSystem.__init__(self,4,1)
+
+        DynamicalSystem.__init__(self,4,1, 
+                        control_bounds=[[-10.0],[10.0]],)
 
         self.l = .1    # pole length
         self.mc = .7    # cart mass
