@@ -65,7 +65,6 @@ class Cartpole(DynamicalSystem):
         @memoize_closure
         def cartpole_f_ws(l,n):
             return array((l,n))    
-
         
         l = x.shape[0]
         y = cartpole_f_ws(l,self.nx)

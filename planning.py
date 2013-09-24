@@ -1,11 +1,119 @@
 from tools import *
 from knitro import *
 
+class RK4(object):
+    def batch_integrate(self,fnc, y0,h): 
+        """return state x_t given x_0, control u and h = log(dt) """
+
+        @memoize_closure
+        def rk4_batch_integrate_ws((l,n)): 
+            return array((l,n)), array((l,n)), array((l,1))
+
+        r,y,hb = rk4_batch_integrate_ws(y0.shape)    
+
+        ufunc('a=exp(b)')(hb,h)
+
+        k = fnc(y0)
+        
+        ufunc('a=h*b/6.0f' )(r,hb,k)
+        ufunc('a=b+.5f*h*k')(y,y0,hb,k)
+
+        k = fnc(y)
+        ufunc('a+=h*b/3.0f' )(r,hb,k)
+        ufunc('a=b+.5f*h*k')(y,y0,hb,k)
+
+        k = fnc(y)
+        ufunc('a+=h*b/3.0f' )(r,hb,k)
+        ufunc('a=b+ h*k')(y,y0,hb,k)
+        
+        k = fnc(y)
+        ufunc('a+=h*b/6.0f' )(r,hb,k)
+        
+        #print r
+        return r
+
+
+class RK(object):    
+    def __init__(self,st):
+        
+        ars = {
+            'rk4': [
+                [.5],
+                [0.0,.5],
+                [0.0,0.0,1.0],
+                [1.0/6,1.0/3,1.0/3,1.0/6],
+              ],
+            
+            'lw6' : [
+                [1.0/12],
+                [-1.0/8, 3.0/8 ],
+                [3.0/5, -9.0/10, 4.0/5],
+                [39.0/80, -9.0/20, 3.0/20, 9.0/16],
+                [-59.0/35, 66.0/35, 48.0/35, -12.0/7, 8.0/7],
+                [7.0/90,0,16.0/45,2.0/15, 16.0/45, 7.0/90],
+
+             ],
+
+            'en7' : [
+                [1.0/18],
+                [0.0, 1.0/9],
+                [1.0/24, 0.0, 1.0/8],
+                [44.0/81, 0.0,-56.0/27, 160.0/81],
+                [91561.0/685464,-12008.0/28561,55100.0/85683,29925.0/228488],
+                [-1873585.0/1317384,0.0,15680.0/2889,-4003076.0/1083375,-43813.0/21400, 5751746.0/2287125],
+                [50383360.0/12679821, 0.0,-39440.0/2889,1258442432.0/131088375,222872.0/29425, -9203268152.0/1283077125, 24440.0/43197],
+                [-22942833.0/6327608, 0.0, 71784.0/5947, -572980.0/77311, -444645.0/47576, 846789710.0/90281407, -240750.0/707693, 3972375.0/14534468],
+                [3379947.0/720328, 0.0, -10656.0/677, 78284.0/7447, 71865.0/5416, -2803372.0/218671, 963000.0/886193, 0.0, 0.0],
+                [577.0/10640, 0.0, 0.0, 8088.0/34375, 3807.0/10000, -1113879.0/16150000, 8667.0/26180, 0.0, 0.0, 677.0/10000],
+            ],
+            }
+         
+
+        self.name = st
+        ar = ars[st]
+        self.ns = len(ar)
+        
+        tpl = Template("""
+            a = c + {% for a in rng %}{% if not a==0 %} b{{ loop.index }} * {{ a }} + {% endif %}{% endfor %} 0.0 """)
+
+        self.fs = [tpl.render(rng=a) for a in ar]   
+        self.inds = tuple((tuple((i for v,i in zip(a,range(len(a))) if v!=0 )) for a in ar))
+
+        
+    def batch_integrate(self,fnc, y0,h): 
+        """return state x_t given x_0, control u and h = log(dt) """
+        # todo higher order. eg: http://www.peterstone.name/Maplepgs/Maple/nmthds/RKcoeff/Runge_Kutta_schemes/RK5/RKcoeff5b_1.pdf
+
+        @memoize_closure
+        def explrk_batch_integrate_ws((l,n),nds,name): 
+            s = self.ns
+            y = array((l,n))
+            h = array((l,1))
+             
+            kn =  [array((l,n)) for i in range(s)]
+            ks = [ [kn[i] for i in nd] for nd in nds]
+            return y,kn,ks,h
+
+        y,kn,ks,hb = explrk_batch_integrate_ws(y0.shape,self.inds,self.name)    
+
+        ufunc('a=exp(b)')(hb,h)
+        ufunc('a=b')(y,y0)
+
+        for i in range(self.ns):
+            dv = fnc(y)  
+            ufunc('a=b*c')(kn[i],dv,hb) 
+            ufunc(self.fs[i])(y,y0, *ks[i])
+        ufunc('a-=b')(y,y0)
+
+        return y
+
+
 class DynamicalSystem(object):
     def __init__(self,nx,nu,control_bounds):
         self.nx = nx
         self.nu = nu
         self.control_bounds = control_bounds
+        self.integrator = RK4()
 
     def f(self,x,u):
         """ returns state derivative given state and control"""
@@ -32,41 +140,13 @@ class DynamicalSystem(object):
 
     def batch_integrate(self,y0,u,h): 
         """return state x_t given x_0, control u and h = log(dt) """
-        # todo higher order. eg: http://www.peterstone.name/Maplepgs/Maple/nmthds/RKcoeff/Runge_Kutta_schemes/RK5/RKcoeff5b_1.pdf
         
+        def fnc(x_): 
+            x_.newhash()
+            return self.f(x_,u)
 
-        @memoize_closure
-        def ds_batch_integrate_ws((l,n)): 
-            return array((l,n)), array((l,n)), array((l,1))
-
-        r,y,hb = ds_batch_integrate_ws(y0.shape)    
-
-        ufunc('a=exp(b)')(hb,h)
-
-        y0.newhash()
-        u.newhash()
-        k = self.f(y0,u)
+        return self.integrator.batch_integrate(fnc,y0,h)
         
-        ufunc('a=h*b/6.0f' )(r,hb,k)
-        ufunc('a=b+.5f*h*k')(y,y0,hb,k)
-
-        y.newhash()
-        k = self.f(y,u)
-        ufunc('a+=h*b/3.0f' )(r,hb,k)
-        ufunc('a=b+.5f*h*k')(y,y0,hb,k)
-
-        y.newhash()
-        k = self.f(y,u)
-        ufunc('a+=h*b/3.0f' )(r,hb,k)
-        ufunc('a=b+ h*k')(y,y0,hb,k)
-        
-        y.newhash()
-        k = self.f(y,u)
-        ufunc('a+=h*b/6.0f' )(r,hb,k)
-        
-        #print r
-        return r
-
     def batch_integrate_sp(self,x):
         
         @memoize_closure
@@ -85,27 +165,12 @@ class DynamicalSystem(object):
         ufunc('a=b')(h_,h)
         
         return self.batch_integrate(y_,u_,h_)
-        
 
 
-    def batch_linearize(self,y0i,ui,hi):
+    def batch_linearize(self,y0,u,h):
         """given list of states and controls, returns matrices A and d so that:
         y_h = A*[y_0, u, log(h)] + d
         """
-        
-        @memoize_closure
-        def ds_batch_linearize_in(s1,s2,s3):
-            return array(s1),array(s2),array(s3)
-        
-        y0,u,h = ds_batch_linearize_in(y0i.shape,ui.shape,hi.shape)
-        
-        y0.set(y0i.astype(np.float32) )
-        y0.newhash()
-        u.set(ui.astype(np.float32) )
-        u.newhash()
-        h.set(hi.astype(np.float32) )
-        h.newhash()
-
         @memoize_closure
         def ds_batch_linearize_ws(l,nx,nu):
             x = array((l,nx+nu+1)) 
@@ -238,11 +303,12 @@ class ShortestPathPlanner(object):
 
         # define callbacks: 
         
+        
         def callbackEvalFC (evalRequestCode, n, m, nnzJ, nnzH, x, lambda_, 
                     obj, c, objGrad, jac, hessian, hessVector, userParams):
             if not evalRequestCode == KTR_RC_EVALFC:
                 return KTR_RC_CALLBACK_ERR
-            #obj[0] = evaluateFC(x, c)
+
             h = x[0]
             obj[0] = h
             
@@ -252,9 +318,10 @@ class ShortestPathPlanner(object):
             
             x = to_gpu(xi)
             u = to_gpu(tmp[:,nx:])
-            h = to_gpu(h*np.ones((l,1)))
+            h = to_gpu((h-np.log(l))*np.ones((l,1)))
             
-            c[:]=(self.ds.batch_integrate(x,u,h).get() + xi -xf).reshape(-1).tolist()
+            self.evf, self.evg = self.ds.batch_linearize(x,u,h)
+            c[:]=(self.evf.get() + xi -xf).reshape(-1).tolist()
             return 0
 
 
@@ -265,15 +332,7 @@ class ShortestPathPlanner(object):
 
             objGrad[:] = [1.0]+[0.0]*(n-1)
 
-            h = x[0]
-            tmp = np.array(x[1:l*(nx+nu)+1]).reshape(l,-1)
-            
-            x = tmp[:,:nx]
-            u = tmp[:,nx:]
-            h = h*np.ones((l,1))
-            
-            a,b = self.ds.batch_linearize(x,u,h)
-            tmp = b.get() 
+            tmp = self.evg.get() 
             tmp[:,1:1+nx,:] += np.diag(np.ones(nx))[np.newaxis,:,:]
             
             jac[:tmp.size] = tmp.reshape(-1).tolist()
@@ -299,7 +358,7 @@ class ShortestPathPlanner(object):
         bndsUp = self.bndsUp
 
         bndsLo[0] = -10
-        bndsUp[0] = -2
+        bndsUp[0] = 0.0
 
         bndsLo[1:1+nx] = start.tolist()
         bndsUp[1:1+nx] = start.tolist()
@@ -311,7 +370,7 @@ class ShortestPathPlanner(object):
 
         trj = np.append(self.min_acc_traj(start,end),np.zeros((l+1,nu)),axis=1)
         
-        x0 = [0,]+trj.reshape(-1)[:-1].tolist()
+        x0 = [1.0,]+trj.reshape(-1)[:-1].tolist()
         KTR_restart(self.kc,x0,None)
 
         # KTR_solve

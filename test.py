@@ -1218,21 +1218,23 @@ class TestsCartpole(unittest.TestCase):
          
          
     def test_int(self):
-        h = 1.56
-        dt = .01
-        l = int(h/dt)
+        h = .91
+        l = 20
+        dt = h/l
         c = Cartpole()
         
         #np.random.seed(1)
-        x = to_gpu(np.array((0,0,0.1,0)))
+        x = to_gpu(np.array((0,0,np.pi/4,0)))
 
         un = 0*np.random.normal(size=l*(c.nu)).reshape(l,c.nu)
         u = to_gpu(un)
         
         hn = np.log(dt)*np.ones(l).reshape(l,1)
         h = to_gpu(hn)
-        r = c.integrate(x,u,h)
+        r = np.insert(c.integrate(x,u,h), 0,x.get(),axis=0)
 
+        #plt.plot(r[:,1], r[:,3])
+        #plt.show()
         self.assertTrue( r[-1,-1]<1e-4 )
         
 
@@ -1270,9 +1272,9 @@ class TestsCartpole(unittest.TestCase):
         
         np.random.seed(1)
 
-        x = np.random.random(size=l*(c.nx)).reshape(l,c.nx)
-        u = np.random.random(size=l*(c.nu)).reshape(l,c.nu)
-        h = np.log(dt)*np.ones(l).reshape(l,1)
+        x = to_gpu(np.random.random(size=l*(c.nx)).reshape(l,c.nx))
+        u = to_gpu(np.random.random(size=l*(c.nu)).reshape(l,c.nu))
+        h = to_gpu(np.log(dt)*np.ones(l).reshape(l,1))
         
         r = c.batch_linearize(x,u,h)
 
@@ -1289,7 +1291,7 @@ class TestsCartpole(unittest.TestCase):
              
     def test_pp(self):
 
-        pp = ShortestPathPlanner(Cartpole(),50)
+        pp = ShortestPathPlanner(Cartpole(),100)
         pp.solve(np.array([0,0,np.pi,0]), np.array([0,0,0,0]))
         
 
