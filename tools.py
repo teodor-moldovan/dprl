@@ -15,6 +15,9 @@ import time
 
 from jinja2 import Template
 
+#np_dtype, cuda_dtype = np.float64, 'double'
+np_dtype, cuda_dtype = np.float32, 'float'
+
 cublas_handle = cublas.cublasCreate()
 atexit.register(lambda : cublas.cublasDestroy(cublas_handle) )
 
@@ -57,7 +60,7 @@ def toc((start,end)):
 ## sliced array utils
 class array(GPUArray):
     def __init__(self,sz):
-        GPUArray.__init__(self,sz,np.float32)
+        GPUArray.__init__(self,sz,np_dtype)
         self.newhash()
         self.slc = self.canonical_slice(None,self.shape)
         self.brd = True
@@ -144,7 +147,7 @@ class array(GPUArray):
 
 def to_gpu(s):
     d = array(s.shape)
-    d.set(s.astype(np.float32))
+    d.set(s.astype(np_dtype))
     return d
 
 @memoize
@@ -201,7 +204,7 @@ def broadcast(cs,brds):
 indexing_template = Template("""
 
     {% for of,n in nds %}
-    __device__ float* indexed{{ name }}{{ loop.index }}(float *p, int ind){
+    __device__ {{ dtype }}* indexed{{ name }}{{ loop.index }}({{ dtype }} *p, int ind){
 
         {% if  n != 0 %}p += {{ n }};{% endif %}
         {% for r,m in of %}
@@ -215,8 +218,8 @@ indexing_template = Template("""
     """)
 
 digamma_src = """
-__device__ float digamma(float x) {
-  float result = 0, xx, xx2, xx4;
+__device__ {{ dtype }} digamma({{ dtype }} x) {
+  {{ dtype }} result = 0, xx, xx2, xx4;
   for ( ; x < 7; ++x)
     result -= 1/x;
   x -= 1.0/2.0;
@@ -240,24 +243,24 @@ def grid_block_sizes(mx):
 
 
 ## kernels
-cumsum_ex = pycuda.scan.ExclusiveScanKernel(np.float32, "a+b", 0.0)
-cumsum_in = pycuda.scan.InclusiveScanKernel(np.float32, "a+b")
+cumsum_ex = pycuda.scan.ExclusiveScanKernel(np_dtype, "a+b", 0.0)
+cumsum_in = pycuda.scan.InclusiveScanKernel(np_dtype, "a+b")
 @memoize
 def k_chol_batched(m,bd):
 
     template = Template("""
     #define MD {{ m*(m+1) }}/2
 
-    __global__ void cholesky(float *bf, float *df ) {
+    __global__ void cholesky({{ dtype }} *bf, {{ dtype }} *df ) {
 
-        __shared__ float shr[{{ bd }}][MD];
+        __shared__ {{ dtype }} shr[{{ bd }}][MD];
 
         int i = blockIdx.x * blockDim.x + threadIdx.x;
         int l = blockIdx.z * blockDim.z + threadIdx.z;
     
         int ind_partial =  l*{{ m*m }} + i*{{ m }};
 
-        float (*a)[MD] = &shr[threadIdx.z];         
+        {{ dtype }} (*a)[MD] = &shr[threadIdx.z];         
         
         int di = i*(i+1)/2;
 
@@ -269,7 +272,7 @@ def k_chol_batched(m,bd):
             int dj = j*(j+1)/2;
 
             if (i==j){
-                float s = (*a)[di+j];
+                {{ dtype }} s = (*a)[di+j];
 
                 for (int k=0; k<j; k++) 
                     s -= (*a)[di+k]*(*a)[dj+k];
@@ -283,8 +286,8 @@ def k_chol_batched(m,bd):
             __syncthreads();
             if (i!=j) {
 
-                float s = (*a)[di+j];
-                float d = (*a)[dj+j];
+                {{ dtype }} s = (*a)[di+j];
+                {{ dtype }} d = (*a)[dj+j];
 
                 for (int k=0; k<j; k++) 
                     s -= (*a)[di+k]*(*a)[dj+k]; 
@@ -301,7 +304,7 @@ def k_chol_batched(m,bd):
 
     tmp = ''
     #tmp += indexing_template.render(nds=nds)
-    tmp += template.render(m=int(m),bd=int(bd))
+    tmp += template.render(m=int(m),bd=int(bd), dtype=cuda_dtype)
 
     perm_mod = SourceModule(tmp)
     return perm_mod.get_function("cholesky").prepare('PP')
@@ -327,26 +330,26 @@ def k_solve_triangular(m,n,bd,bck,identity):
     #define N {{ n }}
     #define BD {{ bd }}
 
-    __global__ void solve_triangular(float  lgf[][M][M],float xgf[][M][N],
-            float dgf[][M][N]) {
+    __global__ void solve_triangular({{ dtype }}  lgf[][M][M],{{ dtype }} xgf[][M][N],
+            {{ dtype }} dgf[][M][N]) {
 
-        __shared__ float shrx[BD][N][M];
+        __shared__ {{ dtype }} shrx[BD][N][M];
 
         int k = blockIdx.x * blockDim.x + threadIdx.x;
 
-        float (*lg)[M][M] = &lgf[blockIdx.z * blockDim.z + threadIdx.z];
-        float (*xg)[M][N]=&xgf[blockIdx.z * blockDim.z + threadIdx.z];
-        float (*dg)[M][N]=&dgf[blockIdx.z * blockDim.z + threadIdx.z];
-        float (*x)[M]= &shrx[threadIdx.z][threadIdx.x];         
+        {{ dtype }} (*lg)[M][M] = &lgf[blockIdx.z * blockDim.z + threadIdx.z];
+        {{ dtype }} (*xg)[M][N]=&xgf[blockIdx.z * blockDim.z + threadIdx.z];
+        {{ dtype }} (*dg)[M][N]=&dgf[blockIdx.z * blockDim.z + threadIdx.z];
+        {{ dtype }} (*x)[M]= &shrx[threadIdx.z][threadIdx.x];         
         
         for (int i=0; i<M; i++){
-            {% if not identity %}float s = (*xg)[i][k];
-            {% else %}float s = i==k ? 1.0 : 0.0;{% endif %}
-            float d = (*lg)[i][i];
+            {% if not identity %}{{ dtype }} s = (*xg)[i][k];
+            {% else %}{{ dtype }} s = i==k ? 1.0 : 0.0;{% endif %}
+            {{ dtype }} d = (*lg)[i][i];
             for (int j=0; j<i; j++){
                 s -= (*x)[j]*(*lg)[i][j];
             }
-            float tt = s/d;
+            {{ dtype }} tt = s/d;
             (*x)[i] = tt;
             {% if not bck %}
             (*dg)[i][k] = tt;
@@ -356,13 +359,13 @@ def k_solve_triangular(m,n,bd,bck,identity):
         {% if bck %}
 
         for (int i=M-1; i>-1; i--){
-            float s = (*x)[i];
-            float d = (*lg)[i][i];
+            {{ dtype }} s = (*x)[i];
+            {{ dtype }} d = (*lg)[i][i];
             for (int j=M-1; j>i; j--){
                 s -= (*x)[j]*(*lg)[i][j];
             }
             (*x)[i] = s/d;
-            float tt = s/d;
+            {{ dtype }} tt = s/d;
             (*dg)[i][k] = tt;
         }
         {% endif %}
@@ -371,7 +374,7 @@ def k_solve_triangular(m,n,bd,bck,identity):
 
     """)
 
-    tmp = template.render(m=int(m),n=int(n),bd=int(bd),bck=bool(bck),identity=bool(identity))
+    tmp = template.render(m=int(m),n=int(n),bd=int(bd),bck=bool(bck),identity=bool(identity), dtype=cuda_dtype)
     f = SourceModule(tmp).get_function("solve_triangular")
     #f.set_cache_config(pycuda.driver.func_cache.PREFER_NONE)
     return f.prepare('PPP')
@@ -407,20 +410,20 @@ def k_outer_product(m,n,bd):
     #define N {{ n }}
     #define BD {{ bd }}
 
-    __global__ void outer_prod(float  sgf[][M][N],float dgf[][N][N]) {
+    __global__ void outer_prod({{ dtype }}  sgf[][M][N],{{ dtype }} dgf[][N][N]) {
 
-        __shared__ float shrs[BD][M][N];
-        __shared__ float shrd[BD][N][N];
+        __shared__ {{ dtype }} shrs[BD][M][N];
+        __shared__ {{ dtype }} shrd[BD][N][N];
 
         int i = blockIdx.x * blockDim.x + threadIdx.x;
         int j = blockIdx.y * blockDim.y + threadIdx.y;
         int l = blockIdx.z * blockDim.z + threadIdx.z;
 
-        float (*sg)[M][N] = &sgf[l];
-        float (*dg)[N][N] = &dgf[l];
+        {{ dtype }} (*sg)[M][N] = &sgf[l];
+        {{ dtype }} (*dg)[N][N] = &dgf[l];
 
-        float (*s)[M][N]= &shrs[threadIdx.z];         
-        float (*d)[N][N]= &shrd[threadIdx.z];         
+        {{ dtype }} (*s)[M][N]= &shrs[threadIdx.z];         
+        {{ dtype }} (*d)[N][N]= &shrd[threadIdx.z];         
     
         (*d)[i][j] = 0;
 
@@ -438,7 +441,7 @@ def k_outer_product(m,n,bd):
 
     """)
 
-    tmp = template.render(m=int(m),n=int(n),bd=int(bd))
+    tmp = template.render(m=int(m),n=int(n),bd=int(bd), dtype=cuda_dtype)
     f = SourceModule(tmp).get_function("outer_prod")
     #f.set_cache_config(pycuda.driver.func_cache.PREFER_NONE)
     return f.prepare('PP')
@@ -464,11 +467,11 @@ def k_chol2log_det(m):
     template = Template("""
     #define M {{ m }}
 
-    __global__ void chol2log_det(float  s[][M][M],float d[]) {
+    __global__ void chol2log_det({{ dtype }}  s[][M][M],{{ dtype }} d[]) {
 
         int l = blockIdx.x * blockDim.x + threadIdx.x;
     
-        float t = 0.0;
+        {{ dtype }} t = 0.0;
         for (int i=0;i< M; i++) t+= log(s[l][i][i]);
         
         d[l] = 2.0*t;
@@ -478,7 +481,7 @@ def k_chol2log_det(m):
 
     """)
 
-    tmp = template.render(m=int(m))
+    tmp = template.render(m=int(m), dtype=cuda_dtype)
     f = SourceModule(tmp).get_function("chol2log_det")
     #f.set_cache_config(pycuda.driver.func_cache.PREFER_NONE)
     return f.prepare('PP')
@@ -523,14 +526,14 @@ def k_ufunc(fnc,nds,name,preface):
     template = Template("""
 
     __global__ void ufunc_{{ name }}(
-        {% for i in nds %} float *g{{ loop.index }}{% if not loop.last%},{% endif %}{% endfor %} 
+        {% for i in nds %} {{ dtype }} *g{{ loop.index }}{% if not loop.last%},{% endif %}{% endfor %} 
         ) {
 
 
         int ind = blockIdx.x * blockDim.x  + threadIdx.x; 
 
         {% for of,n in nds %}
-        float *p{{ loop.index }} = indexed{{ loop.index }}(g{{ loop.index }}, ind);{% endfor %} 
+        {{ dtype }} *p{{ loop.index }} = indexed{{ loop.index }}(g{{ loop.index }}, ind);{% endfor %} 
 
         {{ fnc }};        
     }
@@ -539,8 +542,8 @@ def k_ufunc(fnc,nds,name,preface):
 
     
     tmp = preface
-    tmp += indexing_template.render(nds=nds)
-    tmp += template.render(name=name,nds=nds,fnc=fnc)
+    tmp += indexing_template.render(nds=nds, dtype=cuda_dtype)
+    tmp += template.render(name=name,nds=nds,fnc=fnc,  dtype=cuda_dtype)
     
     perm_mod = SourceModule(tmp)
     return perm_mod.get_function("ufunc_"+name).prepare('P'*len(nds))
@@ -566,14 +569,14 @@ def k_rowwise(fnc,nds,name):
     template = Template("""
 
     __global__ void rowwise_{{ name }}(
-        {% for i in nds %} float *g{{ loop.index }}{% if not loop.last%},{% endif %}{% endfor %} 
+        {% for i in nds %} {{ dtype }} *g{{ loop.index }}{% if not loop.last%},{% endif %}{% endfor %} 
         ) {
 
 
         int ind = blockIdx.x * blockDim.x  + threadIdx.x; 
 
         {% for n in nds %}
-        float *p{{ loop.index }} = g{{ loop.index }} + ind* {{ n }};{% endfor %} 
+        {{ dtype }} *p{{ loop.index }} = g{{ loop.index }} + ind* {{ n }};{% endfor %} 
 
         {{ fnc }} 
     }
@@ -581,7 +584,7 @@ def k_rowwise(fnc,nds,name):
     """) 
 
     
-    tmp = template.render(name=name,nds=nds,fnc=fnc)
+    tmp = template.render(name=name,nds=nds,fnc=fnc,  dtype=cuda_dtype)
     
     perm_mod = SourceModule(tmp)
     return perm_mod.get_function("rowwise_"+name).prepare('P'*len(nds))
@@ -612,7 +615,7 @@ def k_mm_batched(m,k,n,dm,dn):
 
     template = Template("""
 
-    __global__ void mm(float *ag, float *bg, float *cg ) {
+    __global__ void mm({{ dtype }} *ag, {{ dtype }} *bg, {{ dtype }} *cg ) {
 
         int i = threadIdx.x*{{ dm }};
         int j = threadIdx.y*{{ dn }};
@@ -622,11 +625,11 @@ def k_mm_batched(m,k,n,dm,dn):
         if (i{{ sm }}{{ m - dm + 1}} and j{{ sn }}{{ n - dn + 1}}) {
         
         {% for r,q in rq %}
-        float *a{{ r }}_{{ q }} = ag+l*{{ m*o }} + i*{{ o }} + {{ r*o }};
-        float *b{{ r }}_{{ q }} = bg+l*{{ o*n }} + j + {{ q }};
-        float *c{{ r }}_{{ q }} = cg+l*{{ m*n }} + i*{{ n }} + 
+        {{ dtype }} *a{{ r }}_{{ q }} = ag+l*{{ m*o }} + i*{{ o }} + {{ r*o }};
+        {{ dtype }} *b{{ r }}_{{ q }} = bg+l*{{ o*n }} + j + {{ q }};
+        {{ dtype }} *c{{ r }}_{{ q }} = cg+l*{{ m*n }} + i*{{ n }} + 
                         {{ r*n }} + j + {{ q }}; 
-        float s{{ r }}_{{ q }} = 0;
+        {{ dtype }} s{{ r }}_{{ q }} = 0;
         {% endfor %}
 
         for (int k =0; k<{{ o }}; k++ ){
@@ -654,7 +657,7 @@ def k_mm_batched(m,k,n,dm,dn):
             if ddm > 0 and ddn>0]
     
     tmp += template.render(m=int(m),n=int(n),o=int(k),dm = int(dm), dn=int(dn),
-            rng=rng 
+            rng=rng,  dtype=cuda_dtype 
              )
 
     perm_mod = SourceModule(tmp)
@@ -689,7 +692,7 @@ def k_cumprod(l,m,dm):
 
     template = Template("""
 
-    __device__ void mult(float *ag, float *bg, float *cg) {
+    __device__ void mult({{ dtype }} *ag, {{ dtype }} *bg, {{ dtype }} *cg) {
 
         int i = threadIdx.x*{{ dm }};
         int j = threadIdx.y*{{ dn }};
@@ -699,11 +702,11 @@ def k_cumprod(l,m,dm):
         if (i{{ sm }}{{ m - dm + 1}} and j{{ sn }}{{ n - dn + 1}}){ 
         
         {% for r,q in rq %}
-        float *a{{ r }}_{{ q }} = ag+ i*{{ m }} + {{ r*m }};
-        float *b{{ r }}_{{ q }} = bg+ j + {{ q }};
-        float *c{{ r }}_{{ q }} = cg+ i*{{ n }} + 
+        {{ dtype }} *a{{ r }}_{{ q }} = ag+ i*{{ m }} + {{ r*m }};
+        {{ dtype }} *b{{ r }}_{{ q }} = bg+ j + {{ q }};
+        {{ dtype }} *c{{ r }}_{{ q }} = cg+ i*{{ n }} + 
                         {{ r*n }} + j + {{ q }}; 
-        float s{{ r }}_{{ q }} = 0;
+        {{ dtype }} s{{ r }}_{{ q }} = 0;
         {% endfor %}
 
         for (int k =0; k<{{ m }}; k++ ){
@@ -721,7 +724,7 @@ def k_cumprod(l,m,dm):
     
     };
 
-    __device__ void asgn(float *ag, float *bg) {
+    __device__ void asgn({{ dtype }} *ag, {{ dtype }} *bg) {
 
         int i = threadIdx.x*{{ dm }};
         int j = threadIdx.y*{{ dn }};
@@ -743,16 +746,16 @@ def k_cumprod(l,m,dm):
     };
 
 
-    __global__ void cumprod(float *ag) {
+    __global__ void cumprod({{ dtype }} *ag) {
 
         int i = threadIdx.x*{{ dm }};
         int j = threadIdx.y*{{ dn }};
         
-        __shared__ float ts[{{ m }}][{{ m }}];
-        __shared__ float ds[{{ m }}][{{ m }}];
+        __shared__ {{ dtype }} ts[{{ m }}][{{ m }}];
+        __shared__ {{ dtype }} ds[{{ m }}][{{ m }}];
         
-        float *t = &ts[0][0];
-        float *d = &ds[0][0];
+        {{ dtype }} *t = &ts[0][0];
+        {{ dtype }} *d = &ds[0][0];
         
         
         {% for rq,(sm,sn) in rng  %} 
@@ -786,7 +789,7 @@ def k_cumprod(l,m,dm):
             if ddm > 0 and ddn>0]
     
     tmp += template.render(m=int(m),n=int(n),dm = int(dm), dn=int(dn),
-            l = int(l),rng=rng 
+            l = int(l),rng=rng,  dtype=cuda_dtype 
              )
 
     perm_mod = SourceModule(tmp)
@@ -812,19 +815,19 @@ def k_row_reduction(fnc,name ):
 
     template = Template("""
 
-    __global__ void row_reduction_{{ name }}(float *gs, float *gd, int n ) {
+    __global__ void row_reduction_{{ name }}({{ dtype }} *gs, {{ dtype }} *gd, int n ) {
 
         int ind = blockIdx.x * blockDim.x  + threadIdx.x; 
-        float *s = gs + ind*n; 
-        float *d = gd + ind; 
+        {{ dtype }} *s = gs + ind*n; 
+        {{ dtype }} *d = gd + ind; 
  
-        float p;
-        float *p1 = &p;
+        {{ dtype }} p;
+        {{ dtype }} *p1 = &p;
         *p1 = *s;
 
         for (int i=1; i<n; i++){
         
-        float *p2 = s+i;
+        {{ dtype }} *p2 = s+i;
         {{ fnc }}; }
 
         *d = *p1;
@@ -832,7 +835,7 @@ def k_row_reduction(fnc,name ):
     """) 
 
     
-    tmp = template.render(fnc=fnc, name = name)
+    tmp = template.render(fnc=fnc, name = name,  dtype=cuda_dtype)
      
     perm_mod = SourceModule(tmp)
     return perm_mod.get_function("row_reduction_"+name).prepare('PPI')
@@ -869,8 +872,8 @@ def batch_matrix_mult(a,b,c):
     else:
         q,k,n = b.shape
     
-    alpha = np.float32(1.0)
-    beta  = np.float32(0.0)
+    alpha = np_dtype(1.0)
+    beta  = np_dtype(0.0)
 
     ta = 't' if a.is_transposed else 'n'
     tb = 't' if b.is_transposed else 'n'
@@ -878,8 +881,14 @@ def batch_matrix_mult(a,b,c):
     lda = m if a.is_transposed else k
     ldb = k if b.is_transposed else n
     ldc = n 
-    
-    cublas.cublasSgemmBatched(cublas_handle, tb, ta,
+
+    if cuda_dtype=='float':
+        fnc = cublas.cublasSgemmBatched
+
+    if cuda_dtype=='double':
+        fnc = cublas.cublasDgemmBatched
+  
+    fnc(cublas_handle, tb, ta,
         n,m,k,
         alpha,
         b.bptrs.gpudata, ldb,
@@ -902,8 +911,8 @@ def matrix_mult(a,b,c):
     else:
         k,n = b.shape
     
-    alpha = np.float32(1.0)
-    beta  = np.float32(0.0)
+    alpha = np_dtype(1.0)
+    beta  = np_dtype(0.0)
 
     ta = 't' if a.is_transposed else 'n'
     tb = 't' if b.is_transposed else 'n'
@@ -911,8 +920,15 @@ def matrix_mult(a,b,c):
     lda = m if a.is_transposed else k
     ldb = k if b.is_transposed else n
     ldc = n 
+        
+    if cuda_dtype=='float':
+        fnc = cublas.cublasSgemm
+
+    if cuda_dtype=='double':
+        fnc = cublas.cublasDgemm
     
-    cublas.cublasSgemm(cublas_handle, tb, ta,
+    
+    fnc(cublas_handle, tb, ta,
         n,m,k,
         alpha,
         b.gpudata, ldb,
@@ -922,7 +938,12 @@ def matrix_mult(a,b,c):
         )
     
 # high level
-def numdiff(f,x0,eps=1e-4):
+def numdiff(f,x0,eps=None):
+    if eps is None:
+        if cuda_dtype == 'float':
+            eps = 1e-4
+        if cuda_dtype == 'double':
+            eps = 1e-4
 
     @memoize_closure
     def tools_numdiff_ws(l,n,pt,eps):

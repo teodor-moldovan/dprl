@@ -93,8 +93,8 @@ class NIW(object):
             
             tmpl = Template("""
 
-                __device__ float multipsi(float x){
-                    float s=0.0;
+                __device__ {{ dtype }} multipsi({ dtype }} x){
+                    {{ dtype }} s=0.0;
                     for (int i=0;i< {{ p }};i++) s+= digamma(x - .5*i); 
                     return s;
                     }
@@ -106,7 +106,7 @@ class NIW(object):
                 -   {{ 0.5*p }}* log( nu )+ .5*multipsi( .5*nu)"""
                 ).render(p=p,l2=np.log(2.0)),
                 name='norm_const',
-                preface = digamma_src + tmpl.render(p=p)  )
+                preface = digamma_src + tmpl.render(p=p, dtype = cuda_dtype)  )
 
             f2 = ufunc('d = ld - .5*  d',name='ll_scaling')
 

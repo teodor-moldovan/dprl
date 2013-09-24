@@ -15,19 +15,19 @@ class RK4(object):
 
         k = fnc(y0)
         
-        ufunc('a=h*b/6.0f' )(r,hb,k)
+        ufunc('a=h*b/6.0' )(r,hb,k)
         ufunc('a=b+.5f*h*k')(y,y0,hb,k)
 
         k = fnc(y)
-        ufunc('a+=h*b/3.0f' )(r,hb,k)
+        ufunc('a+=h*b/3.0' )(r,hb,k)
         ufunc('a=b+.5f*h*k')(y,y0,hb,k)
 
         k = fnc(y)
-        ufunc('a+=h*b/3.0f' )(r,hb,k)
+        ufunc('a+=h*b/3.0' )(r,hb,k)
         ufunc('a=b+ h*k')(y,y0,hb,k)
         
         k = fnc(y)
-        ufunc('a+=h*b/6.0f' )(r,hb,k)
+        ufunc('a+=h*b/6.0' )(r,hb,k)
         
         #print r
         return r

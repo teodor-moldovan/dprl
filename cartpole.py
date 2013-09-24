@@ -21,22 +21,22 @@ class Cartpole(DynamicalSystem):
             // p2 : controls
             // p3 : state_derivative
         
-            float td = *p1;
-            float xd = *(p1+1);
-            float u = *p2;
+            {{ dtype }} td = *p1;
+            {{ dtype }} xd = *(p1+1);
+            {{ dtype }} u = *p2;
             
             //u = fmin({{ umax }}f, fmax({{ umin }}f, u) );
 
-            float s = sinf(*(p1+2));
-            float c = cosf(*(p1+2));
+            {{ dtype }} s = sinf(*(p1+2));
+            {{ dtype }} c = cosf(*(p1+2));
             
             *(p3+2) = td;
             *(p3+3) = xd;
 
-            float *tdd = p3;
-            float *xdd = p3+1; 
+            {{ dtype }} *tdd = p3;
+            {{ dtype }} *xdd = p3+1; 
             
-            float tmp = 1.0/({{ mc }}+{{ mp }}*s*s);
+            {{ dtype }} tmp = 1.0/({{ mc }}+{{ mp }}*s*s);
             *tdd = (u *c - {{ mp * l }}* td*td * s*c + {{ (mc+mp) *g }}*s) 
                     *{{ 1.0/l }}*tmp + {{ fr }}*td;
              
@@ -52,7 +52,8 @@ class Cartpole(DynamicalSystem):
                 g = self.g,
                 umin = self.umin,
                 umax = self.umax,
-                fr = self.friction)
+                fr = self.friction,
+                dtype = cuda_dtype)
 
         self.k_f = rowwise(fn,'cartpole')
 

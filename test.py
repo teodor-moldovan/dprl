@@ -21,7 +21,7 @@ class TestsTools(unittest.TestCase):
         start = drv.Event()
         end = drv.Event()
 
-        e = to_gpu(so.astype(np.float32))
+        e = to_gpu(so)
         d = array((l,m,m))
 
         chol_batched(e,d,2)
@@ -59,12 +59,12 @@ class TestsTools(unittest.TestCase):
         start = drv.Event()
         end = drv.Event()
 
-        e = to_gpu(so.astype(np.float32))
+        e = to_gpu(so)
         d = array((l,))
 
         chol_batched(e,e)
         chol2log_det(e,d)
-        e = to_gpu(so.astype(np.float32))
+        e = to_gpu(so)
 
         start.record()
         start.synchronize()
@@ -97,61 +97,16 @@ class TestsTools(unittest.TestCase):
         start = drv.Event()
         end = drv.Event()
 
-        gl = gpuarray.to_gpu(l.astype(np.float32))
-        gx = gpuarray.to_gpu(x.astype(np.float32))
+        gl = to_gpu(l)
+        gx = to_gpu(x)
         solve_triangular(gl,gx)
 
-        gl = gpuarray.to_gpu(l.astype(np.float32))
-        gx = gpuarray.to_gpu(x.astype(np.float32))
+        gl = to_gpu(l)
+        gx = to_gpu(x)
 
         start.record()
         start.synchronize()
         solve_triangular(gl,gx)
-        end.record()
-        end.synchronize()
-        
-        msecs_ = start.time_till(end)
-        print "GPU ", msecs_, 'ms'
-        print "Speedup: ", msecs/msecs_
-
-        r = np.matrix(cc[-1])
-        r_ = np.matrix(gx.get()[-1])
-        
-        np.testing.assert_almost_equal(r/r_,1,4)
-
-        #print cc[0]
-
-
-    def test_trit(self):
-
-        k,m,n = 32*8*11, 32, 4
-        np.random.seed(6)
-        l = np.random.normal(size=k*m*m).reshape(k,m,m)
-        x = np.random.normal(size=k*m*n).reshape(k,m,n)
-        
-        t = time.time()
-        cc = np.array([scipy.linalg.solve_triangular(lt,xt,lower=True) 
-                for lt,xt in zip(l,x)])
-
-        cc = np.array([scipy.linalg.solve_triangular(lt,xt,lower=False) 
-                for lt,xt in zip(l,cc)])
-
-        msecs = (time.time()-t)*1000
-        print 'CPU ',msecs ,'ms'
-
-        start = drv.Event()
-        end = drv.Event()
-
-        gl = gpuarray.to_gpu(l.astype(np.float32))
-        gx = gpuarray.to_gpu(x.astype(np.float32))
-        solve_triangular(gl,gx,True)
-
-        gl = gpuarray.to_gpu(l.astype(np.float32))
-        gx = gpuarray.to_gpu(x.astype(np.float32))
-
-        start.record()
-        start.synchronize()
-        solve_triangular(gl,gx,True)
         end.record()
         end.synchronize()
         
@@ -184,11 +139,11 @@ class TestsTools(unittest.TestCase):
         end = drv.Event()
         x = array((k,m,m))
 
-        gl = to_gpu(l.astype(np.float32))
+        gl = to_gpu(l)
 
         solve_triangular(gl,x,back_substitution=False,identity=True,bd=2)
 
-        gl = to_gpu(l.astype(np.float32))
+        gl = to_gpu(l)
 
         start.record()
         start.synchronize()
@@ -217,8 +172,8 @@ class TestsTools(unittest.TestCase):
         s = np.random.normal(size=l*m*n).reshape(l,m,n)
         rs = np.array(map(lambda p : np.dot(p.T,p), s   ) )
 
-        s = gpuarray.to_gpu(s.astype(np.float32))        
-        d = gpuarray.GPUArray( (l,n,n), np.float32 )
+        s = to_gpu(s)        
+        d = to_gpu( np.zeros((l,n,n)))
 
         outer_product(s, d )
 
@@ -274,7 +229,6 @@ class TestsTools(unittest.TestCase):
         dn *= 2.0
         np.testing.assert_almost_equal( dn, d.get(),4 )
 
-
         an = np.random.normal(size=32*8*11*100).reshape(32*8*11,100)
         bn = np.random.normal(size=100).reshape(100)
         a = to_gpu(an)
@@ -298,8 +252,8 @@ class TestsTools(unittest.TestCase):
         msecs = (time.time()-t)*1000
         print 'CPU ',msecs ,'ms'
 
-        a = to_gpu(an.astype(np.float32))
-        b = to_gpu(bn.astype(np.float32))
+        a = to_gpu(an)
+        b = to_gpu(bn)
         d = array((k,l))
         
         matrix_mult(a,b,d) 
@@ -323,7 +277,7 @@ class TestsTools(unittest.TestCase):
 
 
     def test_mm_batched(self):
-        q,l,m,k = 32*8*11,33,34,35
+        q,l,m,k = 8*11,33,34,35
 
         an = np.random.normal(size=q*l*k).reshape(q,l,k)
         bn = np.random.normal(size=q*m*k).reshape(q,k,m)
@@ -335,8 +289,8 @@ class TestsTools(unittest.TestCase):
         msecs = (time.time()-t)*1000
         print 'CPU ',msecs ,'ms'
         
-        a = to_gpu(an.astype(np.float32))
-        b = to_gpu(bn.astype(np.float32))
+        a = to_gpu(an)
+        b = to_gpu(bn)
         d = array((q,l,m))
         e = array((q,l,l)) 
         
@@ -376,8 +330,8 @@ class TestsTools(unittest.TestCase):
         msecs = (time.time()-t)*1000
         print 'CPU ',msecs ,'ms'
         
-        a = to_gpu(an.astype(np.float32))
-        b = to_gpu(bn.astype(np.float32))
+        a = to_gpu(an)
+        b = to_gpu(bn)
         d = array((q,l,m))
 
         mm_batched(a,b,d) 
@@ -408,10 +362,10 @@ class TestsTools(unittest.TestCase):
         print 'CPU ',msecs ,'ms'
             
      
-        a = to_gpu(an.astype(np.float32))
+        a = to_gpu(an)
         cumprod(a)
 
-        a = to_gpu(an.astype(np.float32))
+        a = to_gpu(an)
         t=tic()
         cumprod(a)
         msecs_ = toc(t)
@@ -431,7 +385,7 @@ class TestsTools(unittest.TestCase):
         msecs = (time.time()-t)*1000
         print 'CPU ',msecs ,'ms'
         
-        a = to_gpu(an.astype(np.float32))
+        a = to_gpu(an)
         e = array((l,)) 
         
         fnc = row_reduction('a += b')
@@ -468,7 +422,7 @@ class TestsTools(unittest.TestCase):
         msecs = (time.time()-t)*1000
         print 'CPU ',msecs ,'ms'
         
-        a = to_gpu(an.astype(np.float32))
+        a = to_gpu(an)
         e = array((l,)) 
         
         fnc = row_reduction('a = b>a ? b : a')
@@ -504,7 +458,7 @@ class TestsTools(unittest.TestCase):
 
         tpl = Template(
         """
-        float s=0;
+        {{ dtype }} s=0;
         
         {% for i in rm %}s=0;
         {% for j in rn %}s += *(p1 + {{ j }})*{{ an[i][j] }};
@@ -512,7 +466,7 @@ class TestsTools(unittest.TestCase):
         *(p2+{{ i }}) = s;{% endfor %}
 
         """
-        ).render(rm=range(m),rn=range(n),an=an)
+        ).render(rm=range(m),rn=range(n),an=an, dtype = cuda_dtype)
 
         f_k = rowwise(tpl)
 
@@ -550,7 +504,7 @@ class TestsClustering(unittest.TestCase):
         xn = np.random.normal(size=l*m).reshape(l,m)
         dn = np.zeros((l,m*(m+1)+2))
 
-        x = to_gpu(xn.astype(np.float32))
+        x = to_gpu(xn)
         
         t = time.time()
         dn[:,:m] = xn
@@ -676,11 +630,11 @@ class TestsClustering(unittest.TestCase):
         
         ##
         
-        s.mu  = to_gpu(  mu.astype(np.float32))
-        s.psi = to_gpu( psi.astype(np.float32))
-        s.n   = to_gpu(   n.astype(np.float32))
-        s.nu  = to_gpu(  nu.astype(np.float32))
-        x = to_gpu(  x.astype(np.float32))
+        s.mu  = to_gpu(  mu)
+        s.psi = to_gpu( psi)
+        s.n   = to_gpu(   n)
+        s.nu  = to_gpu(  nu)
+        x = to_gpu(  x)
 
         d = s.conditional(x)
         d = s.conditional(x)
@@ -723,10 +677,10 @@ class TestsClustering(unittest.TestCase):
         n = np.random.random(size=l)*10+p
         nu = np.random.random(size=l)*10+2*p
         
-        s.mu  = to_gpu(  mu.astype(np.float32))
-        s.psi = to_gpu( psi.astype(np.float32))
-        s.n   = to_gpu(   n.astype(np.float32))
-        s.nu  = to_gpu(  nu.astype(np.float32))
+        s.mu  = to_gpu(  mu)
+        s.psi = to_gpu( psi)
+        s.n   = to_gpu(   n)
+        s.nu  = to_gpu(  nu)
 
         d_ = s.marginal(q)
 
@@ -757,13 +711,13 @@ class TestsClustering(unittest.TestCase):
         s = NIW(p,l)
 
         np.random.seed(10)
-        so  = np.random.normal(size=l*p*p).reshape(l,p,p).astype(np.float32)
-        psi = 1000*np.einsum('nij,nkj->nik',so,so).astype(np.float32)
-        mu  = np.random.normal(size=l*p).reshape(l,p).astype(np.float32)
-        x   = np.random.normal(size=k*p).reshape(k,p).astype(np.float32)
+        so  = np.random.normal(size=l*p*p).reshape(l,p,p)
+        psi = 1000*np.einsum('nij,nkj->nik',so,so)
+        mu  = np.random.normal(size=l*p).reshape(l,p)
+        x   = np.random.normal(size=k*p).reshape(k,p)
 
-        n  = (np.random.random(size=l)*10+2.0).astype(np.float32)
-        nu = (np.random.random(size=l)*10+2*p).astype(np.float32) 
+        n  = (np.random.random(size=l)*10+2.0)
+        nu = (np.random.random(size=l)*10+2*p)
 
 
         dn = np.zeros((k,p*(p+1)+2))
@@ -795,11 +749,11 @@ class TestsClustering(unittest.TestCase):
 
         start.record()
         start.synchronize()
-        s.mu  = to_gpu(  mu.astype(np.float32))
-        s.psi = to_gpu( psi.astype(np.float32))
-        s.n   = to_gpu(   n.astype(np.float32))
-        s.nu  = to_gpu(  nu.astype(np.float32))
-        x = to_gpu(  x.astype(np.float32))
+        s.mu  = to_gpu(  mu)
+        s.psi = to_gpu( psi)
+        s.n   = to_gpu(   n)
+        s.nu  = to_gpu(  nu)
+        x = to_gpu(  x)
 
         end.record()
         end.synchronize()
@@ -851,12 +805,12 @@ class TestsClustering(unittest.TestCase):
             return res    
 
         np.random.seed(10)
-        so  = np.random.normal(size=l*p*p).reshape(l,p,p).astype(np.float32)
-        psi = 1000*np.einsum('nij,nkj->nik',so,so).astype(np.float32)
-        mu  = np.random.normal(size=l*p).reshape(l,p).astype(np.float32)
-        x   = np.random.normal(size=k*p).reshape(k,p).astype(np.float32)
-        n  = (np.random.random(size=l)*10+1.0).astype(np.float32)
-        nu = (np.random.random(size=l)*10+2.0*p).astype(np.float32) 
+        so  = np.random.normal(size=l*p*p).reshape(l,p,p)
+        psi = 1000*np.einsum('nij,nkj->nik',so,so)
+        mu  = np.random.normal(size=l*p).reshape(l,p)
+        x   = np.random.normal(size=k*p).reshape(k,p)
+        n  = (np.random.random(size=l)*10+1.0)
+        nu = (np.random.random(size=l)*10+2.0*p)
 
         inv = np.array(map(np.linalg.inv, psi)) 
         y = x[:,np.newaxis,:]- mu[np.newaxis,:,:]
@@ -882,11 +836,11 @@ class TestsClustering(unittest.TestCase):
 
         start.record()
         start.synchronize()
-        s.mu  = to_gpu(  mu.astype(np.float32))
-        s.psi = to_gpu( psi.astype(np.float32))
-        s.n   = to_gpu(   n.astype(np.float32))
-        s.nu  = to_gpu(  nu.astype(np.float32))
-        x = to_gpu(  x.astype(np.float32))
+        s.mu  = to_gpu(  mu)
+        s.psi = to_gpu( psi)
+        s.n   = to_gpu(   n)
+        s.nu  = to_gpu(  nu)
+        x = to_gpu(  x)
 
         end.record()
         end.synchronize()
@@ -999,20 +953,20 @@ class TestsClustering(unittest.TestCase):
         mix.sbp.from_counts(al)
         
 
-        so  = np.random.normal(size=l*p*p).reshape(l,p,p).astype(np.float32)
-        psi = 1000*np.einsum('nij,nkj->nik',so,so).astype(np.float32)
-        mu  = np.random.normal(size=l*p).reshape(l,p).astype(np.float32)
-        x   = np.random.normal(size=k*p).reshape(k,p).astype(np.float32)
-        n  = (np.random.random(size=l)*10+2.0).astype(np.float32)
-        nu = (np.random.random(size=l)*10+2*p).astype(np.float32) 
+        so  = np.random.normal(size=l*p*p).reshape(l,p,p)
+        psi = 1000*np.einsum('nij,nkj->nik',so,so)
+        mu  = np.random.normal(size=l*p).reshape(l,p)
+        x   = np.random.normal(size=k*p).reshape(k,p)
+        n  = (np.random.random(size=l)*10+2.0)
+        nu = (np.random.random(size=l)*10+2*p)
 
 
-        mix.clusters.mu  = to_gpu(  mu.astype(np.float32))
-        mix.clusters.psi = to_gpu( psi.astype(np.float32))
-        mix.clusters.n   = to_gpu(   n.astype(np.float32))
-        mix.clusters.nu  = to_gpu(  nu.astype(np.float32))
+        mix.clusters.mu  = to_gpu(  mu)
+        mix.clusters.psi = to_gpu( psi)
+        mix.clusters.n   = to_gpu(   n)
+        mix.clusters.nu  = to_gpu(  nu)
 
-        x = to_gpu(  x.astype(np.float32))
+        x = to_gpu(  x)
         
 
         x.newhash()
@@ -1057,20 +1011,20 @@ class TestsClustering(unittest.TestCase):
         mix.sbp.from_counts(al)
         
 
-        so  = np.random.normal(size=l*p*p).reshape(l,p,p).astype(np.float32)
-        psi = 1000*np.einsum('nij,nkj->nik',so,so).astype(np.float32)
-        mu  = np.random.normal(size=l*p).reshape(l,p).astype(np.float32)
-        x   = np.random.normal(size=k*p).reshape(k,p).astype(np.float32)
-        n  = (np.random.random(size=l)*10+2.0).astype(np.float32)
-        nu = (np.random.random(size=l)*10+2*p).astype(np.float32) 
+        so  = np.random.normal(size=l*p*p).reshape(l,p,p)
+        psi = 1000*np.einsum('nij,nkj->nik',so,so)
+        mu  = np.random.normal(size=l*p).reshape(l,p)
+        x   = np.random.normal(size=k*p).reshape(k,p)
+        n  = (np.random.random(size=l)*10+2.0)
+        nu = (np.random.random(size=l)*10+2*p)
 
 
-        mix.clusters.mu  = to_gpu(  mu.astype(np.float32))
-        mix.clusters.psi = to_gpu( psi.astype(np.float32))
-        mix.clusters.n   = to_gpu(   n.astype(np.float32))
-        mix.clusters.nu  = to_gpu(  nu.astype(np.float32))
+        mix.clusters.mu  = to_gpu(  mu)
+        mix.clusters.psi = to_gpu( psi)
+        mix.clusters.n   = to_gpu(   n)
+        mix.clusters.nu  = to_gpu(  nu)
 
-        x = to_gpu(  x.astype(np.float32))
+        x = to_gpu(  x)
         
         x.newhash()
         d = mix.pseudo_resps(x)
@@ -1114,17 +1068,17 @@ class TestsClustering(unittest.TestCase):
         mix.sbp.from_counts(al)
         
 
-        so  = np.random.normal(size=l*p*p).reshape(l,p,p).astype(np.float32)
-        psi = 1000*np.einsum('nij,nkj->nik',so,so).astype(np.float32)
-        mu  = np.random.normal(size=l*p).reshape(l,p).astype(np.float32)
-        n  = (np.random.random(size=l)*10+2.0).astype(np.float32)
-        nu = (np.random.random(size=l)*10+2*p).astype(np.float32) 
+        so  = np.random.normal(size=l*p*p).reshape(l,p,p)
+        psi = 1000*np.einsum('nij,nkj->nik',so,so)
+        mu  = np.random.normal(size=l*p).reshape(l,p)
+        n  = (np.random.random(size=l)*10+2.0)
+        nu = (np.random.random(size=l)*10+2*p)
 
 
-        mix.clusters.mu  = to_gpu(  mu.astype(np.float32))
-        mix.clusters.psi = to_gpu( psi.astype(np.float32))
-        mix.clusters.n   = to_gpu(   n.astype(np.float32))
-        mix.clusters.nu  = to_gpu(  nu.astype(np.float32))
+        mix.clusters.mu  = to_gpu(  mu)
+        mix.clusters.psi = to_gpu( psi)
+        mix.clusters.n   = to_gpu(   n)
+        mix.clusters.nu  = to_gpu(  nu)
 
         
         d = mix.marginal(q)
@@ -1162,22 +1116,22 @@ class TestsClustering(unittest.TestCase):
         
         mix.sbp.from_counts(al)
         
-        so  = np.random.normal(size=l*p*p).reshape(l,p,p).astype(np.float32)
-        psi = 1000*np.einsum('nij,nkj->nik',so,so).astype(np.float32)
-        mu  = np.random.normal(size=l*p).reshape(l,p).astype(np.float32)
-        n  = (np.random.random(size=l)*10+2.0).astype(np.float32)
-        nu = (np.random.random(size=l)*10+2*p).astype(np.float32) 
-        x = np.random.normal(size=k*q).reshape(k,q).astype(np.float32)
-        xi = np.random.normal(size=k*(p-q)).reshape(k,p-q).astype(np.float32)
+        so  = np.random.normal(size=l*p*p).reshape(l,p,p)
+        psi = 1000*np.einsum('nij,nkj->nik',so,so)
+        mu  = np.random.normal(size=l*p).reshape(l,p)
+        n  = (np.random.random(size=l)*10+2.0)
+        nu = (np.random.random(size=l)*10+2*p)
+        x = np.random.normal(size=k*q).reshape(k,q)
+        xi = np.random.normal(size=k*(p-q)).reshape(k,p-q)
 
 
-        mix.clusters.mu  = to_gpu(  mu.astype(np.float32))
-        mix.clusters.psi = to_gpu( psi.astype(np.float32))
-        mix.clusters.n   = to_gpu(   n.astype(np.float32))
-        mix.clusters.nu  = to_gpu(  nu.astype(np.float32))
+        mix.clusters.mu  = to_gpu(  mu)
+        mix.clusters.psi = to_gpu( psi)
+        mix.clusters.n   = to_gpu(   n)
+        mix.clusters.nu  = to_gpu(  nu)
 
-        x  = to_gpu(  x.astype(np.float32))
-        xi = to_gpu(  xi.astype(np.float32))
+        x  = to_gpu(  x)
+        xi = to_gpu(  xi)
         
         prd = Predictor(mix)
 
