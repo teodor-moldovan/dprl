@@ -109,11 +109,11 @@ class RK(object):
 
 
 class DynamicalSystem(object):
-    def __init__(self,nx,nu,control_bounds):
+    def __init__(self,nx,nu,control_bounds=None, integrator = RK('lw6')):
         self.nx = nx
         self.nu = nu
         self.control_bounds = control_bounds
-        self.integrator = RK4()
+        self.integrator = integrator
 
     def f(self,x,u):
         """ returns state derivative given state and control"""
@@ -187,6 +187,33 @@ class DynamicalSystem(object):
         
         return d,df
 
+class OptimisticDynamicalSystem(DynamicalSystem):
+    def __init__(self,nx,nu,control_bounds, 
+            nxi, pred, xi_bound = 1.0, **kwargs):
+
+        DynamicalSystem.__init__(self,nx,nu+nxi,**kwargs)
+
+        self.nxi = nxi
+        self.predictor = pred
+        self.ods_control_bounds = control_bounds
+        self.set_control_bounds(xi_bound)
+        
+    def set_control_bounds(self, xi_bound):
+        bl = self.ods_control_bounds[0] + [-xi_bound]*self.nxi
+        bu = self.ods_control_bounds[1] + [xi_bound]*self.nxi
+        self.control_bounds =  [bl,bu]
+
+    def pred_input(self,x,u):
+        pass
+
+    def f_with_prediction(self,x,y,u):
+        pass
+
+    def f(self,x,u):
+
+        y = self.predictor.predict(*self.pred_input(x,u))
+        return self.f_with_prediction(x,y,u)
+        
 class ShortestPathPlanner(object):
     def __init__(self, ds,l):
         """ initialize planner for dynamical system"""
@@ -271,22 +298,28 @@ class ShortestPathPlanner(object):
             raise RuntimeError ("Failed to find a Ziena license.")
 
         #---- DEMONSTRATE HOW TO SET KNITRO PARAMETERS.
-        if KTR_set_char_param_by_name(kc, "outlev", "all"):
-            raise RuntimeError ("Error setting parameter 'outlev'")
-        if KTR_set_int_param_by_name(kc, "hessopt", KTR_HESSOPT_BFGS):
+
+        if KTR_set_int_param_by_name(kc, "hessopt", KTR_HESSOPT_SR1):
             raise RuntimeError ("Error setting parameter 'hessopt'")
 
         if KTR_set_int_param_by_name(kc, "gradopt", KTR_GRADOPT_EXACT):
             raise RuntimeError ("Error setting parameter 'gradopt'")
 
-        if KTR_set_double_param_by_name(kc, "feastol", 1.0E-3):
-            raise RuntimeError ("Error setting parameter 'feastol'")
+        #if KTR_set_double_param_by_name(kc, "feastol", 1.0E-4):
+        #    raise RuntimeError ("Error setting parameter 'feastol'")
 
-        if KTR_set_double_param_by_name(kc, "opttol", 1.0E-1):
-            raise RuntimeError ("Error setting parameter 'opttol'")
+        #if KTR_set_double_param_by_name(kc, "opttol", 1.0E-2):
+        #    raise RuntimeError ("Error setting parameter 'opttol'")
 
         if KTR_set_int_param(kc, KTR_PARAM_OUTLEV, 3):
             raise RuntimeError ("Error setting parameter 'outlev'")
+
+        if KTR_set_int_param(kc, KTR_PARAM_ALGORITHM, 3):
+            raise RuntimeError ("Error setting parameter 'algorithm'")
+
+        #if KTR_set_int_param(kc, KTR_PARAM_LINSOLVER, 3):
+        #    raise RuntimeError ("Error setting parameter 'algorithm'")
+
 
         #if KTR_set_int_param(kc,KTR_PARAM_MAXIT,100):
         #    raise RuntimeError ("Error setting parameter 'maxit'")
@@ -320,8 +353,8 @@ class ShortestPathPlanner(object):
             u = to_gpu(tmp[:,nx:])
             h = to_gpu((h-np.log(l))*np.ones((l,1)))
             
-            self.evf, self.evg = self.ds.batch_linearize(x,u,h)
-            c[:]=(self.evf.get() + xi -xf).reshape(-1).tolist()
+            ret = self.ds.batch_integrate(x,u,h)
+            c[:]=(ret.get() + xi -xf).reshape(-1).tolist()
             return 0
 
 
@@ -330,9 +363,19 @@ class ShortestPathPlanner(object):
             if not evalRequestCode == KTR_RC_EVALGA:
                 return KTR_RC_CALLBACK_ERR
 
+            h = x[0]
             objGrad[:] = [1.0]+[0.0]*(n-1)
 
-            tmp = self.evg.get() 
+            tmp = np.array(x[1:l*(nx+nu)+1]).reshape(l,-1)
+            xi = tmp[:,:nx]
+            
+            x = to_gpu(xi)
+            u = to_gpu(tmp[:,nx:])
+            h = to_gpu((h-np.log(l))*np.ones((l,1)))
+            
+            evf, evg = self.ds.batch_linearize(x,u,h)
+
+            tmp = evg.get() 
             tmp[:,1:1+nx,:] += np.diag(np.ones(nx))[np.newaxis,:,:]
             
             jac[:tmp.size] = tmp.reshape(-1).tolist()
@@ -357,8 +400,8 @@ class ShortestPathPlanner(object):
         bndsLo = self.bndsLo
         bndsUp = self.bndsUp
 
-        bndsLo[0] = -10
-        bndsUp[0] = 0.0
+        bndsLo[0] = -5
+        bndsUp[0] = 0
 
         bndsLo[1:1+nx] = start.tolist()
         bndsUp[1:1+nx] = start.tolist()
@@ -370,7 +413,7 @@ class ShortestPathPlanner(object):
 
         trj = np.append(self.min_acc_traj(start,end),np.zeros((l+1,nu)),axis=1)
         
-        x0 = [1.0,]+trj.reshape(-1)[:-1].tolist()
+        x0 = [-3,]+trj.reshape(-1)[:-1].tolist()
         KTR_restart(self.kc,x0,None)
 
         # KTR_solve

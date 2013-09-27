@@ -15,8 +15,8 @@ import time
 
 from jinja2 import Template
 
-#np_dtype, cuda_dtype = np.float64, 'double'
-np_dtype, cuda_dtype = np.float32, 'float'
+np_dtype, cuda_dtype = np.float64, 'double'
+#np_dtype, cuda_dtype = np.float32, 'float'
 
 cublas_handle = cublas.cublasCreate()
 atexit.register(lambda : cublas.cublasDestroy(cublas_handle) )
@@ -25,19 +25,14 @@ memoize_cache = {}
 memoize_funcs = {}
 def memoize_closure(obj):
      ck = obj.__name__
-     if ck in memoize_funcs:
-        return memoize_funcs[ck]
-
      cache = memoize_cache[ck] = {}  
  
      @functools.wraps(obj)
      def memoizer(*args):
          if args not in cache:
-             #print 'cache miss ',obj
              cache[args] = obj(*args)
          return cache[args]
         
-     memoize_funcs[ck] = memoizer
      return memoizer
 
 # timing tools
@@ -318,7 +313,8 @@ def chol_batched(s,d,bd=1, ):
     l,m,m = d.shape
 
     if l % bd != 0:
-        raise NotImplementedError
+        bd = 1
+
     return k_chol_batched(m,bd).prepared_call((1,1,l/bd),(m,1,bd),
         s.gpudata,d.gpudata)
 
@@ -396,7 +392,7 @@ def solve_triangular(l,x,d=None,
         raise NotImplementedError
         
     if k % bd != 0:
-        raise NotImplementedError
+        bd = 1
 
     return k_solve_triangular(m,n,bd,back_substitution,identity).prepared_call((1,1,k/bd),(n,1,bd),l.gpudata,x.gpudata,d.gpudata)
 

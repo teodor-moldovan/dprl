@@ -1245,12 +1245,41 @@ class TestsCartpole(unittest.TestCase):
              
     def test_pp(self):
 
-        pp = ShortestPathPlanner(Cartpole(),100)
+        pp = ShortestPathPlanner(Cartpole(),80)
         pp.solve(np.array([0,0,np.pi,0]), np.array([0,0,0,0]))
         
 
+    def test_load_model(self): 
+        fl = open( '../../data/cartpole/batch_vdp.npy','r')
+        alpha, beta, tau, lbd = np.load(fl),np.load(fl),np.load(fl),np.load(fl)
+        l = alpha.shape[0]
+        l,p = tau.shape
+        p = int((np.sqrt( 4*p - 7) - 1)/2)
+         
+        sbp = SBP(l)
+        sbp.al = to_gpu(alpha)
+        sbp.bt = to_gpu(beta)
+        
+        clusters = NIW(p,l)
+        clusters.from_nat(to_gpu(tau.copy()))
+        
+        mix = Mixture(sbp, clusters)          
+        pred = Predictor(mix)
+ 
+        ds = OptimisticCartpole(pred)
+
+        k  = 10
+            
+        np.random.seed(3)
+        x   = to_gpu(np.random.normal(size=k*4).reshape(k,4))
+        uxi = to_gpu(np.random.normal(size=k*3).reshape(k,3))
+        
+        ds.f(x,uxi)
+        
+        
+
 if __name__ == '__main__':
-    single_test = 'test_pp'
+    single_test = 'test_load_model'
     tests = TestsCartpole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()

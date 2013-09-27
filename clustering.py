@@ -40,8 +40,11 @@ class NIW(object):
 
     def from_nat(self,s):
 
+        print s.ptr,
+
         @memoize_closure
         def niw_from_nat_slices(sh,ptr,p):
+            print s.ptr
             return ( s[:,-2:-1],s[:,-1:],s[:,:p],
                 s.no_broadcast[:,p:-2,np.newaxis],
                 s[:,:p,np.newaxis], s[:,np.newaxis,:p],
@@ -55,13 +58,14 @@ class NIW(object):
         sn,snu,smu,spsi,smul,smur,snb = niw_from_nat_slices(
                 s.shape,s.ptr,self.p)
         
+
         sng,snug = niw_from_nat_sliced_params(self.n, self.nu)
 
 
         ufunc('a=b')(sng , sn)
         ufunc('a=b - 2 - '+str(self.p))(snug, snu)
         ufunc('a=b/c')(self.mu, smu, sn)
-
+        
         ufunc('r = a - b*c/d')(self.psi, spsi, smul,smur, snb)
 
     @memoize
@@ -331,9 +335,6 @@ class NIW(object):
                     dn[:,None,None]
                     )
 
-
-
-
         @memoize_closure
         def niw_cond_new_like_me(cls,p,l):
             return cls(p,l)
@@ -510,7 +511,6 @@ class Predictor(object):
         xmix = Mixture(mix.sbp,xclusters)  
         prob = xmix.predictive_posterior_resps(x) 
 
-
         matrix_mult(prob,tau,tau_) 
 
         clusters_.from_nat(tau_)
@@ -518,11 +518,13 @@ class Predictor(object):
         cls = clusters_.conditional(x)
         mu,psi,n,nu = cls.mu,cls.psi,cls.n,cls.nu
 
+
         ufunc('a= sqrt(n*(u - '+str(p-q)+' + 1.0))')(r,n,nu)
         chol_batched(psi,sg,bd=2)
 
         solve_triangular(sg,xi, out,bd=2)
-        ufunc('a = a*c + b',name='fnl')(out,rb,mu)
 
+        ufunc('a = a*c + b',name='fnl')(out,rb,mu)
+        
         return out
 

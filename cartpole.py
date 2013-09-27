@@ -4,8 +4,7 @@ import pylab as plt
 class Cartpole(DynamicalSystem):
     def __init__(self):
 
-        DynamicalSystem.__init__(self,4,1, 
-                        control_bounds=[[-10.0],[10.0]],)
+        DynamicalSystem.__init__(self,4,1, [[-10.0],[10.0]],)
 
         self.l = .1    # pole length
         self.mc = .7    # cart mass
@@ -73,4 +72,47 @@ class Cartpole(DynamicalSystem):
         self.k_f(x,u,y)
         
         return y
+
+class OptimisticCartpole(OptimisticDynamicalSystem):
+    def __init__(self,pred,**kwargs):
+
+        OptimisticDynamicalSystem.__init__(self,4,1, [[-10.0],[10.0]],
+                    2, pred, **kwargs)
+
+        tpl = Template(
+            """
+            // p1 : state
+            // p2 : controls
+            // p3 : input state to predictor
+            // p4 : input slack to predictor
+        
+            *p3 = *p1;
+            *(p3+1) = *(p1+2);
+            *(p3+2) = *p2;
+
+            *p4 = *(p2+1);
+            *(p4+1) = *(p2+2);
+            
+            """
+            )
+        fn = tpl.render(dtype = cuda_dtype)
+        self.k_pred_in = rowwise(fn,'opt_cartpole_pred_in')
+
+
+    def pred_input(self,x,u):
+
+
+        @memoize_closure
+        def opt_cartpole_pred_input_ws(l):
+            return array((l,3)), array((l,2))
+        
+        x0,xi = opt_cartpole_pred_input_ws(x.shape[0])
+
+        self.k_pred_in(x,u,x0,xi)
+        return x0,xi
+
+    def f_with_prediction(self,x,y,u):
+        
+        pass
+
 
