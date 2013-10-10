@@ -17,6 +17,9 @@ from jinja2 import Template
 
 np_dtype, cuda_dtype = np.float64, 'double'
 #np_dtype, cuda_dtype = np.float32, 'float'
+caching = True
+
+## end settings
 
 cublas_handle = cublas.cublasCreate()
 atexit.register(lambda : cublas.cublasDestroy(cublas_handle) )
@@ -25,15 +28,28 @@ memoize_cache = {}
 memoize_funcs = {}
 def memoize_closure(obj):
      ck = obj.__name__
+     if ck in memoize_funcs:
+        return memoize_funcs[ck]
+
      cache = memoize_cache[ck] = {}  
  
      @functools.wraps(obj)
      def memoizer(*args):
          if args not in cache:
+             #print 'cache miss ',obj
              cache[args] = obj(*args)
          return cache[args]
         
+     memoize_funcs[ck] = memoizer
      return memoizer
+
+if not caching:
+    def memoize_closure(obj):
+        return obj
+
+    def memoize(obj):
+        return obj
+
 
 # timing tools
 def tic():
@@ -942,7 +958,7 @@ def numdiff(f,x0,eps=None):
             eps = 1e-4
 
     @memoize_closure
-    def tools_numdiff_ws(l,n,pt,eps):
+    def tools_numdiff_ws(l,n,x0,eps):
         x = array((l,n+1,n))
         eps = to_gpu(eps*np.eye(n))[None,:,:]
         x0b = x0[:,None,:]
@@ -950,25 +966,28 @@ def numdiff(f,x0,eps=None):
 
     l,n = x0.shape
         
-    x,xb,epb,x0b = tools_numdiff_ws(l,n,x0.ptr,eps)
+    x,xb,epb,x0b = tools_numdiff_ws(l,n,x0,eps)
     
     ufunc('a=b+e')(x,x0b,epb) 
     ufunc('a=b')(xb,x0b) 
    
     x.shape = (l*(n+1),n) 
-    d_ = f(x)[:]
+    d_ = f(x)
      
-    m = d_.shape[1]
-    d_.shape = (l,n+1,m)
 
     @memoize_closure
-    def tools_numdiff_db(l,m,n,ptr): 
+    def tools_numdiff_db(l,m,n,d_): 
         d = array((l,m))
         dr = array((l,n,m))
         return  d, d[:,None,:], dr,  d_[:,0:1, :], d_[:,1:, :]
 
-    d,d1,dr,d1_,dr_ = tools_numdiff_db(l,m,n,d_.ptr)
-    
+
+    m = d_.shape[1]
+    d_.orig_shape = d_.shape
+    d_.shape = (l,n+1,m)
+    d,d1,dr,d1_,dr_ = tools_numdiff_db(l,m,n,d_)
+    d_.shape = d_.orig_shape
+
     ufunc('a=b')(d1,d1_ )
     ufunc('a=(b-c)/'+str(eps)+'f')(dr,dr_, d1_) 
 

@@ -38,11 +38,13 @@ class TestsTools(unittest.TestCase):
         print "GPU ", msecs_, 'ms'
         print "Speedup: ", msecs/msecs_
 
-        r = np.matrix(cc[-1].T)+1e-5
-        r_ = np.matrix(np.tril(d.get()[-1]))+1e-5
+        r = np.array(cc[-1].T)
+        r_ = np.array(np.tril(d.get()[-1]))
         
+        rt = r-r_
+        rt[np.isnan(rt)]=0.0
         
-        np.testing.assert_almost_equal(r/r_,1,3)
+        np.testing.assert_almost_equal(rt,0)
 
 
     def test_log_det(self):
@@ -114,10 +116,10 @@ class TestsTools(unittest.TestCase):
         print "GPU ", msecs_, 'ms'
         print "Speedup: ", msecs/msecs_
 
-        r = np.matrix(cc[-1])
-        r_ = np.matrix(gx.get()[-1])
+        r = np.array(cc[-1])
+        r_ = np.array(gx.get()[-1])
         
-        np.testing.assert_almost_equal(r/r_,1,4)
+        np.testing.assert_almost_equal(r/r_,1)
 
         #print cc[0]
 
@@ -446,7 +448,7 @@ class TestsTools(unittest.TestCase):
         np.testing.assert_almost_equal( e.get(),rs,3)
 
 
-    def test_numdiff(self):
+    def test_nufmdiff(self):
         l,m,n = 11*8, 32,28
 
         
@@ -1230,57 +1232,238 @@ class TestsCartpole(unittest.TestCase):
         u = to_gpu(np.random.random(size=l*(c.nu)).reshape(l,c.nu))
         h = to_gpu(np.log(dt)*np.ones(l).reshape(l,1))
         
-        r = c.batch_linearize(x,u,h)
+        r = c.jacobian(x,u,h)
 
         if True:
-            r = c.batch_linearize(x,u,h)
-            r = c.batch_linearize(x,u,h)
-            r = c.batch_linearize(x,u,h)
+            r = c.jacobian(x,u,h)
+            r = c.jacobian(x,u,h)
+            r = c.jacobian(x,u,h)
 
             t=tic()
-            a,b = c.batch_linearize(x,u,h)
+            a,b = c.jacobian(x,u,h)
             toc(t) 
         print a.shape
         print b.shape
              
-    def test_pp(self):
+    def test_loaded_blin(self): 
 
-        pp = ShortestPathPlanner(Cartpole(),80)
-        pp.solve(np.array([0,0,np.pi,0]), np.array([0,0,0,0]))
-        
+        mix = Mixture.from_file('../../data/cartpole/batch_vdp.npy')
+        ds = OptimisticCartpole(Predictor(mix))
 
-    def test_load_model(self): 
-        fl = open( '../../data/cartpole/batch_vdp.npy','r')
-        alpha, beta, tau, lbd = np.load(fl),np.load(fl),np.load(fl),np.load(fl)
-        l = alpha.shape[0]
-        l,p = tau.shape
-        p = int((np.sqrt( 4*p - 7) - 1)/2)
-         
-        sbp = SBP(l)
-        sbp.al = to_gpu(alpha)
-        sbp.bt = to_gpu(beta)
-        
-        clusters = NIW(p,l)
-        clusters.from_nat(to_gpu(tau.copy()))
-        
-        mix = Mixture(sbp, clusters)          
-        pred = Predictor(mix)
- 
-        ds = OptimisticCartpole(pred)
-
-        k  = 10
+        k  = 100
             
         np.random.seed(3)
         x   = to_gpu(np.random.normal(size=k*4).reshape(k,4))
-        uxi = to_gpu(np.random.normal(size=k*3).reshape(k,3))
+        uxi = to_gpu(0*np.random.normal(size=k*3).reshape(k,3))
         
-        ds.f(x,uxi)
-        
+        ds.f(x,uxi)         
+        ds.f(x,uxi)         
+        x.newhash()
+
+        t = tic()
+        ds.f(x,uxi)         
+        toc(t)
+
+        h = 2.91
+        dt = h/k
+        h = to_gpu(np.log(dt)*np.ones(k).reshape(k,1))
+
+        ds.jacobian(x,uxi,h)
+        ds.jacobian(x,uxi,h)
+
+        t = tic()
+        ds.jacobian(x,uxi,h)
+        toc(t)
+
+        #x = to_gpu(np.array((0,0,np.pi*(1.0/4.0),0)))
+        #u = to_gpu(0*np.random.normal(size=k*(ds.nu)).reshape(k,ds.nu))        
+
+        #h = 2.91
+        #dt = h/k
+        #h = to_gpu(np.log(dt)*np.ones(k).reshape(k,1))
+
+        #r = np.insert(ds.integrate(x,u,h), 0,x.get(),axis=0)
+
+        #plt.plot(r[:,0], r[:,2])
+        #plt.show()
+
         
 
+
+    def test_lifted_f(self):
+        l = 32*11*8
+        c = LiftedCartpole()
+        
+        np.random.seed(1)
+        xn = np.random.random(size=l*(c.nx)).reshape(l,c.nx)
+        x = to_gpu(xn)
+
+        un = np.random.random(size=l*(c.nu)).reshape(l,c.nu)
+        u = to_gpu(un)
+        
+        
+        c.f(x,u)
+        c.f(x,u)
+
+        t = tic()
+        x.newhash()
+        c.f(x,u)
+        toc(t)
+        
+        
+         
+         
+    def test_int_lifted(self):
+        h = .91
+        l = 20
+        dt = h/l
+        c = LiftedCartpole()
+        
+        #np.random.seed(1)
+        x = to_gpu(np.array((0,0,np.cos(np.pi/4), np.sin(np.pi/4),0)))
+
+        un = 0*np.random.normal(size=l*(c.nu)).reshape(l,c.nu)
+        u = to_gpu(un)
+        
+        hn = np.log(dt)*np.ones(l).reshape(l,1)
+        h = to_gpu(hn)
+        r = np.insert(c.integrate(x,u,h), 0,x.get(),axis=0)
+        
+        np.testing.assert_array_less( 
+                np.abs((r[:,2:4]* r[:,2:4]).sum(1)-1.0), 1e-1)
+
+        plt.plot(r[:,1], r[:,4])
+        plt.show()
+
+         
+         
+class TestsPP(unittest.TestCase):
+    def test_ms_knitro(self):
+
+        pp = KnitroPlanner(Cartpole(),50)
+        x = pp.solve(np.array([0,0,np.pi,0]), np.array([0,0,0,0]))
+        print x[5::5]
+
+        #pp.solve(np.array([0,0,np.pi*.8,0]), np.array([0,0,0,0]),hotstart=True)
+        
+
+    def test_loaded_knitro(self): 
+
+        mix = Mixture.from_file('../../data/cartpole/batch_vdp.npy')
+        ds = OptimisticCartpole(Predictor(mix))
+
+        pp = KnitroPlanner(ds,50)
+
+        x = pp.solve(np.array([0,0,np.pi,0]), np.array([0,0,0,0]))
+        #x,l = pp.solve(np.array([0,0,np.pi*.9,0]), np.array([0,0,0,0]),True)
+        
+
+
+    def test_condense(self):
+
+        pp = CvxgenPlanner(Cartpole(),50)
+        start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
+
+        x0 = pp.min_acc_traj(start,end)[:-1,:]
+        u0 = np.random.random(pp.l*pp.ds.nu).reshape((pp.l,pp.ds.nu))
+        h0 = -.4
+        
+        a,B = pp.condense(x0,u0,h0)
+
+        t = time.time()
+        a,B = pp.condense(x0,u0,h0)
+        print 'CPU + GPU', (time.time()-t)*1000, 'ms'
+
+        l,nx,nu = pp.l, pp.ds.nx, pp.ds.nu
+        h = (h0-np.log(l))*np.ones((l,1))
+        hs = (h0)*np.ones((l,1))
+            
+        evf, evg = pp.ds.jacobian(to_gpu(x0),to_gpu(u0),to_gpu(h))
+        f0 = evf.get()
+        J = evg.get()
+        
+        J = np.swapaxes(J,1,2)
+        J[:,:,1:1+nx] += np.eye(nx)[np.newaxis,:,:]
+        
+        f = x0 + f0 - np.einsum('nj,nij->ni', np.hstack((hs,x0,u0)), J)
+        
+        Jh,Jx,Ju = J[:,:,0], J[:,:,1:1+nx], J[:,:,1+nx:1+nx+nu]
+
+
+        theta =  np.vstack((np.array(((h0,),)) , u0))
+        f_ = (a + np.dot(B,theta)).reshape(l,nx)
+        
+
+        rs = []
+        y = x0[0]
+        
+        for i in range(l):
+            y = np.dot(Jx[i],y) + np.dot(Ju[i],u0[i]) + Jh[i]*h0 + f[i]
+            rs.append(y)
+
+        rs = np.array(rs)
+
+        rt = np.abs(f_-rs)/np.abs(rs)
+
+        np.testing.assert_array_less( rt, 1e-5)
+
+
+    def test_sqp_cvxgen(self):
+        pp = CvxgenPlanner(Cartpole(),50)
+        start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
+        pp.solve(start,end)
+
+    def test_col(self):
+
+        pp = CollocationPlanner(Cartpole(),15)
+        start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
+        pp.solve(start,end)
+
+    def test_loaded(self): 
+
+        #ds = OptimisticCartpole(Predictor(Mixture.from_file('../../data/cartpole/batch_vdp.npy')))
+
+        ds = Cartpole()
+
+        #pp = CvxgenPlanner(ds,50)
+        #pp = KnitroPlanner(ds,50)
+        pp = CollocationPlanner(ds,15)
+
+        #pp.solve(np.array([0,0,np.pi,0]), np.array([0,0,0,0]))
+        #pp.solve(np.array([0,0,np.pi*.9,0]), np.array([0,0,0,0]))
+        #pp.solve(np.array([0,0,np.pi*.4,0]), np.array([0,0,0,0]))
+        #pp.solve(np.array([0,0,np.pi*.1,0]), np.array([0,0,0,0]))
+        #pp.solve(np.array([0,0,np.pi*.01,0]), np.array([0,0,0,0]))
+        
+
+    def test_col_lifted(self):
+
+        pp = CollocationPlanner(LiftedCartpole(),15) 
+        
+        thi = np.pi
+        thf = 0.0
+
+        def init(a,b,t=None):
+            nt = pp.l+1
+            if t is None:
+                t = np.linspace(0,1.0,nt)
+        
+            tmp = pp.min_acc_traj(np.array([0,thi]), np.array([0,thf]), t)
+            
+            rt = np.zeros((t.shape[0],pp.ds.nx))
+            rt[:,2],rt[:,3] = np.cos(tmp[:,1]), np.sin(tmp[:,1])
+            rt[:,0] = tmp[:,0]
+            return rt
+
+        pp.init_guess = init
+
+        start = np.array([0,0,np.cos(thi),np.sin(thi),0])
+        end   = np.array([0,0,np.cos(thf),np.sin(thf),0])
+        pp.solve(start,end)
+
 if __name__ == '__main__':
-    single_test = 'test_load_model'
-    tests = TestsCartpole
+    single_test = 'test_col_lifted'
+    tests = TestsPP
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))

@@ -1,7 +1,81 @@
 from planning import *
 import pylab as plt
 
-class Cartpole(DynamicalSystem):
+class LiftedCartpole(DynamicalSystem):
+    def __init__(self):
+
+        DynamicalSystem.__init__(self,5,1, [[-10.0],[10.0]],)
+
+        self.l = .1    # pole length
+        self.mc = .7    # cart mass
+        self.mp = .325     # mass at end of pendulum
+        self.g = 9.81   # gravitational accel
+        self.umin = -10.0     # action bounds
+        self.umax = 10.0
+
+        tpl = Template(
+            """
+            // p1 : state
+            // p2 : controls
+            // p3 : state_derivative
+        
+            {{ dtype }} td = *p1;
+            {{ dtype }} xd = *(p1+1);
+            {{ dtype }} c  = *(p1+2);
+            {{ dtype }} s  = *(p1+3);
+            //{{ dtype }} x  = *(p1+4);
+            {{ dtype }} u  = *p2;
+            
+            //u = fmin({{ umax }}f, fmax({{ umin }}f, u) );
+
+
+            {{ dtype }} *tdd = p3+0;
+            {{ dtype }} *xdd = p3+1; 
+            {{ dtype }} *cd  = p3+2;
+            {{ dtype }} *sd  = p3+3;
+            {{ dtype }} *xd_  = p3+4; 
+        
+            //{{ dtype }} nrm = sqrt(cu*cu + su*su);
+            //{{ dtype }} c = cu/nrm;
+            //{{ dtype }} s = su/nrm;
+
+            *xd_ = xd;
+            *cd  = -s*td; 
+            *sd  = c*td; 
+
+            {{ dtype }} tmp = 1.0/({{ mc }}+{{ mp }}*s*s);
+
+            *tdd = (u *c - {{ mp * l }}* td*td * s*c + {{ (mc+mp) *g }}*s) *{{ 1.0/l }}*tmp ;
+            *xdd = (u - {{ mp * l}}*s*td*td +{{ mp*g }}*c*s )*tmp; 
+
+            """
+            )
+        fn = tpl.render(
+                l=self.l,
+                mc=self.mc,
+                mp=self.mp,
+                g = self.g,
+                umin = self.umin,
+                umax = self.umax,
+                dtype = cuda_dtype)
+
+        self.k_f = rowwise(fn,'cartpole')
+
+    @memoize
+    def f(self,x,u):
+
+        @memoize_closure
+        def cartpole_f_ws(l,n):
+            return array((l,n))    
+        
+        l = x.shape[0]
+        y = cartpole_f_ws(l,self.nx)
+        
+        self.k_f(x,u,y)
+        
+        return y
+
+class FlattenedCartpole(DynamicalSystem):
     def __init__(self):
 
         DynamicalSystem.__init__(self,4,1, [[-10.0],[10.0]],)
@@ -12,7 +86,6 @@ class Cartpole(DynamicalSystem):
         self.g = 9.81   # gravitational accel
         self.umin = -10.0     # action bounds
         self.umax = 10.0
-        self.friction = 0.0
 
         tpl = Template(
             """
@@ -37,10 +110,9 @@ class Cartpole(DynamicalSystem):
             
             {{ dtype }} tmp = 1.0/({{ mc }}+{{ mp }}*s*s);
             *tdd = (u *c - {{ mp * l }}* td*td * s*c + {{ (mc+mp) *g }}*s) 
-                    *{{ 1.0/l }}*tmp + {{ fr }}*td;
+                    *{{ 1.0/l }}*tmp;
              
-            *xdd = (u - {{ mp * l}}*s*td*td +{{ mp*g }}*c*s )*tmp 
-                    + {{ fr }}*xd; 
+            *xdd = (u - {{ mp * l}}*s*td*td +{{ mp*g }}*c*s )*tmp; 
 
             """
             )
@@ -51,28 +123,26 @@ class Cartpole(DynamicalSystem):
                 g = self.g,
                 umin = self.umin,
                 umax = self.umax,
-                fr = self.friction,
                 dtype = cuda_dtype)
 
         self.k_f = rowwise(fn,'cartpole')
 
-    def __hash__(self):
-        return hash(self.k_f)
-        
     @memoize
     def f(self,x,u):
         
+
         @memoize_closure
         def cartpole_f_ws(l,n):
             return array((l,n))    
         
         l = x.shape[0]
         y = cartpole_f_ws(l,self.nx)
-
+        
         self.k_f(x,u,y)
         
         return y
 
+Cartpole = FlattenedCartpole
 class OptimisticCartpole(OptimisticDynamicalSystem):
     def __init__(self,pred,**kwargs):
 
@@ -98,21 +168,46 @@ class OptimisticCartpole(OptimisticDynamicalSystem):
         fn = tpl.render(dtype = cuda_dtype)
         self.k_pred_in = rowwise(fn,'opt_cartpole_pred_in')
 
+        tpl = Template(
+            """
+            // p1 : state
+            // p2 : predictions
+            // p3 : controls
+            // p4 : state derivative
+        
+            *(p4) = *(p2);
+            *(p4+1) = *(p2+1);
+            *(p4+2) = *(p1);
+            *(p4+3) = *(p1+1);
+            
+            """
+            )
+        fn = tpl.render(dtype = cuda_dtype)
+        self.k_f = rowwise(fn,'opt_cartpole_f')
+
+
 
     def pred_input(self,x,u):
-
-
         @memoize_closure
         def opt_cartpole_pred_input_ws(l):
             return array((l,3)), array((l,2))
-        
+
         x0,xi = opt_cartpole_pred_input_ws(x.shape[0])
 
         self.k_pred_in(x,u,x0,xi)
         return x0,xi
 
     def f_with_prediction(self,x,y,u):
-        
-        pass
 
+        @memoize_closure
+        def opt_cartpole_f_with_prediction_ws(l,nx):
+            return array((l,nx))
+        
+        dx = opt_cartpole_f_with_prediction_ws(x.shape[0], self.nx)
+        #print x
+        #print y
+        self.k_f(x,y,u,dx)
+        
+        return dx
+        
 

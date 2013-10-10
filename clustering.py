@@ -25,12 +25,12 @@ class NIW(object):
             return d,d[:,:p],d.no_broadcast[:,p:p*(p+1),np.newaxis], d[:,-2:]
 
         @memoize_closure
-        def niw_ss_xlr(sh,ptr):
+        def niw_ss_xlr(x):
             return x[:,:,np.newaxis],x[:,np.newaxis,:]
         
         p = self.p
         d, dmu, dpsi, dnnu = niw_ss_ws(x.shape[0],p)
-        xl,xr = niw_ss_xlr(x.shape,x.ptr)
+        xl,xr = niw_ss_xlr(x)
 
         ufunc('a=b')(dmu,x)
         ufunc('a=b*c',name='ss_outer')(dpsi,xl,xr)
@@ -40,11 +40,8 @@ class NIW(object):
 
     def from_nat(self,s):
 
-        print s.ptr,
-
         @memoize_closure
-        def niw_from_nat_slices(sh,ptr,p):
-            print s.ptr
+        def niw_from_nat_slices(s,p):
             return ( s[:,-2:-1],s[:,-1:],s[:,:p],
                 s.no_broadcast[:,p:-2,np.newaxis],
                 s[:,:p,np.newaxis], s[:,np.newaxis,:p],
@@ -55,12 +52,9 @@ class NIW(object):
         def niw_from_nat_sliced_params(n,nu):
             return n[:,np.newaxis],nu[:,np.newaxis] 
 
-        sn,snu,smu,spsi,smul,smur,snb = niw_from_nat_slices(
-                s.shape,s.ptr,self.p)
+        sn,snu,smu,spsi,smul,smur,snb = niw_from_nat_slices(s,self.p)
         
-
         sng,snug = niw_from_nat_sliced_params(self.n, self.nu)
-
 
         ufunc('a=b')(sng , sn)
         ufunc('a=b - 2 - '+str(self.p))(snug, snu)
@@ -425,7 +419,7 @@ class SBP(object):
         
 class Mixture(object):
     """Mixture model"""
-    def __init__(self,sbp,cl):
+    def __init__(self,sbp=None,cl=None):
         self.sbp = sbp
         self.clusters = cl
 
@@ -478,6 +472,24 @@ class Mixture(object):
     def marginal(self,p):
         return self.__class__(self.sbp, self.clusters.marginal(p))
 
+    @classmethod
+    def from_file(cls,filename):
+        fl = open( filename,'r')
+        alpha, beta, tau, lbd = np.load(fl),np.load(fl),np.load(fl),np.load(fl)
+        l = alpha.shape[0]
+        l,p = tau.shape
+        p = int((np.sqrt( 4*p - 7) - 1)/2)
+         
+        sbp = SBP(l)
+        sbp.al = to_gpu(alpha)
+        sbp.bt = to_gpu(beta)
+        
+        clusters = NIW(p,l)
+        clusters.from_nat(to_gpu(tau.copy()))
+         
+        fl.close()
+        return cls(sbp, clusters)
+
 class Predictor(object):
     def __init__(self,mix):
         self.mix = mix
@@ -518,13 +530,13 @@ class Predictor(object):
         cls = clusters_.conditional(x)
         mu,psi,n,nu = cls.mu,cls.psi,cls.n,cls.nu
 
-
         ufunc('a= sqrt(n*(u - '+str(p-q)+' + 1.0))')(r,n,nu)
         chol_batched(psi,sg,bd=2)
 
         solve_triangular(sg,xi, out,bd=2)
 
         ufunc('a = a*c + b',name='fnl')(out,rb,mu)
+        
         
         return out
 
