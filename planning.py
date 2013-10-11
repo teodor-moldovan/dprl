@@ -3,6 +3,7 @@ from knitro import *
 import numpy.polynomial.legendre as legendre
 
 import pylab as plt
+import scipy.sparse
 
 class RK4(object):
     def batch_integrate(self,fnc, y0,h): 
@@ -109,6 +110,128 @@ class RK(object):
         ufunc('a-=b')(y,y0)
 
         return y
+
+
+class NumDiff(object):
+    def __init__(self,h=None):
+        if h is None:
+            if cuda_dtype == 'float':
+                h = 1e-4
+            if cuda_dtype == 'double':
+                h = 1e-4
+        self.h = h
+
+    def diff(self,f,x0):
+
+        eps = self.h
+        
+        @memoize_closure
+        def numdiff_eye(n,eps): 
+            eps = to_gpu(eps*np.eye(n))[None,:,:]
+            return eps
+
+        @memoize_closure
+        def numdiff_ws(l,n,x0):
+            x = array((l,n+1,n))
+            x0b = x0[:,None,:]
+            return x[:,1:,:],x[:,0:1,:],x0b
+
+
+        @memoize_closure
+        def numdiff_db(l,m,n,d_): 
+            d = array((l,m))
+            dr = array((l,n,m))
+            return  d, d[:,None,:], dr,  d_[:,0:1, :], d_[:,1:, :]
+
+        l,n = x0.shape
+            
+        epb = numdiff_eye(n,eps)
+        x,xb,x0b = numdiff_ws(l,n,x0)
+        
+        ufunc('a=b+e')(x,x0b,epb) 
+        ufunc('a=b')(xb,x0b) 
+       
+        x.shape = (l*(n+1),n) 
+        d_ = f(x) 
+
+        m = d_.shape[1]
+        d_.orig_shape = d_.shape
+        d_.shape = (l,n+1,m)
+        d,d1,dr,d1_,dr_ = numdiff_db(l,m,n,d_)
+        d_.shape = d_.orig_shape
+
+        ufunc('a=b')(d1,d1_ )
+        ufunc('a=(b-c)/'+str(eps)+'f')(dr,dr_, d1_) 
+
+        return d,dr
+
+class NumDiffCentral(object):
+    def __init__(self, h= 1e-4, order = 4):
+        self.h = h
+        self.order = order
+
+    @memoize
+    def prep(self,n):
+        constants = (
+            ((-1,1), (-.5,.5)),
+            ((-1,1,-2,2),
+             (-2.0/3, 2.0/3, 1.0/12, -1.0/12)),
+            ((-1,1,-2,2,-3,3),
+             (-3.0/4, 3.0/4, 3.0/20, -3.0/20, -1.0/60, 1.0/60)), 
+            ((-1,1,-2,2,-3,3,-4,4),
+             (-4.0/5, 4.0/5, 1.0/5,-1.0/5,-4.0/105,4.0/105, 1.0/280,-1.0/280)),
+            )
+
+        h = self.h
+
+        c,w = constants[self.order-1]
+
+        w = to_gpu(np.array(w)/float(h))
+        w.shape = (w.size,1)
+        dfs = h*np.array(c)
+
+        dx = to_gpu(
+            np.eye(n)[np.newaxis,:,:]*dfs[:,np.newaxis,np.newaxis]
+            )[:,None,:,:]
+        return dx,w 
+        
+
+    @staticmethod
+    @memoize
+    def ws_x(o,l,n):
+        return array((o,l,n,n)) ##
+
+    @staticmethod
+    @memoize
+    def ws_df(l,n,m):
+        return array((l,n,m))
+
+    def diff(self,f,x):
+         
+        o = self.order*2
+        l,n = x.shape
+
+        xn = self.ws_x(o,l,n)
+        dx,w = self.prep(n) 
+
+        ufunc('a=b+c')(xn,x[None,:,None,:],dx)
+        
+        xn.shape = (o*l*n,n)
+        y = f(xn)
+
+        orig_shape,m = y.shape, y.shape[1]
+       
+        df = self.ws_df(l,n,m)
+
+        y.shape = (o,l*n*m)
+        df.shape = (l*n*m,1)
+        
+        matrix_mult(w,y,df) 
+
+        y.shape = orig_shape
+        df.shape = (l,n,m)
+        
+        return df
 
 
 class DynamicalSystem(object):
@@ -283,7 +406,6 @@ class Planner(object):
         return a[np.newaxis,:]*(1.0-t)[:,np.newaxis] + t[:,np.newaxis]*b[np.newaxis,:]
 
 
-    #init_guess = interp_traj
     init_guess = min_acc_traj
 
 class KnitroPlanner(Planner):
@@ -700,6 +822,7 @@ class CvxgenPlanner(Planner):
 class CollocationPlanner(Planner):
     def __init__(self,*args):
         Planner.__init__(self,*args)
+        self.differentiator = NumDiffCentral()
         self.D,self.nodes = self.poly_approx()
         self.kc = self.prep_solver() 
 
@@ -725,8 +848,6 @@ class CollocationPlanner(Planner):
         
 
     def prep_solver(self):
-
-
         nx,nu,l = self.ds.nx,self.ds.nu,self.l+1
         n = l* (2*nx+nu) + 1
         m = 2*l*nx #+ l
@@ -789,7 +910,7 @@ class CollocationPlanner(Planner):
 
         #---- DEMONSTRATE HOW TO SET KNITRO PARAMETERS.
 
-        if KTR_set_int_param_by_name(kc, "hessopt", 3):
+        if KTR_set_int_param_by_name(kc, "hessopt", 2):
             raise RuntimeError ("Error setting parameter 'hessopt'")
 
         if KTR_set_int_param_by_name(kc, "gradopt", KTR_GRADOPT_EXACT):
@@ -801,7 +922,7 @@ class CollocationPlanner(Planner):
         #if KTR_set_double_param_by_name(kc, "opttol", 1.0E-3):
         #    raise RuntimeError ("Error setting parameter 'opttol'")
 
-        if KTR_set_int_param(kc, KTR_PARAM_OUTLEV, 3):
+        if KTR_set_int_param(kc, KTR_PARAM_OUTLEV, 2):
             raise RuntimeError ("Error setting parameter 'outlev'")
 
         #if KTR_set_int_param(kc, KTR_PARAM_ALGORITHM, 3):
@@ -866,12 +987,12 @@ class CollocationPlanner(Planner):
             dh,h = 1.0, x[0]
             dh,h = np.exp(x[0]),np.exp(x[0])
 
-
             tmp = np.array(x[1:l*(nx+nu)+1]).reshape(l,-1)
             buff.set(tmp)
             buff.newhash()
 
-            f,df = numdiff(lambda x_: self.ds.f_sp(x_), buff)
+            df = self.differentiator.diff(lambda x_: self.ds.f_sp(x_), buff)
+            f = self.ds.f_sp(buff) 
             f,df = f.get(), df.get()
 
             x,u = tmp[:,:nx], tmp[:,nx:]
@@ -935,7 +1056,253 @@ class CollocationPlanner(Planner):
 
             ze = -np.array(np.matrix(self.D)*np.matrix(x))
 
-            prev_x = [-1,] + trj.reshape(-1).tolist()+ze.reshape(-1).tolist() 
+            prev_x = [0,] + trj.reshape(-1).tolist()+ze.reshape(-1).tolist() 
+            prev_l = None
+        else:
+            prev_x, prev_l = self.ret_x, self.ret_lambda
+
+        KTR_restart(self.kc,prev_x,prev_l)
+
+        # KTR_solve
+        #nStatus = KTR_check_first_ders (self.kc, self.ret_x, 2, 1e-6, 1e-6, 0, 0.0, None,None,None,None);
+
+        nStatus = KTR_solve (self.kc, self.ret_x, self.ret_lambda, 0, 
+                self.ret_obj, None, None, None, None, None, None)
+        
+        #xu = np.array(self.ret_x[1:1+l*(nx+nu)]).reshape(l,-1)
+        #print xu[:,:nx]
+        #print (xu[:,2:4]*xu[:,2:4]).sum(1)
+        #print xu[:,nx:]
+        return self.ret_x
+        
+
+
+class CollocationPlannerSimple(Planner):
+    def __init__(self,*args):
+        Planner.__init__(self,*args)
+        self.differentiator = NumDiffCentral()
+        self.D,self.nodes = self.poly_approx()
+        self.kc = self.prep_solver() 
+
+    def __del__(self):
+        KTR_free(self.kc)
+
+    def poly_approx(self):
+        """ LGL """
+        
+        n = self.l
+        L = legendre.Legendre.basis(n)
+        tau= np.hstack(([-1.0],L.deriv().roots(), [1.0]))
+
+        vs = L(tau)
+        dn = ( tau[:,np.newaxis] - tau[np.newaxis,:] )
+        dn[dn ==0 ] = float('inf')
+
+        D = -vs[:,np.newaxis] / vs[np.newaxis,:] / dn
+        D[0,0] = n*(n+1)/4.0
+        D[-1,-1] = -n*(n+1)/4.0
+            
+        self.dnodiag_list = D.reshape(-1)[np.logical_not(np.eye(n+1)).reshape(-1)].tolist()
+        self.ddiag = np.diag(D)
+
+        return D,tau
+        
+
+    def prep_solver(self):
+        nx,nu,l = self.ds.nx,self.ds.nu,self.l+1
+        n = l* (nx+nu) + 1
+        m = l*nx #+ l
+        
+        self.ret_x = [0,]*n
+        self.ret_lambda = [0,]*(n+m)
+        self.ret_obj = [0,]
+
+        objGoal = KTR_OBJGOAL_MINIMIZE
+        objType = KTR_OBJTYPE_LINEAR;
+
+        mi =  [ -KTR_INFBOUND,]
+        bndsLo = mi + (mi*nx + self.ds.control_bounds[0])*l
+        mi =  [ KTR_INFBOUND,]
+        bndsUp = mi + (mi*nx + self.ds.control_bounds[1])*l 
+
+        self.bndsLo = bndsLo
+        self.bndsUp = bndsUp
+
+
+        cType = [ KTR_CONTYPE_GENERAL ]*l*nx
+        cBndsLo = [ 0.0 ]*m
+        cBndsUp = [ 0.0 ]*m
+
+        ji1 = [(v,c) 
+                    for t in range(l)
+                    for v in [0,]+range(1+t*(nx+nu),1+ (t+1)*(nx+nu))
+                    for c in range(t*nx, (t+1)*nx)
+                     ]
+
+        ji2 = [(1 + tv*(nx+nu)+i , i + tc*nx ) 
+                    for i in range(nx)
+                    for tc in range(l)
+                    for tv in range(l)
+                    if tc != tv
+                     ]
+
+        jacIxVar, jacIxConstr = zip(*(ji1+ji2))
+
+
+        #jacIxVar,jacIxConstr= zip(*[(i,j) for i in range(n) for j in range(m)])
+        
+
+        #---- CREATE A NEW KNITRO SOLVER INSTANCE.
+        kc = KTR_new()
+        if kc == None:
+            raise RuntimeError ("Failed to find a Ziena license.")
+
+        #---- DEMONSTRATE HOW TO SET KNITRO PARAMETERS.
+
+        if KTR_set_int_param_by_name(kc, "hessopt", 2):
+            raise RuntimeError ("Error setting parameter 'hessopt'")
+
+        if KTR_set_int_param_by_name(kc, "gradopt", KTR_GRADOPT_EXACT):
+            raise RuntimeError ("Error setting parameter 'gradopt'")
+
+        #if KTR_set_double_param_by_name(kc, "feastol", 1.0E-4):
+        #    raise RuntimeError ("Error setting parameter 'feastol'")
+
+        #if KTR_set_double_param_by_name(kc, "opttol", 1.0E-3):
+        #    raise RuntimeError ("Error setting parameter 'opttol'")
+
+        if KTR_set_int_param(kc, KTR_PARAM_OUTLEV, 2):
+            raise RuntimeError ("Error setting parameter 'outlev'")
+
+        #if KTR_set_int_param(kc, KTR_PARAM_ALGORITHM, 3):
+        #    raise RuntimeError ("Error setting parameter 'algorithm'")
+
+        #if KTR_set_int_param(kc, KTR_PARAM_LINSOLVER, 3):
+        #    raise RuntimeError ("Error setting parameter 'linsolver'")
+
+        if KTR_set_int_param(kc,KTR_PARAM_MAXIT,1000):
+            raise RuntimeError ("Error setting parameter 'maxit'")
+
+        #if KTR_set_int_param(kc,KTR_PARAM_MULTISTART,0):
+        #    raise RuntimeError ("Error setting parameter 'ms_enable'")
+
+        #---- INITIALIZE KNITRO WITH THE PROBLEM DEFINITION.
+        ret = KTR_init_problem (kc, n, objGoal, objType, bndsLo, bndsUp,
+                                        cType, cBndsLo, cBndsUp,
+                                        jacIxVar, jacIxConstr,
+                                        None, None,
+                                        None, None)
+        if ret:
+            raise RuntimeError ("Error initializing the problem, KNITRO status = %d" % ret)
+        
+
+        # define callbacks: 
+        
+        buff = array((l,nx+nu))
+        
+        def callbackEvalFC (evalRequestCode, n, m, nnzJ, nnzH, x, lambda_, 
+                    obj, c, objGrad, jac, hessian, hessVector, userParams):
+            if not evalRequestCode == KTR_RC_EVALFC:
+                return KTR_RC_CALLBACK_ERR
+
+            obj[0] = x[0]
+            h = x[0]
+            h = np.exp(x[0])
+            
+            tmp = np.array(x[1:1+l*(nx+nu)]).reshape(l,-1)
+            buff.set(tmp)
+            buff.newhash()
+
+            mv = np.array(x[1+l*(nx+nu):1+l*(2*nx+nu)]).reshape(l,-1)
+            
+            x,u = tmp[:,:nx], tmp[:,nx:]
+            f = (.5*h) * self.ds.f_sp(buff).get() 
+            
+            ze = -np.array(np.matrix(self.D)*np.matrix(x)).copy()
+
+            #sd = 1.0-(x[:,2:4]*x[:,2:4]).sum(1)
+            
+            c[:]= (f-ze).copy().reshape(-1).tolist() 
+
+            return 0
+
+
+        def callbackEvalGA (evalRequestCode, n, m, nnzJ, nnzH, x, lambda_, 
+                    obj, c, objGrad, jac, hessian, hessVector, userParams):
+            if not evalRequestCode == KTR_RC_EVALGA:
+                return KTR_RC_CALLBACK_ERR
+
+            objGrad[:] = [1.0]+[0.0]*(n-1)
+            dh,h = 1.0, x[0]
+            dh,h = np.exp(x[0]),np.exp(x[0])
+
+            tmp = np.array(x[1:l*(nx+nu)+1]).reshape(l,-1)
+            buff.set(tmp)
+            buff.newhash()
+
+            df = self.differentiator.diff(lambda x_: self.ds.f_sp(x_), buff)
+            f = self.ds.f_sp(buff) 
+            f,df = f.get(), df.get()
+
+            x,u = tmp[:,:nx], tmp[:,nx:]
+
+            d1 = (.5*dh) * f 
+            d2 = (.5*h) * df
+
+            wx = np.newaxis
+            tmp = np.hstack((d1[:,wx,:],d2)).copy()
+            tmp[:,1:1+nx,:] += self.ddiag[:,wx,wx]*np.eye(nx)[wx,:,:]
+
+            jac[:] = tmp.reshape(-1).tolist() + self.dnodiag_list*nx
+
+            #return KTR_RC_CALLBACK_ERR
+
+            return 0
+
+
+        if KTR_set_func_callback(kc, callbackEvalFC):
+            raise RuntimeError ("Error registering function callback.")
+
+        if KTR_set_grad_callback(kc, callbackEvalGA):
+            raise RuntimeError ("Error registering gradient callback.")
+                
+        return kc
+
+    def solve(self, start, end, hotstart=False):
+
+        nx,nu,l = self.ds.nx,self.ds.nu,self.l
+
+        # todo: set start   
+
+        # KTR_chgvarbnds
+        bndsLo = self.bndsLo
+        bndsUp = self.bndsUp
+
+        #bndsLo[0] = 0.0
+        #bndsUp[0] = 1.0
+
+        bndsLo[1:1+nx] = start.tolist()
+        bndsUp[1:1+nx] = start.tolist()
+
+        tl, tu = 1+l*(nx+nu)-(nx+nu), 1+l*(nx+nu) - nu
+        bndsLo[tl: tu] = end.tolist()
+        bndsUp[tl: tu] = end.tolist()
+        
+        #bndsLo[tl+3] = -KTR_INFBOUND
+        #bndsUp[tl+3] = KTR_INFBOUND
+
+        #bndsLo[tl+4] = -KTR_INFBOUND
+        #bndsUp[tl+4] = KTR_INFBOUND
+
+
+        KTR_chgvarbnds(self.kc, bndsLo, bndsUp)
+
+        
+        if hotstart is False:
+            x = self.init_guess(start,end,(self.nodes+1.0)/2.0)
+            trj = np.append(x,np.zeros((self.l+1,nu)),axis=1)
+
+            prev_x = [0,] + trj.reshape(-1).tolist()
             prev_l = None
         else:
             prev_x, prev_l = self.ret_x, self.ret_lambda

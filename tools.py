@@ -819,59 +819,6 @@ def cumprod(a,dm=1 ):
 
 
 
-# slow implementation
-@memoize
-def k_row_reduction(fnc,name ):
-   
-    fnc,na = parse_func(fnc)
-
-    template = Template("""
-
-    __global__ void row_reduction_{{ name }}({{ dtype }} *gs, {{ dtype }} *gd, int n ) {
-
-        int ind = blockIdx.x * blockDim.x  + threadIdx.x; 
-        {{ dtype }} *s = gs + ind*n; 
-        {{ dtype }} *d = gd + ind; 
- 
-        {{ dtype }} p;
-        {{ dtype }} *p1 = &p;
-        *p1 = *s;
-
-        for (int i=1; i<n; i++){
-        
-        {{ dtype }} *p2 = s+i;
-        {{ fnc }}; }
-
-        *d = *p1;
-    }
-    """) 
-
-    
-    tmp = template.render(fnc=fnc, name = name,  dtype=cuda_dtype)
-     
-    perm_mod = SourceModule(tmp)
-    return perm_mod.get_function("row_reduction_"+name).prepare('PPI')
-
-class row_reduction:
-    def __init__(self,fnc,name='noname'):
-        self.fnc = fnc
-        self.name = name
-
-    def __call__(self, s,d)  :
-                
-        l,k = s.shape
-        if not d.shape==(l,):
-            raise TypeError
-
-        gs,bs = grid_block_sizes(np.prod(l))
-        
-        return k_row_reduction(self.fnc, self.name).prepared_call(
-                (gs,1,1),(bs,1,1), s.gpudata, d.gpudata, np.int32(k)  )
-
-
-
-row_max = row_reduction('a = b>a ? b : a')
-row_sum = row_reduction('a += b')
 def batch_matrix_mult(a,b,c):
 
     if a.is_transposed:
@@ -949,47 +896,56 @@ def matrix_mult(a,b,c):
         c.gpudata, ldc,
         )
     
-# high level
-def numdiff(f,x0,eps=None):
-    if eps is None:
-        if cuda_dtype == 'float':
-            eps = 1e-4
-        if cuda_dtype == 'double':
-            eps = 1e-4
-
-    @memoize_closure
-    def tools_numdiff_ws(l,n,x0,eps):
-        x = array((l,n+1,n))
-        eps = to_gpu(eps*np.eye(n))[None,:,:]
-        x0b = x0[:,None,:]
-        return x[:,1:,:],x[:,0:1,:],eps,x0b
-
-    l,n = x0.shape
-        
-    x,xb,epb,x0b = tools_numdiff_ws(l,n,x0,eps)
-    
-    ufunc('a=b+e')(x,x0b,epb) 
-    ufunc('a=b')(xb,x0b) 
+# slow implementation
+@memoize
+def k_row_reduction(fnc,name ):
    
-    x.shape = (l*(n+1),n) 
-    d_ = f(x)
+    fnc,na = parse_func(fnc)
+
+    template = Template("""
+
+    __global__ void row_reduction_{{ name }}({{ dtype }} *gs, {{ dtype }} *gd, int n ) {
+
+        int ind = blockIdx.x * blockDim.x  + threadIdx.x; 
+        {{ dtype }} *s = gs + ind*n; 
+        {{ dtype }} *d = gd + ind; 
+ 
+        {{ dtype }} p;
+        {{ dtype }} *p1 = &p;
+        *p1 = *s;
+
+        for (int i=1; i<n; i++){
+        
+        {{ dtype }} *p2 = s+i;
+        {{ fnc }}; }
+
+        *d = *p1;
+    }
+    """) 
+
+    
+    tmp = template.render(fnc=fnc, name = name,  dtype=cuda_dtype)
      
+    perm_mod = SourceModule(tmp)
+    return perm_mod.get_function("row_reduction_"+name).prepare('PPI')
 
-    @memoize_closure
-    def tools_numdiff_db(l,m,n,d_): 
-        d = array((l,m))
-        dr = array((l,n,m))
-        return  d, d[:,None,:], dr,  d_[:,0:1, :], d_[:,1:, :]
+class row_reduction:
+    def __init__(self,fnc,name='noname'):
+        self.fnc = fnc
+        self.name = name
+
+    def __call__(self, s,d)  :
+                
+        l,k = s.shape
+        if not d.shape==(l,):
+            raise TypeError
+
+        gs,bs = grid_block_sizes(np.prod(l))
+        
+        return k_row_reduction(self.fnc, self.name).prepared_call(
+                (gs,1,1),(bs,1,1), s.gpudata, d.gpudata, np.int32(k)  )
 
 
-    m = d_.shape[1]
-    d_.orig_shape = d_.shape
-    d_.shape = (l,n+1,m)
-    d,d1,dr,d1_,dr_ = tools_numdiff_db(l,m,n,d_)
-    d_.shape = d_.orig_shape
 
-    ufunc('a=b')(d1,d1_ )
-    ufunc('a=(b-c)/'+str(eps)+'f')(dr,dr_, d1_) 
-
-    return d,dr
-
+row_max = row_reduction('a = b>a ? b : a')
+row_sum = row_reduction('a += b')

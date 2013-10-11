@@ -1,81 +1,7 @@
 from planning import *
 import pylab as plt
 
-class LiftedCartpole(DynamicalSystem):
-    def __init__(self):
-
-        DynamicalSystem.__init__(self,5,1, [[-10.0],[10.0]],)
-
-        self.l = .1    # pole length
-        self.mc = .7    # cart mass
-        self.mp = .325     # mass at end of pendulum
-        self.g = 9.81   # gravitational accel
-        self.umin = -10.0     # action bounds
-        self.umax = 10.0
-
-        tpl = Template(
-            """
-            // p1 : state
-            // p2 : controls
-            // p3 : state_derivative
-        
-            {{ dtype }} td = *p1;
-            {{ dtype }} xd = *(p1+1);
-            {{ dtype }} c  = *(p1+2);
-            {{ dtype }} s  = *(p1+3);
-            //{{ dtype }} x  = *(p1+4);
-            {{ dtype }} u  = *p2;
-            
-            //u = fmin({{ umax }}f, fmax({{ umin }}f, u) );
-
-
-            {{ dtype }} *tdd = p3+0;
-            {{ dtype }} *xdd = p3+1; 
-            {{ dtype }} *cd  = p3+2;
-            {{ dtype }} *sd  = p3+3;
-            {{ dtype }} *xd_  = p3+4; 
-        
-            //{{ dtype }} nrm = sqrt(cu*cu + su*su);
-            //{{ dtype }} c = cu/nrm;
-            //{{ dtype }} s = su/nrm;
-
-            *xd_ = xd;
-            *cd  = -s*td; 
-            *sd  = c*td; 
-
-            {{ dtype }} tmp = 1.0/({{ mc }}+{{ mp }}*s*s);
-
-            *tdd = (u *c - {{ mp * l }}* td*td * s*c + {{ (mc+mp) *g }}*s) *{{ 1.0/l }}*tmp ;
-            *xdd = (u - {{ mp * l}}*s*td*td +{{ mp*g }}*c*s )*tmp; 
-
-            """
-            )
-        fn = tpl.render(
-                l=self.l,
-                mc=self.mc,
-                mp=self.mp,
-                g = self.g,
-                umin = self.umin,
-                umax = self.umax,
-                dtype = cuda_dtype)
-
-        self.k_f = rowwise(fn,'cartpole')
-
-    @memoize
-    def f(self,x,u):
-
-        @memoize_closure
-        def cartpole_f_ws(l,n):
-            return array((l,n))    
-        
-        l = x.shape[0]
-        y = cartpole_f_ws(l,self.nx)
-        
-        self.k_f(x,u,y)
-        
-        return y
-
-class FlattenedCartpole(DynamicalSystem):
+class Cartpole(DynamicalSystem):
     def __init__(self):
 
         DynamicalSystem.__init__(self,4,1, [[-10.0],[10.0]],)
@@ -142,7 +68,6 @@ class FlattenedCartpole(DynamicalSystem):
         
         return y
 
-Cartpole = FlattenedCartpole
 class OptimisticCartpole(OptimisticDynamicalSystem):
     def __init__(self,pred,**kwargs):
 

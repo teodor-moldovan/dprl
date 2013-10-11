@@ -448,57 +448,6 @@ class TestsTools(unittest.TestCase):
         np.testing.assert_almost_equal( e.get(),rs,3)
 
 
-    def test_nufmdiff(self):
-        l,m,n = 11*8, 32,28
-
-        
-        np.random.seed(1)
-        xn = np.random.normal(size=l*n).reshape(l,n)
-        an = np.random.normal(size=m*n).reshape(m,n)
-        
-        x = to_gpu(xn)
-
-        tpl = Template(
-        """
-        {{ dtype }} s=0;
-        
-        {% for i in rm %}s=0;
-        {% for j in rn %}s += *(p1 + {{ j }})*{{ an[i][j] }};
-        {% endfor %}
-        *(p2+{{ i }}) = s;{% endfor %}
-
-        """
-        ).render(rm=range(m),rn=range(n),an=an, dtype = cuda_dtype)
-
-        f_k = rowwise(tpl)
-
-        
-        def f(y):
-            @memoize_closure
-            def test_num_diff_f_ws(l,m):
-                return array((l,m))
-            d = test_num_diff_f_ws(y.shape[0],m) 
-            f_k(y,d)
-            return d
-
-        x.newhash()    
-        d,df = numdiff(f,x,eps=1e-2) 
-        x.newhash()    
-        d,df = numdiff(f,x,eps=1e-2)
-        x.newhash()    
-        d,df = numdiff(f,x,eps=1e-2)
-        x.newhash()    
-        d,df = numdiff(f,x,eps=1e-2)
-
-        x.newhash()    
-        t = tic()
-        d,df = numdiff(f,x,eps=1e-2)
-        toc(t)
-
-        np.testing.assert_array_almost_equal(df.get()[0], an.T,4)
-        
-        
-
 class TestsClustering(unittest.TestCase):
     def test_niw_ss(self):
         l,m = 32*8*11, 32
@@ -1155,6 +1104,7 @@ class TestsCartpole(unittest.TestCase):
         c = Cartpole()
         
         np.random.seed(1)
+
         xn = np.random.random(size=l*(c.nx)).reshape(l,c.nx)
         x = to_gpu(xn)
 
@@ -1290,61 +1240,103 @@ class TestsCartpole(unittest.TestCase):
         
 
 
-    def test_lifted_f(self):
-        l = 32*11*8
-        c = LiftedCartpole()
+class TestsPP(unittest.TestCase):
+    def test_numdiff(self):
+        l,m,n = 11*8, 32,28
+
+        num = NumDiff()
         
         np.random.seed(1)
-        xn = np.random.random(size=l*(c.nx)).reshape(l,c.nx)
+        xn = np.random.normal(size=l*n).reshape(l,n)
+        an = np.random.normal(size=m*n).reshape(m,n)
+        
         x = to_gpu(xn)
 
-        un = np.random.random(size=l*(c.nu)).reshape(l,c.nu)
-        u = to_gpu(un)
+        tpl = Template(
+        """
+        {{ dtype }} s=0;
         
-        
-        c.f(x,u)
-        c.f(x,u)
+        {% for i in rm %}s=0;
+        {% for j in rn %}s += *(p1 + {{ j }})*{{ an[i][j] }};
+        {% endfor %}
+        *(p2+{{ i }}) = s;{% endfor %}
 
+        """
+        ).render(rm=range(m),rn=range(n),an=an, dtype = cuda_dtype)
+
+        f_k = rowwise(tpl)
+
+        
+        def f(y):
+            @memoize_closure
+            def test_num_diff_f_ws(l,m):
+                return array((l,m))
+            d = test_num_diff_f_ws(y.shape[0],m) 
+            f_k(y,d)
+            return d
+
+        x.newhash()    
+        d,df = num.diff(f,x) 
+        x.newhash()    
+        d,df = num.diff(f,x)
+        x.newhash()    
+        d,df = num.diff(f,x)
+        x.newhash()    
+        d,df = num.diff(f,x)
+
+        x.newhash()    
         t = tic()
-        x.newhash()
-        c.f(x,u)
+        d,df = num.diff(f,x)
         toc(t)
+
+        np.testing.assert_array_almost_equal(df.get()[0], an.T,4)
         
         
-         
-         
-    def test_int_lifted(self):
-        h = .91
-        l = 20
-        dt = h/l
-        c = LiftedCartpole()
+
+    def test_numdiff_central(self):
+        l,m,n = 11, 32,28
+
+        num = NumDiffCentral()
         
-        #np.random.seed(1)
-        x = to_gpu(np.array((0,0,np.cos(np.pi/4), np.sin(np.pi/4),0)))
-
-        un = 0*np.random.normal(size=l*(c.nu)).reshape(l,c.nu)
-        u = to_gpu(un)
+        np.random.seed(1)
+        xn = np.random.normal(size=l*n).reshape(l,n)
+        an = np.random.normal(size=m*n).reshape(m,n)
         
-        hn = np.log(dt)*np.ones(l).reshape(l,1)
-        h = to_gpu(hn)
-        r = np.insert(c.integrate(x,u,h), 0,x.get(),axis=0)
+        x = to_gpu(xn)
+
+        tpl = Template(
+        """
+        {{ dtype }} s=0;
         
-        np.testing.assert_array_less( 
-                np.abs((r[:,2:4]* r[:,2:4]).sum(1)-1.0), 1e-1)
+        {% for i in rm %}s=0;
+        {% for j in rn %}s += *(p1 + {{ j }})*{{ an[i][j] }};
+        {% endfor %}
+        *(p2+{{ i }}) = s;{% endfor %}
 
-        plt.plot(r[:,1], r[:,4])
-        plt.show()
+        """
+        ).render(rm=range(m),rn=range(n),an=an, dtype = cuda_dtype)
 
-         
-         
-class TestsPP(unittest.TestCase):
-    def test_ms_knitro(self):
+        f_k = rowwise(tpl)
 
-        pp = KnitroPlanner(Cartpole(),50)
-        x = pp.solve(np.array([0,0,np.pi,0]), np.array([0,0,0,0]))
-        print x[5::5]
+        
+        def f(y):
+            @memoize_closure
+            def test_num_diff_f_ws(l,m):
+                return array((l,m))
+            d = test_num_diff_f_ws(y.shape[0],m) 
+            f_k(y,d)
+            return d
 
-        #pp.solve(np.array([0,0,np.pi*.8,0]), np.array([0,0,0,0]),hotstart=True)
+
+        df = num.diff(f,x)
+        
+        x.newhash()
+        t = tic()
+        df = num.diff(f,x)
+        toc(t)
+
+        np.testing.assert_array_almost_equal(df.get()[0], an.T,10)
+        
         
 
     def test_loaded_knitro(self): 
@@ -1415,54 +1407,29 @@ class TestsPP(unittest.TestCase):
 
     def test_col(self):
 
-        pp = CollocationPlanner(Cartpole(),15)
+        pp = CollocationPlannerSimple(Cartpole(),15)
         start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
         pp.solve(start,end)
 
-    def test_loaded(self): 
+    def test_cartpole(self): 
 
-        #ds = OptimisticCartpole(Predictor(Mixture.from_file('../../data/cartpole/batch_vdp.npy')))
+        ds = OptimisticCartpole(Predictor(Mixture.from_file('../../data/cartpole/batch_vdp.npy')))
 
-        ds = Cartpole()
+        #ds = Cartpole()
 
         #pp = CvxgenPlanner(ds,50)
         #pp = KnitroPlanner(ds,50)
         pp = CollocationPlanner(ds,15)
 
         #pp.solve(np.array([0,0,np.pi,0]), np.array([0,0,0,0]))
-        #pp.solve(np.array([0,0,np.pi*.9,0]), np.array([0,0,0,0]))
-        #pp.solve(np.array([0,0,np.pi*.4,0]), np.array([0,0,0,0]))
-        #pp.solve(np.array([0,0,np.pi*.1,0]), np.array([0,0,0,0]))
-        #pp.solve(np.array([0,0,np.pi*.01,0]), np.array([0,0,0,0]))
+        #pp.solve(np.array([0,0,np.pi*1.1,0]), np.array([0,0,0,0]))
+        #pp.solve(np.array([0,0,np.pi*.4,0]), np.array([0,0,2*np.pi,0]))
+        #pp.solve(np.array([0,0,np.pi*.1,0]), np.array([0,0,2*np.pi,0]))
+        pp.solve(np.array([0,0,-np.pi*.01,0]), np.array([0,0,0,0]))
         
-
-    def test_col_lifted(self):
-
-        pp = CollocationPlanner(LiftedCartpole(),15) 
-        
-        thi = np.pi
-        thf = 0.0
-
-        def init(a,b,t=None):
-            nt = pp.l+1
-            if t is None:
-                t = np.linspace(0,1.0,nt)
-        
-            tmp = pp.min_acc_traj(np.array([0,thi]), np.array([0,thf]), t)
-            
-            rt = np.zeros((t.shape[0],pp.ds.nx))
-            rt[:,2],rt[:,3] = np.cos(tmp[:,1]), np.sin(tmp[:,1])
-            rt[:,0] = tmp[:,0]
-            return rt
-
-        pp.init_guess = init
-
-        start = np.array([0,0,np.cos(thi),np.sin(thi),0])
-        end   = np.array([0,0,np.cos(thf),np.sin(thf),0])
-        pp.solve(start,end)
 
 if __name__ == '__main__':
-    single_test = 'test_col_lifted'
+    single_test = 'test_cartpole'
     tests = TestsPP
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
