@@ -1,6 +1,7 @@
 import unittest
 from clustering import *
 from cartpole import *
+from heli import *
 import time
 import scipy.linalg
 import scipy.special
@@ -1240,6 +1241,65 @@ class TestsCartpole(unittest.TestCase):
         
 
 
+    def test_pp(self):
+
+        pp = CollocationPlanner(Cartpole(),15)
+        start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
+        pp.solve(start,end)
+
+class TestsHeli(unittest.TestCase):
+    def test_f(self):
+        l = 11*8
+        c = Heli()
+        
+        np.random.seed(1)
+
+        xn = np.random.random(size=l*(c.nx)).reshape(l,c.nx)
+        x = to_gpu(xn)
+
+        un = np.random.random(size=l*(c.nu)).reshape(l,c.nu)
+        u = to_gpu(un)
+        
+        rs = c.f(x,u)
+        
+        x.newhash()
+        t = tic()
+        c.f(x,u)
+        toc(t)
+
+        st = np.zeros((1,12))
+        st[0,0] = 1
+        st[0,6] = 1
+        st = to_gpu(st)
+        u = to_gpu(np.zeros((1,4)))
+        
+        rs_ = c.f(st,u).get()[0]
+
+        
+        st = np.zeros((1,12))
+        st[0,0] = 1
+        st = to_gpu(st)
+        u = to_gpu(np.zeros((1,4)))
+        
+        rs = c.f(st,u).get()[0]
+        
+        np.testing.assert_almost_equal( rs,rs_)
+
+
+         
+         
+    def test_pp(self):
+
+        pp = CollocationPlanner(Heli(),15)
+        start,end = np.zeros(12), np.zeros(12)
+        #start[3:6]  = .1*np.random.normal(size=3)
+        #end[6:9] = np.pi*np.array([0,0,1])
+        end[9:12] = np.array([0,1,1])
+        print start
+        print end
+        
+        pp.solve(start,end)
+
 class TestsPP(unittest.TestCase):
     def test_numdiff(self):
         l,m,n = 11*8, 32,28
@@ -1407,7 +1467,7 @@ class TestsPP(unittest.TestCase):
 
     def test_col(self):
 
-        pp = CollocationPlannerSimple(Cartpole(),15)
+        pp = CollocationPlanner(Cartpole(),15)
         start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
         pp.solve(start,end)
 
@@ -1423,14 +1483,14 @@ class TestsPP(unittest.TestCase):
 
         #pp.solve(np.array([0,0,np.pi,0]), np.array([0,0,0,0]))
         #pp.solve(np.array([0,0,np.pi*1.1,0]), np.array([0,0,0,0]))
-        #pp.solve(np.array([0,0,np.pi*.4,0]), np.array([0,0,2*np.pi,0]))
+        pp.solve(np.array([0,0,np.pi*.4,0]), np.array([0,0,2*np.pi,0]))
         #pp.solve(np.array([0,0,np.pi*.1,0]), np.array([0,0,2*np.pi,0]))
-        pp.solve(np.array([0,0,-np.pi*.01,0]), np.array([0,0,0,0]))
+        #pp.solve(np.array([0,0,-np.pi*.01,0]), np.array([0,0,0,0]))
         
 
 if __name__ == '__main__':
-    single_test = 'test_cartpole'
-    tests = TestsPP
+    single_test = 'test_pp'
+    tests = TestsHeli
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))

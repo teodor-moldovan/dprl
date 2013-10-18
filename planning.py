@@ -1,9 +1,7 @@
 from tools import *
 from knitro import *
 import numpy.polynomial.legendre as legendre
-
 import pylab as plt
-import scipy.sparse
 
 class RK4(object):
     def batch_integrate(self,fnc, y0,h): 
@@ -335,6 +333,7 @@ class DynamicalSystem(object):
         return self.f(y_,u_)
 
 
+
 class OptimisticDynamicalSystem(DynamicalSystem):
     def __init__(self,nx,nu,control_bounds, 
             nxi, pred, xi_bound = 1.0, **kwargs):
@@ -365,6 +364,21 @@ class OptimisticDynamicalSystem(DynamicalSystem):
         y = self.predictor.predict(x0,xi)
         return self.f_with_prediction(x,y,u)
         
+class Simulation(object):
+    def __init__(self, ds, policy, integrator, init_state, dt):
+        pass
+
+    def step(self):
+        pass
+
+class Policy(object):
+    def __init__(self):
+        pass
+    
+    def f(self,x,t):
+        pass
+
+
 class Planner(object):
     def __init__(self, ds,l):
         """ initialize planner for dynamical system"""
@@ -372,7 +386,7 @@ class Planner(object):
         self.l=l
 
     def min_acc_traj(self,a,b,t=None):
-        nt = self.l+1
+        nt = self.l
         if t is None:
             t = np.linspace(0,1.0,nt)
         d = a.size/2
@@ -399,7 +413,7 @@ class Planner(object):
 
     def interp_traj(self,a,b,t=None):
 
-        nt = self.l+1
+        nt = self.l
         if t is None:
             t = np.linspace(0,1.0,nt)
         
@@ -832,265 +846,7 @@ class CollocationPlanner(Planner):
     def poly_approx(self):
         """ LGL """
         
-        n = self.l
-        L = legendre.Legendre.basis(n)
-        tau= np.hstack(([-1.0],L.deriv().roots(), [1.0]))
-
-        vs = L(tau)
-        dn = ( tau[:,np.newaxis] - tau[np.newaxis,:] )
-        dn[dn ==0 ] = float('inf')
-
-        D = -vs[:,np.newaxis] / vs[np.newaxis,:] / dn
-        D[0,0] = n*(n+1)/4.0
-        D[-1,-1] = -n*(n+1)/4.0
-
-        return D,tau
-        
-
-    def prep_solver(self):
-        nx,nu,l = self.ds.nx,self.ds.nu,self.l+1
-        n = l* (2*nx+nu) + 1
-        m = 2*l*nx #+ l
-        
-        self.ret_x = [0,]*n
-        self.ret_lambda = [0,]*(n+m)
-        self.ret_obj = [0,]
-
-        objGoal = KTR_OBJGOAL_MINIMIZE
-        objType = KTR_OBJTYPE_LINEAR;
-
-        mi =  [ -KTR_INFBOUND,]
-        bndsLo = mi + (mi*nx + self.ds.control_bounds[0])*l + mi*nx*l
-        mi =  [ KTR_INFBOUND,]
-        bndsUp = mi + (mi*nx + self.ds.control_bounds[1])*l + mi*nx*l
-
-        self.bndsLo = bndsLo
-        self.bndsUp = bndsUp
-
-
-        cType = [ KTR_CONTYPE_GENERAL ]*l*nx + [KTR_CONTYPE_LINEAR]*l*nx #+ [ KTR_CONTYPE_GENERAL ]*l
-        cBndsLo = [ 0.0 ]*m
-        cBndsUp = [ 0.0 ]*m
-
-
-        ji1 = [(v,c) 
-                    for t in range(l)
-                    for v in [0,]+range(1+t*(nx+nu),1+ (t+1)*(nx+nu))
-                    for c in range(t*nx, (t+1)*nx)
-                     ]
-
-        ji2 = [( 1 + l*(nx+nu) + t*nx + i , t*nx+i ) 
-                    for t in range(l)
-                    for i in range(nx)
-                     ]
-
-        ji3 = [(1 + tv*(nx+nu)+i , i + tc*nx +l*nx) 
-                    for i in range(nx)
-                    for tc in range(l)
-                    for tv in range(l)
-                     ]
-
-        ji4 = [( 1 + l*(nx+nu) + t*nx + i , t*nx+i + l*nx ) 
-                    for t in range(l)
-                    for i in range(nx)
-                     ]
-
-        n1,n2,n3,n4 = len(ji1), len(ji2), len(ji3), len(ji4)
-        s1,s2,s3,s4,s5 = 0,n1,n1+n2,n1+n2+n3, n1+n2+n3+n4
-
-        jacIxVar, jacIxConstr = zip(*(ji1+ji2+ji3+ji4))
-
-        #jacIxVar,jacIxConstr= zip(*[(i,j) for i in range(n) for j in range(m)])
-        
-
-        #---- CREATE A NEW KNITRO SOLVER INSTANCE.
-        kc = KTR_new()
-        if kc == None:
-            raise RuntimeError ("Failed to find a Ziena license.")
-
-        #---- DEMONSTRATE HOW TO SET KNITRO PARAMETERS.
-
-        if KTR_set_int_param_by_name(kc, "hessopt", 2):
-            raise RuntimeError ("Error setting parameter 'hessopt'")
-
-        if KTR_set_int_param_by_name(kc, "gradopt", KTR_GRADOPT_EXACT):
-            raise RuntimeError ("Error setting parameter 'gradopt'")
-
-        #if KTR_set_double_param_by_name(kc, "feastol", 1.0E-4):
-        #    raise RuntimeError ("Error setting parameter 'feastol'")
-
-        #if KTR_set_double_param_by_name(kc, "opttol", 1.0E-3):
-        #    raise RuntimeError ("Error setting parameter 'opttol'")
-
-        if KTR_set_int_param(kc, KTR_PARAM_OUTLEV, 2):
-            raise RuntimeError ("Error setting parameter 'outlev'")
-
-        #if KTR_set_int_param(kc, KTR_PARAM_ALGORITHM, 3):
-        #    raise RuntimeError ("Error setting parameter 'algorithm'")
-
-        #if KTR_set_int_param(kc, KTR_PARAM_LINSOLVER, 3):
-        #    raise RuntimeError ("Error setting parameter 'linsolver'")
-
-        if KTR_set_int_param(kc,KTR_PARAM_MAXIT,1000):
-            raise RuntimeError ("Error setting parameter 'maxit'")
-
-        #if KTR_set_int_param(kc,KTR_PARAM_MULTISTART,0):
-        #    raise RuntimeError ("Error setting parameter 'ms_enable'")
-
-        #---- INITIALIZE KNITRO WITH THE PROBLEM DEFINITION.
-        ret = KTR_init_problem (kc, n, objGoal, objType, bndsLo, bndsUp,
-                                        cType, cBndsLo, cBndsUp,
-                                        jacIxVar, jacIxConstr,
-                                        None, None,
-                                        None, None)
-        if ret:
-            raise RuntimeError ("Error initializing the problem, KNITRO status = %d" % ret)
-        
-
-        # define callbacks: 
-        
-        buff = array((l,nx+nu))
-        
-        def callbackEvalFC (evalRequestCode, n, m, nnzJ, nnzH, x, lambda_, 
-                    obj, c, objGrad, jac, hessian, hessVector, userParams):
-            if not evalRequestCode == KTR_RC_EVALFC:
-                return KTR_RC_CALLBACK_ERR
-
-            obj[0] = x[0]
-            h = x[0]
-            h = np.exp(x[0])
-            
-            tmp = np.array(x[1:1+l*(nx+nu)]).reshape(l,-1)
-            buff.set(tmp)
-            buff.newhash()
-
-            mv = np.array(x[1+l*(nx+nu):1+l*(2*nx+nu)]).reshape(l,-1)
-            
-            x,u = tmp[:,:nx], tmp[:,nx:]
-            f = (.5*h) * self.ds.f_sp(buff).get() 
-            
-            ze = -np.array(np.matrix(self.D)*np.matrix(x)).copy()
-
-            #sd = 1.0-(x[:,2:4]*x[:,2:4]).sum(1)
-            
-            c[:]= (f-mv).copy().reshape(-1).tolist() + (ze-mv).copy().reshape(-1).tolist() #+ sd.reshape(-1) .tolist()
-
-            return 0
-
-
-        def callbackEvalGA (evalRequestCode, n, m, nnzJ, nnzH, x, lambda_, 
-                    obj, c, objGrad, jac, hessian, hessVector, userParams):
-            if not evalRequestCode == KTR_RC_EVALGA:
-                return KTR_RC_CALLBACK_ERR
-
-            objGrad[:] = [1.0]+[0.0]*(n-1)
-            dh,h = 1.0, x[0]
-            dh,h = np.exp(x[0]),np.exp(x[0])
-
-            tmp = np.array(x[1:l*(nx+nu)+1]).reshape(l,-1)
-            buff.set(tmp)
-            buff.newhash()
-
-            df = self.differentiator.diff(lambda x_: self.ds.f_sp(x_), buff)
-            f = self.ds.f_sp(buff) 
-            f,df = f.get(), df.get()
-
-            x,u = tmp[:,:nx], tmp[:,nx:]
-
-            d1 = (.5*dh) * f 
-            d2 = (.5*h) * df
-
-            tmp = np.hstack((d1[:,np.newaxis,:],d2)).copy()
-
-            jac[s1:s2] = tmp.reshape(-1).tolist()
-            jac[s2:s3] = [-1.0]*n2
-            jac[s4:s5] = [-1.0]*n4
-            jac[s3:s4] = (-self.D).reshape(-1).tolist()*nx
-
-            #return KTR_RC_CALLBACK_ERR
-
-            return 0
-
-
-        if KTR_set_func_callback(kc, callbackEvalFC):
-            raise RuntimeError ("Error registering function callback.")
-
-        if KTR_set_grad_callback(kc, callbackEvalGA):
-            raise RuntimeError ("Error registering gradient callback.")
-                
-        return kc
-
-    def solve(self, start, end, hotstart=False):
-
-        nx,nu,l = self.ds.nx,self.ds.nu,self.l
-
-        # todo: set start   
-
-        # KTR_chgvarbnds
-        bndsLo = self.bndsLo
-        bndsUp = self.bndsUp
-
-        #bndsLo[0] = 0.0
-        #bndsUp[0] = 1.0
-
-        bndsLo[1:1+nx] = start.tolist()
-        bndsUp[1:1+nx] = start.tolist()
-
-        tl, tu = 1+l*(nx+nu)-(nx+nu), 1+l*(nx+nu) - nu
-        bndsLo[tl: tu] = end.tolist()
-        bndsUp[tl: tu] = end.tolist()
-        
-        #bndsLo[tl+3] = -KTR_INFBOUND
-        #bndsUp[tl+3] = KTR_INFBOUND
-
-        #bndsLo[tl+4] = -KTR_INFBOUND
-        #bndsUp[tl+4] = KTR_INFBOUND
-
-
-        KTR_chgvarbnds(self.kc, bndsLo, bndsUp)
-
-        
-        if hotstart is False:
-            x = self.init_guess(start,end,(self.nodes+1.0)/2.0)
-            trj = np.append(x,np.zeros((self.l+1,nu)),axis=1)
-
-            ze = -np.array(np.matrix(self.D)*np.matrix(x))
-
-            prev_x = [0,] + trj.reshape(-1).tolist()+ze.reshape(-1).tolist() 
-            prev_l = None
-        else:
-            prev_x, prev_l = self.ret_x, self.ret_lambda
-
-        KTR_restart(self.kc,prev_x,prev_l)
-
-        # KTR_solve
-        #nStatus = KTR_check_first_ders (self.kc, self.ret_x, 2, 1e-6, 1e-6, 0, 0.0, None,None,None,None);
-
-        nStatus = KTR_solve (self.kc, self.ret_x, self.ret_lambda, 0, 
-                self.ret_obj, None, None, None, None, None, None)
-        
-        #xu = np.array(self.ret_x[1:1+l*(nx+nu)]).reshape(l,-1)
-        #print xu[:,:nx]
-        #print (xu[:,2:4]*xu[:,2:4]).sum(1)
-        #print xu[:,nx:]
-        return self.ret_x
-        
-
-
-class CollocationPlannerSimple(Planner):
-    def __init__(self,*args):
-        Planner.__init__(self,*args)
-        self.differentiator = NumDiffCentral()
-        self.D,self.nodes = self.poly_approx()
-        self.kc = self.prep_solver() 
-
-    def __del__(self):
-        KTR_free(self.kc)
-
-    def poly_approx(self):
-        """ LGL """
-        
-        n = self.l
+        n = self.l-1
         L = legendre.Legendre.basis(n)
         tau= np.hstack(([-1.0],L.deriv().roots(), [1.0]))
 
@@ -1109,7 +865,7 @@ class CollocationPlannerSimple(Planner):
         
 
     def prep_solver(self):
-        nx,nu,l = self.ds.nx,self.ds.nu,self.l+1
+        nx,nu,l = self.ds.nx,self.ds.nu,self.l
         n = l* (nx+nu) + 1
         m = l*nx #+ l
         
@@ -1128,8 +884,7 @@ class CollocationPlannerSimple(Planner):
         self.bndsLo = bndsLo
         self.bndsUp = bndsUp
 
-
-        cType = [ KTR_CONTYPE_GENERAL ]*l*nx
+        cType   = [ KTR_CONTYPE_GENERAL ]*l*nx
         cBndsLo = [ 0.0 ]*m
         cBndsUp = [ 0.0 ]*m
 
@@ -1137,14 +892,14 @@ class CollocationPlannerSimple(Planner):
                     for t in range(l)
                     for v in [0,]+range(1+t*(nx+nu),1+ (t+1)*(nx+nu))
                     for c in range(t*nx, (t+1)*nx)
-                     ]
+              ]
 
         ji2 = [(1 + tv*(nx+nu)+i , i + tc*nx ) 
                     for i in range(nx)
                     for tc in range(l)
                     for tv in range(l)
                     if tc != tv
-                     ]
+              ]
 
         jacIxVar, jacIxConstr = zip(*(ji1+ji2))
 
@@ -1159,7 +914,7 @@ class CollocationPlannerSimple(Planner):
 
         #---- DEMONSTRATE HOW TO SET KNITRO PARAMETERS.
 
-        if KTR_set_int_param_by_name(kc, "hessopt", 2):
+        if KTR_set_int_param_by_name(kc, "hessopt", 3):
             raise RuntimeError ("Error setting parameter 'hessopt'")
 
         if KTR_set_int_param_by_name(kc, "gradopt", KTR_GRADOPT_EXACT):
@@ -1180,8 +935,8 @@ class CollocationPlannerSimple(Planner):
         #if KTR_set_int_param(kc, KTR_PARAM_LINSOLVER, 3):
         #    raise RuntimeError ("Error setting parameter 'linsolver'")
 
-        if KTR_set_int_param(kc,KTR_PARAM_MAXIT,1000):
-            raise RuntimeError ("Error setting parameter 'maxit'")
+        #if KTR_set_int_param(kc,KTR_PARAM_MAXIT,1000):
+        #    raise RuntimeError ("Error setting parameter 'maxit'")
 
         #if KTR_set_int_param(kc,KTR_PARAM_MULTISTART,0):
         #    raise RuntimeError ("Error setting parameter 'ms_enable'")
@@ -1220,8 +975,6 @@ class CollocationPlannerSimple(Planner):
             
             ze = -np.array(np.matrix(self.D)*np.matrix(x)).copy()
 
-            #sd = 1.0-(x[:,2:4]*x[:,2:4]).sum(1)
-            
             c[:]= (f-ze).copy().reshape(-1).tolist() 
 
             return 0
@@ -1278,29 +1031,18 @@ class CollocationPlannerSimple(Planner):
         bndsLo = self.bndsLo
         bndsUp = self.bndsUp
 
-        #bndsLo[0] = 0.0
-        #bndsUp[0] = 1.0
-
         bndsLo[1:1+nx] = start.tolist()
         bndsUp[1:1+nx] = start.tolist()
 
         tl, tu = 1+l*(nx+nu)-(nx+nu), 1+l*(nx+nu) - nu
         bndsLo[tl: tu] = end.tolist()
         bndsUp[tl: tu] = end.tolist()
-        
-        #bndsLo[tl+3] = -KTR_INFBOUND
-        #bndsUp[tl+3] = KTR_INFBOUND
-
-        #bndsLo[tl+4] = -KTR_INFBOUND
-        #bndsUp[tl+4] = KTR_INFBOUND
-
 
         KTR_chgvarbnds(self.kc, bndsLo, bndsUp)
-
         
         if hotstart is False:
             x = self.init_guess(start,end,(self.nodes+1.0)/2.0)
-            trj = np.append(x,np.zeros((self.l+1,nu)),axis=1)
+            trj = np.append(x,np.zeros((self.l,nu)),axis=1)
 
             prev_x = [0,] + trj.reshape(-1).tolist()
             prev_l = None

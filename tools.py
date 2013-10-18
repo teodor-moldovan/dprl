@@ -580,6 +580,8 @@ def k_rowwise(fnc,nds,name):
     
     template = Template("""
 
+    {{ fnc }} 
+
     __global__ void rowwise_{{ name }}(
         {% for i in nds %} {{ dtype }} *g{{ loop.index }}{% if not loop.last%},{% endif %}{% endfor %} 
         ) {
@@ -590,14 +592,15 @@ def k_rowwise(fnc,nds,name):
         {% for n in nds %}
         {{ dtype }} *p{{ loop.index }} = g{{ loop.index }} + ind* {{ n }};{% endfor %} 
 
-        {{ fnc }} 
+    f({% for i in nds %} p{{ loop.index }}{% if not loop.last%},{% endif %}{% endfor %} );
+
     }
 
     """) 
 
     
     tmp = template.render(name=name,nds=nds,fnc=fnc,  dtype=cuda_dtype)
-    
+
     perm_mod = SourceModule(tmp)
     return perm_mod.get_function("rowwise_"+name).prepare('P'*len(nds))
 

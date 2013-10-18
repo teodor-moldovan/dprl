@@ -14,34 +14,32 @@ class Cartpole(DynamicalSystem):
         self.umax = 10.0
 
         tpl = Template(
-            """
-            // p1 : state
-            // p2 : controls
-            // p3 : state_derivative
+        """
+        __device__ void f(
+                {{ dtype }} y[],
+                {{ dtype }} us[], 
+                {{ dtype }} yd[]){
+
+        {{ dtype }} td = y[0];
+        {{ dtype }} xd = y[1];
+        {{ dtype }} u = us[0];
         
-            {{ dtype }} td = *p1;
-            {{ dtype }} xd = *(p1+1);
-            {{ dtype }} u = *p2;
-            
-            //u = fmin({{ umax }}f, fmax({{ umin }}f, u) );
+        {{ dtype }} s = sinf(y[2]);
+        {{ dtype }} c = cosf(y[2]);
+        
+        yd[2] = td;
+        yd[3] = xd;
 
-            {{ dtype }} s = sinf(*(p1+2));
-            {{ dtype }} c = cosf(*(p1+2));
-            
-            *(p3+2) = td;
-            *(p3+3) = xd;
+        {{ dtype }} tmp = 1.0/({{ mc }}+{{ mp }}*s*s);
+        yd[0] = (u *c - {{ mp * l }}* td*td * s*c + {{ (mc+mp) *g }}*s) 
+                *{{ 1.0/l }}*tmp;
+         
+        yd[1] = (u - {{ mp * l}}*s*td*td +{{ mp*g }}*c*s )*tmp; 
 
-            {{ dtype }} *tdd = p3;
-            {{ dtype }} *xdd = p3+1; 
-            
-            {{ dtype }} tmp = 1.0/({{ mc }}+{{ mp }}*s*s);
-            *tdd = (u *c - {{ mp * l }}* td*td * s*c + {{ (mc+mp) *g }}*s) 
-                    *{{ 1.0/l }}*tmp;
-             
-            *xdd = (u - {{ mp * l}}*s*td*td +{{ mp*g }}*c*s )*tmp; 
+        }
+        """
+        )
 
-            """
-            )
         fn = tpl.render(
                 l=self.l,
                 mc=self.mc,
@@ -76,6 +74,14 @@ class OptimisticCartpole(OptimisticDynamicalSystem):
 
         tpl = Template(
             """
+        __device__ void f(
+                {{ dtype }} *p1,
+                {{ dtype }} *p2, 
+                {{ dtype }} *p3,
+                {{ dtype }} *p4
+                ){
+
+
             // p1 : state
             // p2 : controls
             // p3 : input state to predictor
@@ -87,6 +93,7 @@ class OptimisticCartpole(OptimisticDynamicalSystem):
 
             *p4 = *(p2+1);
             *(p4+1) = *(p2+2);
+            }
             
             """
             )
@@ -94,7 +101,14 @@ class OptimisticCartpole(OptimisticDynamicalSystem):
         self.k_pred_in = rowwise(fn,'opt_cartpole_pred_in')
 
         tpl = Template(
-            """
+        """
+        __device__ void f(
+                {{ dtype }} *p1,
+                {{ dtype }} *p2, 
+                {{ dtype }} *p3,
+                {{ dtype }} *p4
+                ){
+
             // p1 : state
             // p2 : predictions
             // p3 : controls
@@ -104,7 +118,7 @@ class OptimisticCartpole(OptimisticDynamicalSystem):
             *(p4+1) = *(p2+1);
             *(p4+2) = *(p1);
             *(p4+3) = *(p1+1);
-            
+            } 
             """
             )
         fn = tpl.render(dtype = cuda_dtype)
