@@ -369,7 +369,7 @@ class NIW(object):
 
 
     @memoize
-    def predict(self,x,xi):
+    def predict(self,x):
         
         if x.shape[0] != self.l:
             raise TypeError
@@ -377,31 +377,23 @@ class NIW(object):
         @memoize_closure
         def niw_predict_ws(k,p,q):
             sg  = array((k,p-q,p-q))
-            out = array((k,p-q))
             r = array((k,))
             
-            return sg,out,r, r[:,None]
+            return sg,r, r[:,None,None]
 
 
-        k,p,q = x.shape[0], x.shape[1]+xi.shape[1],x.shape[1]
+        k,p,q = x.shape[0], self.p,x.shape[1]
 
-        sg,out,r,rb = niw_predict_ws(k,p,q)
+        sg,r,rb = niw_predict_ws(k,p,q)
 
         cls = self.conditional(x)
         mu,psi,n,nu = cls.mu,cls.psi,cls.n,cls.nu
 
         ufunc('a= sqrt(n*(u - '+str(p-q)+' + 1.0))')(r,n,nu)
         chol_batched(psi,sg,bd=2)
+        ufunc('a/=b')(sg,rb)
 
-        #orig_shape = xi.shape
-        #xi.shape= xi.shape +(1,)
-        #batch_matrix_mult(sg,xi,out) 
-        #xi.shape = orig_shape
-        
-        solve_triangular(sg,xi,out)
-        ufunc('a = a*c + b',name='fnl')(out,rb,mu)
-        
-        return out
+        return mu,sg
 
 class SBP(object):
     """Truncated Stick Breaking Process"""
@@ -534,7 +526,7 @@ class Mixture(object):
 
 
     @memoize
-    def predict_weighted(self,x,xi):
+    def predict_weighted(self,x):
 
         @memoize_closure
         def predictor_predict_ws(k,p):
@@ -545,7 +537,7 @@ class Mixture(object):
 
 
         mix = self
-        k,p,q = x.shape[0], x.shape[1]+xi.shape[1],x.shape[1]
+        k,p,q = x.shape[0], self.p ,x.shape[1]
         
         tau_,clusters_ = predictor_predict_ws(k,p)
         tau = mix.clusters.get_nat()
@@ -556,8 +548,9 @@ class Mixture(object):
         prob = xmix.predictive_posterior_resps(x) 
 
         matrix_mult(prob,tau,tau_) 
+        clusters_.from_nat(tau_)
 
-        return clusters_.predict(x,xi)
+        return clusters_.predict(x)
 
     predict = predict_weighted
 class StreamingNIW(object):
@@ -595,7 +588,7 @@ class StreamingNIW(object):
         ufunc('a+=b')(self.ss,dss)
         self.niw.from_nat(self.ss)
 
-    def predict(self,x,xi):
+    def predict(self,x):
 
         @memoize_closure
         def predictor_predict_ws(k,p):
@@ -604,7 +597,7 @@ class StreamingNIW(object):
 
 
         mix = self
-        k,p,q = x.shape[0], x.shape[1]+xi.shape[1],x.shape[1]
+        k,p = x.shape[0], self.p
         
         clusters_ = predictor_predict_ws(k,p)
         ufunc('a=b')(clusters_.psi,self.niw.psi)
@@ -612,7 +605,7 @@ class StreamingNIW(object):
         ufunc('a=b')(clusters_.n,self.niw.n)
         ufunc('a=b')(clusters_.nu,self.niw.nu)
 
-        return clusters_.predict(x,xi)
+        return clusters_.predict(x)
 
     @property
     def p(self):

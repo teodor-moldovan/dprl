@@ -1145,6 +1145,21 @@ class TestsCartpole(unittest.TestCase):
 
     def test_loaded(self):
 
+        l = 10
+        c = OptimisticCartpole(Mixture.from_file('../../data/cartpole/batch_vdp.npy'))
+        np.random.seed(1)
+
+        xn = np.random.random(size=l*(c.nx)).reshape(l,c.nx)
+        x = to_gpu(xn)
+
+        un = np.random.random(size=l*(c.nu)).reshape(l,c.nu)
+        u = to_gpu(un)
+        
+        
+        c.f(x,u)
+
+    def test_loaded_pp(self):
+
         ds = OptimisticCartpole(Mixture.from_file('../../data/cartpole/batch_vdp.npy'))
         pp = CollocationPlanner(ds,15)
         start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
@@ -1207,20 +1222,22 @@ class TestsHeli(unittest.TestCase):
 
     def test_iter(self):
 
-        env = Heli(noise = 1e-4)
+        env = Heli(noise = 1e-5)
         model = OptimisticHeli(StreamingNIW)
         
-        traj = env.random_step(100) 
+        np.random.seed(1)
+        traj = env.random_step(50) 
         model.update(traj)
 
         end = np.zeros(12)
         end[9:12] = np.array([1,0,0])
         #end[7] = np.pi
 
-        pp = CollocationPlanner(model,15,hotstart=True)
+        pp = CollocationPlanner(model,15,hotstart=False)
 
         for t in range(1):
-            #print env.state
+            print env.state
+
             pi = pp.solve(env.state,end)
             trj = env.step(pi,int(env.h_min/env.dt))
             model.update(trj)
@@ -1252,9 +1269,9 @@ class TestsHeli(unittest.TestCase):
         np.testing.assert_almost_equal( rs.get(),rs_.get())
         
     def test_update_noisy(self):
-        l,m = 100,1
+        l,m = 50,1
 
-        env = Heli(noise=1e-2)
+        env = Heli(noise=1e-5)
         model = OptimisticHeli(StreamingNIW)        
 
         np.random.seed(1)
@@ -1265,7 +1282,7 @@ class TestsHeli(unittest.TestCase):
         xn = np.random.random(size=m*12).reshape(m,-1)
         x = to_gpu(xn)
         un = np.random.random(size=m*4).reshape(m,-1)
-        xi = 0*np.random.random(size=m*6).reshape(m,-1)
+        xi = np.random.random(size=m*6).reshape(m,-1)
         uxi = np.hstack((un,xi))
         u = to_gpu(un)
         uxi = to_gpu(uxi)
