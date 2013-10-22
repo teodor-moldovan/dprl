@@ -487,6 +487,19 @@ class TestsClustering(unittest.TestCase):
         
          
          
+    def test_niw_streaming(self):
+        l,m = 32*8*11, 32
+
+        np.random.seed(1)
+        xn = np.random.normal(size=l*m).reshape(l,m)
+
+        x = to_gpu(xn)
+        
+        s = StreamingNIW(m)
+        s.update(x)
+
+         
+         
     def test_niw_nat(self):
 
         l,p = 32*8*11,40
@@ -1096,6 +1109,7 @@ class TestsClustering(unittest.TestCase):
         xi.newhash()
         t=tic()
         d = prd.predict(x,xi)
+        print d
         toc(t)
 
 
@@ -1124,126 +1138,15 @@ class TestsCartpole(unittest.TestCase):
         
          
          
-    def test_int(self):
-        h = .91
-        l = 20
-        dt = h/l
-        c = Cartpole()
-        
-        #np.random.seed(1)
-        x = to_gpu(np.array((0,0,np.pi/4,0)))
-
-        un = 0*np.random.normal(size=l*(c.nu)).reshape(l,c.nu)
-        u = to_gpu(un)
-        
-        hn = np.log(dt)*np.ones(l).reshape(l,1)
-        h = to_gpu(hn)
-        r = np.insert(c.integrate(x,u,h), 0,x.get(),axis=0)
-
-        #plt.plot(r[:,1], r[:,3])
-        #plt.show()
-        self.assertTrue( r[-1,-1]<1e-4 )
-        
-
-         
-    def test_bint(self):
-        l = 32*11*8
-        dt = .1
-        c = Cartpole()
-        
-        np.random.seed(1)
-        xn = np.random.random(size=l*(c.nx)).reshape(l,c.nx)
-        x = to_gpu(xn)
-
-        un = np.random.random(size=l*(c.nu)).reshape(l,c.nu)
-        u = to_gpu(un)
-        
-        hn = np.log(dt)*np.ones(l).reshape(l,1)
-        h = to_gpu(hn)        
-
-        r = c.batch_integrate(x,u,h)
-        r = c.batch_integrate(x,u,h)
-        
-        x.newhash()
-        
-        tm = tic()
-        r = c.batch_integrate(x,u,h)
-        toc(tm)
-
-         
-
-    def test_blin(self):
-        l = 10
-        dt =.1
-        c = Cartpole()
-        
-        np.random.seed(1)
-
-        x = to_gpu(np.random.random(size=l*(c.nx)).reshape(l,c.nx))
-        u = to_gpu(np.random.random(size=l*(c.nu)).reshape(l,c.nu))
-        h = to_gpu(np.log(dt)*np.ones(l).reshape(l,1))
-        
-        r = c.jacobian(x,u,h)
-
-        if True:
-            r = c.jacobian(x,u,h)
-            r = c.jacobian(x,u,h)
-            r = c.jacobian(x,u,h)
-
-            t=tic()
-            a,b = c.jacobian(x,u,h)
-            toc(t) 
-        print a.shape
-        print b.shape
-             
-    def test_loaded_blin(self): 
-
-        mix = Mixture.from_file('../../data/cartpole/batch_vdp.npy')
-        ds = OptimisticCartpole(Predictor(mix))
-
-        k  = 100
-            
-        np.random.seed(3)
-        x   = to_gpu(np.random.normal(size=k*4).reshape(k,4))
-        uxi = to_gpu(0*np.random.normal(size=k*3).reshape(k,3))
-        
-        ds.f(x,uxi)         
-        ds.f(x,uxi)         
-        x.newhash()
-
-        t = tic()
-        ds.f(x,uxi)         
-        toc(t)
-
-        h = 2.91
-        dt = h/k
-        h = to_gpu(np.log(dt)*np.ones(k).reshape(k,1))
-
-        ds.jacobian(x,uxi,h)
-        ds.jacobian(x,uxi,h)
-
-        t = tic()
-        ds.jacobian(x,uxi,h)
-        toc(t)
-
-        #x = to_gpu(np.array((0,0,np.pi*(1.0/4.0),0)))
-        #u = to_gpu(0*np.random.normal(size=k*(ds.nu)).reshape(k,ds.nu))        
-
-        #h = 2.91
-        #dt = h/k
-        #h = to_gpu(np.log(dt)*np.ones(k).reshape(k,1))
-
-        #r = np.insert(ds.integrate(x,u,h), 0,x.get(),axis=0)
-
-        #plt.plot(r[:,0], r[:,2])
-        #plt.show()
-
-        
-
-
     def test_pp(self):
-
         pp = CollocationPlanner(Cartpole(),15)
+        start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
+        pp.solve(start,end)
+
+    def test_loaded(self):
+
+        ds = OptimisticCartpole(Mixture.from_file('../../data/cartpole/batch_vdp.npy'))
+        pp = CollocationPlanner(ds,15)
         start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
         pp.solve(start,end)
 
@@ -1286,9 +1189,10 @@ class TestsHeli(unittest.TestCase):
         np.testing.assert_almost_equal( rs,rs_)
 
 
+
          
          
-    def test_pp(self):
+    def test_pp(selff):
 
         pp = CollocationPlanner(Heli(),15)
         start,end = np.zeros(12), np.zeros(12)
@@ -1298,65 +1202,115 @@ class TestsHeli(unittest.TestCase):
         print start
         print end
         
-        pp.solve(start,end)
+        pi = pp.solve(start,end)
+        pi(0)
 
-class TestsPP(unittest.TestCase):
-    def test_numdiff(self):
-        l,m,n = 11*8, 32,28
+    def test_iter(self):
 
-        num = NumDiff()
+        env = Heli(noise = 1e-4)
+        model = OptimisticHeli(StreamingNIW)
         
+        traj = env.random_step(100) 
+        model.update(traj)
+
+        end = np.zeros(12)
+        end[9:12] = np.array([1,0,0])
+        #end[7] = np.pi
+
+        pp = CollocationPlanner(model,15,hotstart=True)
+
+        for t in range(1):
+            #print env.state
+            pi = pp.solve(env.state,end)
+            trj = env.step(pi,int(env.h_min/env.dt))
+            model.update(trj)
+
+            print env.state
+
+    def test_update(self):
+        l,m = 20,10
+
+        env = Heli(noise=0)
+        model = OptimisticHeli(StreamingNIW)        
+
         np.random.seed(1)
-        xn = np.random.normal(size=l*n).reshape(l,n)
-        an = np.random.normal(size=m*n).reshape(m,n)
-        
+        traj = env.random_step(l) 
+
+        model.update(traj)
+
+        xn = np.random.random(size=m*12).reshape(m,-1)
         x = to_gpu(xn)
-
-        tpl = Template(
-        """
-        {{ dtype }} s=0;
+        un = np.random.random(size=m*4).reshape(m,-1)
+        xi = 0*np.random.random(size=m*6).reshape(m,-1)
+        uxi = np.hstack((un,xi))
+        u = to_gpu(un)
+        uxi = to_gpu(uxi)
         
-        {% for i in rm %}s=0;
-        {% for j in rn %}s += *(p1 + {{ j }})*{{ an[i][j] }};
-        {% endfor %}
-        *(p2+{{ i }}) = s;{% endfor %}
-
-        """
-        ).render(rm=range(m),rn=range(n),an=an, dtype = cuda_dtype)
-
-        f_k = rowwise(tpl)
-
+        rs = model.f(x,uxi)
+        rs_ = env.f(x,u)
         
-        def f(y):
-            @memoize_closure
-            def test_num_diff_f_ws(l,m):
-                return array((l,m))
-            d = test_num_diff_f_ws(y.shape[0],m) 
-            f_k(y,d)
-            return d
-
-        x.newhash()    
-        d,df = num.diff(f,x) 
-        x.newhash()    
-        d,df = num.diff(f,x)
-        x.newhash()    
-        d,df = num.diff(f,x)
-        x.newhash()    
-        d,df = num.diff(f,x)
-
-        x.newhash()    
-        t = tic()
-        d,df = num.diff(f,x)
-        toc(t)
-
-        np.testing.assert_array_almost_equal(df.get()[0], an.T,4)
+        np.testing.assert_almost_equal( rs.get(),rs_.get())
         
-        
+    def test_update_noisy(self):
+        l,m = 100,1
 
-    def test_numdiff_central(self):
+        env = Heli(noise=1e-2)
+        model = OptimisticHeli(StreamingNIW)        
+
+        np.random.seed(1)
+        traj = env.random_step(l) 
+
+        model.update(traj)
+
+        xn = np.random.random(size=m*12).reshape(m,-1)
+        x = to_gpu(xn)
+        un = np.random.random(size=m*4).reshape(m,-1)
+        xi = 0*np.random.random(size=m*6).reshape(m,-1)
+        uxi = np.hstack((un,xi))
+        u = to_gpu(un)
+        uxi = to_gpu(uxi)
+        
+        rs = model.f(x,uxi)
+        rs_ = env.f(x,u)
+        
+        print rs
+        print rs_
+        
+class TestsPP(unittest.TestCase):
+    def test_sim(self):
+
+        env = Cartpole()
+
+        class ZeroPolicy:
+            def u(self,t,x):
+                return np.zeros(env.nu)
+
+
+        trj = env.step(ZeroPolicy() ,.05)
+
+    def test_col_pi(self):
+        pp = CollocationPlanner(Cartpole(),15)
+        pp.u(.1,None)
+
+    def test_int(self):
+        i = ExplicitRK('rk4')
+        
+        def f(x,t):
+            dx = array(x.shape)
+            ufunc('a=-b/(t+1)')(dx,x,t)
+            return dx
+
+
+        i.integrate(f,
+                to_gpu(np.array([[1.0,],[2.0,]])),
+                to_gpu(.1*np.array([[1.0,],[1.0,]]))
+            )
+
+
+    def test_numdiff(self):
         l,m,n = 11, 32,28
 
-        num = NumDiffCentral()
+        num = NumDiff()
         
         np.random.seed(1)
         xn = np.random.normal(size=l*n).reshape(l,n)
@@ -1399,77 +1353,14 @@ class TestsPP(unittest.TestCase):
         
         
 
-    def test_loaded_knitro(self): 
-
-        mix = Mixture.from_file('../../data/cartpole/batch_vdp.npy')
-        ds = OptimisticCartpole(Predictor(mix))
-
-        pp = KnitroPlanner(ds,50)
-
-        x = pp.solve(np.array([0,0,np.pi,0]), np.array([0,0,0,0]))
-        #x,l = pp.solve(np.array([0,0,np.pi*.9,0]), np.array([0,0,0,0]),True)
-        
-
-
-    def test_condense(self):
-
-        pp = CvxgenPlanner(Cartpole(),50)
-        start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
-
-        x0 = pp.min_acc_traj(start,end)[:-1,:]
-        u0 = np.random.random(pp.l*pp.ds.nu).reshape((pp.l,pp.ds.nu))
-        h0 = -.4
-        
-        a,B = pp.condense(x0,u0,h0)
-
-        t = time.time()
-        a,B = pp.condense(x0,u0,h0)
-        print 'CPU + GPU', (time.time()-t)*1000, 'ms'
-
-        l,nx,nu = pp.l, pp.ds.nx, pp.ds.nu
-        h = (h0-np.log(l))*np.ones((l,1))
-        hs = (h0)*np.ones((l,1))
-            
-        evf, evg = pp.ds.jacobian(to_gpu(x0),to_gpu(u0),to_gpu(h))
-        f0 = evf.get()
-        J = evg.get()
-        
-        J = np.swapaxes(J,1,2)
-        J[:,:,1:1+nx] += np.eye(nx)[np.newaxis,:,:]
-        
-        f = x0 + f0 - np.einsum('nj,nij->ni', np.hstack((hs,x0,u0)), J)
-        
-        Jh,Jx,Ju = J[:,:,0], J[:,:,1:1+nx], J[:,:,1+nx:1+nx+nu]
-
-
-        theta =  np.vstack((np.array(((h0,),)) , u0))
-        f_ = (a + np.dot(B,theta)).reshape(l,nx)
-        
-
-        rs = []
-        y = x0[0]
-        
-        for i in range(l):
-            y = np.dot(Jx[i],y) + np.dot(Ju[i],u0[i]) + Jh[i]*h0 + f[i]
-            rs.append(y)
-
-        rs = np.array(rs)
-
-        rt = np.abs(f_-rs)/np.abs(rs)
-
-        np.testing.assert_array_less( rt, 1e-5)
-
-
-    def test_sqp_cvxgen(self):
-        pp = CvxgenPlanner(Cartpole(),50)
-        start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
-        pp.solve(start,end)
-
     def test_col(self):
 
         pp = CollocationPlanner(Cartpole(),15)
         start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
-        pp.solve(start,end)
+        pi = pp.solve(start,end)
+        
+        
+        
 
     def test_cartpole(self): 
 
@@ -1489,7 +1380,7 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_pp'
+    single_test = 'test_iter'
     tests = TestsHeli
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()

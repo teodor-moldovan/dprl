@@ -1,10 +1,14 @@
 from planning import *
 import pylab as plt
 
-class Cartpole(DynamicalSystem):
+class Cartpole(DynamicalSystem, Environment):
     def __init__(self):
 
-        DynamicalSystem.__init__(self,4,1, [[-10.0],[10.0]],)
+        DynamicalSystem.__init__(self,4,1, 
+                    control_bounds = [[-10.0],[10.0]],)
+
+        Environment.__init__(self, [0,0,np.pi,0])
+
 
         self.l = .1    # pole length
         self.mc = .7    # cart mass
@@ -51,26 +55,11 @@ class Cartpole(DynamicalSystem):
 
         self.k_f = rowwise(fn,'cartpole')
 
-    @memoize
-    def f(self,x,u):
-        
-
-        @memoize_closure
-        def cartpole_f_ws(l,n):
-            return array((l,n))    
-        
-        l = x.shape[0]
-        y = cartpole_f_ws(l,self.nx)
-        
-        self.k_f(x,u,y)
-        
-        return y
-
 class OptimisticCartpole(OptimisticDynamicalSystem):
-    def __init__(self,pred,**kwargs):
+    def __init__(self,predictor,**kwargs):
 
         OptimisticDynamicalSystem.__init__(self,4,1, [[-10.0],[10.0]],
-                    2, pred, **kwargs)
+                    2, predictor, **kwargs)
 
         tpl = Template(
             """
@@ -126,27 +115,4 @@ class OptimisticCartpole(OptimisticDynamicalSystem):
 
 
 
-    def pred_input(self,x,u):
-        @memoize_closure
-        def opt_cartpole_pred_input_ws(l):
-            return array((l,3)), array((l,2))
-
-        x0,xi = opt_cartpole_pred_input_ws(x.shape[0])
-
-        self.k_pred_in(x,u,x0,xi)
-        return x0,xi
-
-    def f_with_prediction(self,x,y,u):
-
-        @memoize_closure
-        def opt_cartpole_f_with_prediction_ws(l,nx):
-            return array((l,nx))
-        
-        dx = opt_cartpole_f_with_prediction_ws(x.shape[0], self.nx)
-        #print x
-        #print y
-        self.k_f(x,y,u,dx)
-        
-        return dx
-        
 

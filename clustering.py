@@ -304,6 +304,8 @@ class NIW(object):
 
     def conditional(self,x):
 
+        if x.shape[0] != self.l:
+            raise TypeError
         @memoize_closure
         def niw_conditional_ws(p,l,q):
             td = array((l,q)) 
@@ -364,6 +366,42 @@ class NIW(object):
         ufunc('a = 1.0/(r + 1.0/b) ')(dnb,tfb3,nb)
 
         return dst
+
+
+    @memoize
+    def predict(self,x,xi):
+        
+        if x.shape[0] != self.l:
+            raise TypeError
+        
+        @memoize_closure
+        def niw_predict_ws(k,p,q):
+            sg  = array((k,p-q,p-q))
+            out = array((k,p-q))
+            r = array((k,))
+            
+            return sg,out,r, r[:,None]
+
+
+        k,p,q = x.shape[0], x.shape[1]+xi.shape[1],x.shape[1]
+
+        sg,out,r,rb = niw_predict_ws(k,p,q)
+
+        cls = self.conditional(x)
+        mu,psi,n,nu = cls.mu,cls.psi,cls.n,cls.nu
+
+        ufunc('a= sqrt(n*(u - '+str(p-q)+' + 1.0))')(r,n,nu)
+        chol_batched(psi,sg,bd=2)
+
+        #orig_shape = xi.shape
+        #xi.shape= xi.shape +(1,)
+        #batch_matrix_mult(sg,xi,out) 
+        #xi.shape = orig_shape
+        
+        solve_triangular(sg,xi,out)
+        ufunc('a = a*c + b',name='fnl')(out,rb,mu)
+        
+        return out
 
 class SBP(object):
     """Truncated Stick Breaking Process"""
@@ -426,6 +464,10 @@ class Mixture(object):
     def __hash__(self):
         return hash((self.sbp,self.clusters))
 
+    @property
+    def p(self):
+        return self.clusters.p
+        
     @memoize
     def predictive_posterior_resps(self,x):         
 
@@ -490,32 +532,22 @@ class Mixture(object):
         fl.close()
         return cls(sbp, clusters)
 
-class Predictor(object):
-    def __init__(self,mix):
-        self.mix = mix
-
-    def __hash__(self):
-        return hash((self.mix))
-
 
     @memoize
-    def predict(self,x,xi):
+    def predict_weighted(self,x,xi):
 
         @memoize_closure
-        def predict_ws(k,p,q):
+        def predictor_predict_ws(k,p):
             tau_      = array((k,p*(p+1)+2 ))
             clusters_ = NIW(p,k)
-            sg  = array((k,p-q,p-q))
-            out = array((k,p-q))
-            r = array((k,))
             
-            return tau_,clusters_,sg,out,r, r[:,None]
+            return tau_,clusters_
 
 
-        mix = self.mix
+        mix = self
         k,p,q = x.shape[0], x.shape[1]+xi.shape[1],x.shape[1]
         
-        tau_,clusters_,sg,out,r,rb = predict_ws(k,p,q)
+        tau_,clusters_ = predictor_predict_ws(k,p)
         tau = mix.clusters.get_nat()
         
         xclusters = mix.clusters.marginal(q)
@@ -525,18 +557,64 @@ class Predictor(object):
 
         matrix_mult(prob,tau,tau_) 
 
-        clusters_.from_nat(tau_)
+        return clusters_.predict(x,xi)
 
-        cls = clusters_.conditional(x)
-        mu,psi,n,nu = cls.mu,cls.psi,cls.n,cls.nu
-
-        ufunc('a= sqrt(n*(u - '+str(p-q)+' + 1.0))')(r,n,nu)
-        chol_batched(psi,sg,bd=2)
-
-        solve_triangular(sg,xi, out,bd=2)
-
-        ufunc('a = a*c + b',name='fnl')(out,rb,mu)
+    predict = predict_weighted
+class StreamingNIW(object):
+    def __init__(self,p):
+        self.niw = NIW(p,1)
+        # set prior
+        #
+        # old version used 2*d+1+2, this seems to work well
+        # 2*d + 1 was also a good choice but can't remember why
         
-        
-        return out
+        lbd = np.concatenate((
+                np.zeros(p), 
+                np.zeros(p*p),
+                np.zeros(1),
+                np.array([2*p+1])
+                ))
+        self.prior = to_gpu(lbd.reshape(1,-1))
+        self.ss = array((self.prior.shape))
+        ufunc('a=b')(self.ss, self.prior)
 
+    def update(self,x):
+        
+        @memoize_closure
+        def streamingniw_update_ws(n,d):
+            w = array((n,1))
+            w.fill(1.0)
+            return w,array((1,d))
+
+
+        ss =  self.niw.sufficient_statistics(x)
+
+        w,dss =  streamingniw_update_ws(x.shape[0],self.ss.size) 
+
+        matrix_mult(w,ss,dss)
+        ufunc('a+=b')(self.ss,dss)
+        self.niw.from_nat(self.ss)
+
+    def predict(self,x,xi):
+
+        @memoize_closure
+        def predictor_predict_ws(k,p):
+            clusters_ = NIW(p,k)
+            return clusters_
+
+
+        mix = self
+        k,p,q = x.shape[0], x.shape[1]+xi.shape[1],x.shape[1]
+        
+        clusters_ = predictor_predict_ws(k,p)
+        ufunc('a=b')(clusters_.psi,self.niw.psi)
+        ufunc('a=b')(clusters_.mu,self.niw.mu)
+        ufunc('a=b')(clusters_.n,self.niw.n)
+        ufunc('a=b')(clusters_.nu,self.niw.nu)
+
+        return clusters_.predict(x,xi)
+
+    @property
+    def p(self):
+        return self.niw.p
+        
