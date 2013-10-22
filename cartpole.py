@@ -66,17 +66,22 @@ class OptimisticCartpole(OptimisticDynamicalSystem):
         __device__ void f(
                 {{ dtype }} *p1,
                 {{ dtype }} *p2, 
-                {{ dtype }} *p3
+                {{ dtype }} *p3,
+                {{ dtype }} *p4
                 ){
 
 
             // p1 : state
             // p2 : controls
             // p3 : input state to predictor
+            // p4 : input slack to predictor
         
             *p3 = *p1;
             *(p3+1) = *(p1+2);
             *(p3+2) = *p2;
+
+            *p4 = *(p2+1);
+            *(p4+1) = *(p2+2);
             }
             
             """
@@ -98,7 +103,7 @@ class OptimisticCartpole(OptimisticDynamicalSystem):
             // p3 : controls
             // p4 : state derivative
         
-            *(p4)   = *(p2);
+            *(p4) = *(p2);
             *(p4+1) = *(p2+1);
             *(p4+2) = *(p1);
             *(p4+3) = *(p1+1);

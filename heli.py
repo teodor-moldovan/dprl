@@ -239,7 +239,8 @@ class OptimisticHeli(OptimisticDynamicalSystem):
         __device__ void f(
                 {{ dtype }}  s[],
                 {{ dtype }}  u[], 
-                {{ dtype }}  o[]
+                {{ dtype }}  o[],
+                {{ dtype }} xi[]
                 ){
 
             // s  = angular velocity (heli frame), velocity (lab frame), 
@@ -247,6 +248,7 @@ class OptimisticHeli(OptimisticDynamicalSystem):
             // u  = controls, pseudo-controls
             // o  = angular velocity (heli frame), velocity (heli frame), 
             // controls
+            // xi = pseudo controls
 
             // recover quaternion
             {{ dtype }}4 q, qi;
@@ -270,7 +272,7 @@ class OptimisticHeli(OptimisticDynamicalSystem):
             o[3] = vh.x; o[4] = vh.y; o[5] = vh.z;
             o[6] = u[0]; o[7] = u[1]; o[8] = u[2]; o[9]= u[3];
             
-            //for (int i=0;i<6;i++) xi[i] = u[4+i]; 
+            for (int i=0;i<6;i++) xi[i] = u[4+i]; 
         }
         """
         )

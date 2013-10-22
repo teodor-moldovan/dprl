@@ -81,7 +81,7 @@ class ExplicitRK(object):
 
 
 class NumDiff(object):
-    def __init__(self, h= 1e-4, order = 4):
+    def __init__(self, h= 1e-2, order = 4):
         self.h = h
         self.order = order
 
@@ -204,7 +204,6 @@ class DynamicalSystem(object):
         self.nu = nu
         self.control_bounds = control_bounds
         self.h_min = h_min
-        self.cost_bounds = [[],[]]
 
     @memoize
     def f(self,x,u):
@@ -223,58 +222,51 @@ class DynamicalSystem(object):
 
 class OptimisticDynamicalSystem(DynamicalSystem):
     def __init__(self,nx,nu,control_bounds, 
-            nxi, pred, cost_bound = -1.0, **kwargs):
+            nxi, pred, xi_bound = .2, **kwargs):
 
         DynamicalSystem.__init__(self,nx,nu+nxi,**kwargs)
 
         self.nxi = nxi
         self.predictor = pred
-
-        self.cost_bounds = [[cost_bound],[0]]
+        self.original_ds_control_bounds = control_bounds
+        self.set_control_bounds(xi_bound)
         
-        ods = control_bounds
-        bl = ods[0] + [-1e20]*self.nxi
-        bu = ods[1] + [ 1e20]*self.nxi
+    def set_control_bounds(self, xi_bound):
+        ods = self.original_ds_control_bounds
+        bl = ods[0] + [-xi_bound]*self.nxi
+        bu = ods[1] + [xi_bound]*self.nxi
         self.control_bounds =  [bl,bu]
 
     def pred_input(self,x,u):
         @memoize_closure
-        def opt_ds_pred_input_ws(l,n):
-            return array((l,n))
+        def opt_ds_pred_input_ws(l,n,m):
+            return array((l,n)), array((l,m))
 
-        x0 = opt_ds_pred_input_ws(x.shape[0], self.predictor.p-self.nxi)
+        x0,xi = opt_ds_pred_input_ws(x.shape[0],
+                self.predictor.p-self.nxi,self.nxi)
 
-        self.k_pred_in(x,u,x0)
-        return x0
+        self.k_pred_in(x,u,x0,xi)
+        return x0,xi
+
+    def f_with_prediction(self,x,y,u):
+
+        @memoize_closure
+        def opt_ds_f_with_prediction_ws(l,nx):
+            return array((l,nx))
+        
+        dx = opt_ds_f_with_prediction_ws(x.shape[0], self.nx)
+        self.k_f(x,y,u,dx)
+        
+        return dx
+        
 
     def f(self,x,u):
 
-        @memoize_closure
-        def opt_ds_f_ws(l,nx,nxi):
-            out = array((l,nx+1))
-            outf = array((l,nx))
-            outc = array((l))
-            txi = array((l,nxi))
-            return out, outf, outc,txi
-
-        x0 = self.pred_input(x,u)
+        x0,xi = self.pred_input(x,u)
         x0.newhash()
-        mu,sg = self.predictor.predict(x0)
-        
-
-        dx,dxf,dxc,temp_xi = opt_ds_f_ws(x.shape[0], self.nx,self.nxi)
-        ufunc('a=b')(temp_xi,u[:,-self.nxi:])
-        ufunc('a+=b')(mu,temp_xi)
-        self.k_f(x,mu,u,dxf)
-        
-        solve_triangular(sg,temp_xi,temp_xi)
-        ufunc('a=a*a')(temp_xi)
-        row_sum(temp_xi,dxc)
-        ufunc('a=-.5*sqrt(a)')(dxc)
-        ufunc('a=b')(dx[:,:-1],dxf)
-        ufunc('a=b')(dx[:,-1:],dxc[:,np.newaxis])
-
-        return dx
+        xi.newhash()
+        y = self.predictor.predict(x0,xi)
+        return self.f_with_prediction(x,y,u)
         
     def update_input(self,dx,x,u):
 
@@ -417,32 +409,31 @@ class CollocationPlanner(Planner):
         rcp = 1.0/(tau[:,np.newaxis] - tau[np.newaxis,:]+np.eye(tau.size)) - np.eye(tau.size)
         self.rcp_nodes_diff = rcp
 
-
         
 
     def prep_solver(self,u_cost = 0.0):
-        nx,nu,l,nc = self.ds.nx,self.ds.nu,self.l,len(self.ds.cost_bounds[0])
+        nx,nu,l = self.ds.nx,self.ds.nu,self.l
         n = l* (nx+nu) + 1
-        m = l*nx + l*nc
+        m = l*nx #+ l
         
         self.ret_x = [0,]*n
         self.ret_lambda = [0,]*(n+m)
         self.ret_obj = [0,]
 
         objGoal = KTR_OBJGOAL_MINIMIZE
-        objType = KTR_OBJTYPE_LINEAR;
+        objType = KTR_OBJTYPE_QUADRATIC;
 
         mi =  [ -KTR_INFBOUND,]
-        bndsLo = mi + (mi*nx + self.ds.control_bounds[0])*l 
+        bndsLo = mi + (mi*nx + self.ds.control_bounds[0])*l
         mi =  [ KTR_INFBOUND,]
-        bndsUp = mi + (mi*nx + self.ds.control_bounds[1])*l  
+        bndsUp = mi + (mi*nx + self.ds.control_bounds[1])*l 
 
         self.bndsLo = bndsLo
         self.bndsUp = bndsUp
 
-        cType   = [ KTR_CONTYPE_GENERAL ]*m
-        cBndsLo = [ 0.0 ]*l*nx + self.ds.cost_bounds[0]*l
-        cBndsUp = [ 0.0 ]*l*nx + self.ds.cost_bounds[1]*l 
+        cType   = [ KTR_CONTYPE_GENERAL ]*l*nx
+        cBndsLo = [ 0.0 ]*m
+        cBndsUp = [ 0.0 ]*m
 
         ji1 = [(v,c) 
                     for t in range(l)
@@ -457,16 +448,7 @@ class CollocationPlanner(Planner):
                     if tc != tv
               ]
 
-        if nc == 1:
-            ji3 = [(1+t*(nx+nu)+i , l*nx+t ) 
-                    for t in range(l)
-                    for i in range(nx+nu)
-              ]
-        else:
-            ji3 = []
-
-
-        jacIxVar, jacIxConstr = zip(*(ji1+ji2+ji3))
+        jacIxVar, jacIxConstr = zip(*(ji1+ji2))
 
 
         #jacIxVar,jacIxConstr= zip(*[(i,j) for i in range(n) for j in range(m)])
@@ -525,25 +507,23 @@ class CollocationPlanner(Planner):
             if not evalRequestCode == KTR_RC_EVALFC:
                 return KTR_RC_CALLBACK_ERR
             
-            obj[0] = x[0]
+            tmp = np.array(x[1:1+l*(nx+nu)]).reshape(l,-1)
+            obj[0] = x[0] + u_cost*np.sum(tmp[:,nx:]*tmp[:,nx:]) 
 
             h = x[0]
             h = np.exp(x[0])
 
-            tmp = np.array(x[1:1+l*(nx+nu)]).reshape(l,-1)
             buff.set(tmp)
             buff.newhash()
 
             mv = np.array(x[1+l*(nx+nu):1+l*(2*nx+nu)]).reshape(l,-1)
             
             x,u = tmp[:,:nx], tmp[:,nx:]
-            res =  self.f_sp(buff).get() 
-            f = .5*h * res[:,:nx]
-            q = res[:,nx:]
+            f = (.5*h) * self.f_sp(buff).get() 
             
             ze = -np.array(np.matrix(self.D)*np.matrix(x)).copy()
 
-            c[:]= (f-ze).copy().reshape(-1).tolist()+ q.reshape(-1).tolist() 
+            c[:]= (f-ze).copy().reshape(-1).tolist() 
 
             return 0
 
@@ -555,7 +535,10 @@ class CollocationPlanner(Planner):
 
 
             tmp = np.array(x[1:l*(nx+nu)+1]).reshape(l,-1)
-            objGrad[:] = [1.0]+[0]*(l*(nx+nu))
+            obj_grad = tmp.copy()
+            obj_grad[:,:nx] = 0
+
+            objGrad[:] = [1.0]+ (u_cost*2.0*obj_grad).reshape(-1).tolist()
 
             dh,h = 1.0, x[0]
             dh,h = np.exp(x[0]),np.exp(x[0])
@@ -564,28 +547,22 @@ class CollocationPlanner(Planner):
             buff.set(tmp)
             buff.newhash()
 
-            dres = self.differentiator.diff(lambda x_: self.f_sp(x_), buff)
-            res = self.f_sp(buff) 
-            res,dres = res.get(), dres.get()
+            df = self.differentiator.diff(lambda x_: self.f_sp(x_), buff)
+            f = self.f_sp(buff) 
+            f,df = f.get(), df.get()
 
             x,u = tmp[:,:nx], tmp[:,nx:]
 
-            d1 = (.5*dh) * res[:,:nx]
-            d2 = (.5*h) * dres[:,:,:nx]
+            d1 = (.5*dh) * f 
+            d2 = (.5*h) * df
 
             wx = np.newaxis
             tmp = np.hstack((d1[:,wx,:],d2)).copy()
             tmp[:,1:1+nx,:] += self.ddiag[:,wx,wx]*np.eye(nx)[wx,:,:]
-            jac_dyn = tmp.reshape(-1).tolist() + self.dnodiag_list*nx 
-            
-            if nc == 1:
-                dq = dres[:,:,nx:]
-                jac_q = dq.reshape(-1).tolist()
-            else:
-                jac_q = []
-            
 
-            jac[:] = jac_dyn+jac_q
+            jac[:] = tmp.reshape(-1).tolist() + self.dnodiag_list*nx
+
+            #return KTR_RC_CALLBACK_ERR
 
             return 0
 
