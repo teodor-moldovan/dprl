@@ -1222,27 +1222,42 @@ class TestsHeli(unittest.TestCase):
 
     def test_iter(self):
 
-        env = Heli(noise = 1e-5)
+        env = Heli(noise = 0.05)
         model = OptimisticHeli(StreamingNIW)
         
-        np.random.seed(1)
-        traj = env.random_step(50) 
-        model.update(traj)
+        seed = 11 # 11,15
+        np.random.seed(seed)
 
+        zr = np.zeros(env.nu)
+        trj = env.step(lambda t,x: zr, 21) 
+
+        model.update(trj)
+        
+        lg = np.hstack((trj[0], trj[2][:,-6:] ))
+        
         end = np.zeros(12)
-        end[9:12] = np.array([1,0,0])
-        #end[7] = np.pi
+        end[9:12] = np.array([0,0,-1])
+        end[7] = np.pi
 
-        pp = CollocationPlanner(model,15,hotstart=False)
-
-        for t in range(1):
-            print env.state
-
+        pp = CollocationPlanner(model,20,hotstart=True)
+        
+        for t in range(70):
             pi = pp.solve(env.state,end)
             trj = env.step(pi,int(env.h_min/env.dt))
-            model.update(trj)
 
+            lg_ = np.hstack((trj[0], trj[2][:,-6:] ))
+            lg = np.vstack((lg,lg_))
+            model.update(trj)
             print env.state
+
+        angle = np.sqrt((lg[:,1:4]*lg[:,1:4]).sum(1))
+        lg[:,1:4] *= (np.sin(.5*angle) / angle)[:,np.newaxis]
+        
+        np.savetxt('traj'+str(seed)+'.csv', lg, delimiter=',', header = 
+            " time(s), quaternion x, quaternion y, quaternion z (obtain quaternion w from fact that quaternion has unit norm), position x, position y, position z (positive is down) ") 
+       
+        
+
 
     def test_update(self):
         l,m = 20,10

@@ -81,7 +81,7 @@ class ExplicitRK(object):
 
 
 class NumDiff(object):
-    def __init__(self, h= 1e-2, order = 4):
+    def __init__(self, h= 1e-4, order = 4):
         self.h = h
         self.order = order
 
@@ -154,17 +154,32 @@ class NumDiff(object):
 
 
 class Environment:
-    def __init__(self, state, dt = .01, noise = 0 ):
+    def __init__(self, state, dt = .01, noise = 0.0):
         self.state = state
         self.dt = dt
+        self.t = 0
         self.noise = noise
 
     def step(self, policy, n = 1):
 
+        seed = int(np.random.random()*1000)
+
         def f(t,x):
-            u = policy(t,x)
+            u = policy(t,x).reshape(-1)[:self.nu]
+            
+            sd = seed+ int(t/self.dt)
+            np.random.seed(sd)
+
+            #nz = self.noise*np.random.normal(size=self.nu)
+            #u = u + nz
+
             dx = self.f(to_gpu(x.reshape(1,x.size)),to_gpu(u.reshape(1,u.size)))
-            return dx.get().reshape(-1),u #.get().reshape(-1)
+            dx = dx.get().reshape(-1)
+
+            nz = self.noise*np.random.normal(size=self.nx/2)
+            dx[:self.nx/2] += nz
+
+            return dx,u #.get().reshape(-1)
 
 
         h = self.dt*n
@@ -175,28 +190,20 @@ class Environment:
 
         trj = []
         while ode.successful() and ode.t + self.dt <= h:
-            ode.integrate(ode.t+self.dt)
-            
+            ode.integrate(ode.t+self.dt) 
             dx,u = f(ode.t,ode.y)
-            trj.append((dx,ode.y,u))
+            trj.append((self.t+ode.t,dx,ode.y,u))
 
         self.state[:] = ode.y
-        dx,x,u = zip(*trj)
-        dx,x,u = np.vstack(dx), np.vstack(x), np.vstack(u)
+        self.t += ode.t
+        t,dx,x,u = zip(*trj)
+        t,dx,x,u = np.vstack(t), np.vstack(dx), np.vstack(x), np.vstack(u)
+
         dx += self.noise*np.random.normal(size=dx.size).reshape(dx.shape)
-        #x += self.noise*np.random.normal(size=x.size).reshape(x.shape)
-        #u += self.noise*np.random.normal(size=u.size).reshape(u.shape)
-        return dx,x,u
+        u  += self.noise*np.random.normal(size= u.size).reshape( u.shape)
 
+        return t,dx,x,u
 
-    def random_step(self,n=1, scale = .1):
-
-        ub = np.array(self.control_bounds)
-        u = np.random.random(size=self.nu*(n+1)).reshape(n+1,-1) - .5
-        u = scale*(ub[1,:] - ub[0,:])*u
-        
-        
-        return self.step(lambda t,x: u[np.floor(t/self.dt)] ,n)
 
 class DynamicalSystem(object):
     def __init__(self,nx,nu,control_bounds=None, h_min = None):
@@ -222,7 +229,7 @@ class DynamicalSystem(object):
 
 class OptimisticDynamicalSystem(DynamicalSystem):
     def __init__(self,nx,nu,control_bounds, 
-            nxi, pred, xi_bound = .2, **kwargs):
+            nxi, pred, xi_bound = 0.0, **kwargs):
 
         DynamicalSystem.__init__(self,nx,nu+nxi,**kwargs)
 
@@ -244,6 +251,8 @@ class OptimisticDynamicalSystem(DynamicalSystem):
 
         x0,xi = opt_ds_pred_input_ws(x.shape[0],
                 self.predictor.p-self.nxi,self.nxi)
+        x0.newhash()
+        xi.newhash()
 
         self.k_pred_in(x,u,x0,xi)
         return x0,xi
@@ -255,6 +264,7 @@ class OptimisticDynamicalSystem(DynamicalSystem):
             return array((l,nx))
         
         dx = opt_ds_f_with_prediction_ws(x.shape[0], self.nx)
+        dx.newhash()
         self.k_f(x,y,u,dx)
         
         return dx
@@ -275,13 +285,14 @@ class OptimisticDynamicalSystem(DynamicalSystem):
             return array((l,n))
 
         w = opt_ds_update_input_ws(x.shape[0], self.predictor.p)
+        w.newhash()
         self.k_update(dx,x,u,w)
         
         return w
 
 
     def update(self,traj):
-        dx,x,u = traj
+        t,dx,x,u = traj
         dx,x,u = to_gpu(dx), to_gpu(x), to_gpu(u)
         w = self.update_input(dx,x,u)
         self.predictor.update(w)
@@ -328,14 +339,14 @@ class Planner(object):
         return a[np.newaxis,:]*(1.0-t)[:,np.newaxis] + t[:,np.newaxis]*b[np.newaxis,:]
 
 
-    init_guess = min_acc_traj
-# todo: add costs to the framework
+    init_guess = interp_traj
 class CollocationPlanner(Planner):
     def __init__(self,*args,**kwargs):
         Planner.__init__(self,*args,**kwargs)
         self.differentiator = NumDiff()
         self.poly_approx()
         self.kc = self.prep_solver() 
+        self.is_first = True
 
     def __del__(self):
         KTR_free(self.kc)
@@ -372,12 +383,17 @@ class CollocationPlanner(Planner):
         xu = np.array(self.ret_x[1:1+l*(nx+nu)]).reshape(l,-1)
         u = xu[:,nx:].reshape(l,nu)
 
-        nds = self.nodes
-        df = (-(r - nds)[np.newaxis,:]*self.rcp_nodes_diff) + np.eye(nds.size)
-        w = df.prod(axis=1)
+        if r < 1:
 
-         
-        us = np.dot(w,u)
+            nds = self.nodes
+            df = (-(r - nds)[np.newaxis,:]*self.rcp_nodes_diff) + np.eye(nds.size)
+            w = df.prod(axis=1)
+
+             
+            us = np.dot(w,u)
+        else:
+            us = u[-1,:]
+
         bl,bu = self.ds.control_bounds 
         
         us = np.maximum(np.array(bl)[np.newaxis,:],
@@ -473,11 +489,11 @@ class CollocationPlanner(Planner):
         if KTR_set_double_param_by_name(kc, "opttol", 1.0E-3):
             raise RuntimeError ("Error setting parameter 'opttol'")
 
-        if KTR_set_int_param(kc, KTR_PARAM_OUTLEV, 3):
+        if KTR_set_int_param(kc, KTR_PARAM_OUTLEV, 2):
             raise RuntimeError ("Error setting parameter 'outlev'")
 
-        #if KTR_set_int_param(kc, KTR_PARAM_ALGORITHM, 3):
-        #    raise RuntimeError ("Error setting parameter 'algorithm'")
+        if KTR_set_int_param(kc, KTR_PARAM_ALGORITHM, 2):
+            raise RuntimeError ("Error setting parameter 'algorithm'")
 
         #if KTR_set_int_param(kc, KTR_PARAM_LINSOLVER, 3):
         #    raise RuntimeError ("Error setting parameter 'linsolver'")
@@ -485,7 +501,7 @@ class CollocationPlanner(Planner):
         #if KTR_set_int_param(kc,KTR_PARAM_MAXIT,1):
         #    raise RuntimeError ("Error setting parameter 'maxit'")
 
-        #if KTR_set_int_param(kc,KTR_PARAM_MULTISTART,0):
+        #if KTR_set_int_param(kc,KTR_PARAM_MULTISTART,1):
         #    raise RuntimeError ("Error setting parameter 'ms_enable'")
 
         #---- INITIALIZE KNITRO WITH THE PROBLEM DEFINITION.
@@ -585,8 +601,8 @@ class CollocationPlanner(Planner):
         bndsLo = self.bndsLo
         bndsUp = self.bndsUp
 
-        if not self.ds.h_min is None:
-            bndsLo[0] = np.log(self.ds.h_min)
+        #if not self.ds.h_min is None:
+        #   bndsLo[0] = np.log(self.ds.h_min)
 
         bndsLo[1:1+nx] = start.tolist()
         bndsUp[1:1+nx] = start.tolist()
@@ -597,11 +613,12 @@ class CollocationPlanner(Planner):
 
         KTR_chgvarbnds(self.kc, bndsLo, bndsUp)
         
-        if self.hotstart is False:
+        if self.hotstart is False or self.is_first:
+            self.is_first=False
             x = self.init_guess(start,end,(self.nodes+1.0)/2.0)
             trj = np.append(x,np.zeros((self.l,nu)),axis=1)
 
-            prev_x = [0,] + trj.reshape(-1).tolist()
+            prev_x = [-1,] + trj.reshape(-1).tolist()
             prev_l = None
         else:
             prev_x, prev_l = self.ret_x, self.ret_lambda

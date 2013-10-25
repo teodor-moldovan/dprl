@@ -391,6 +391,7 @@ class NIW(object):
         mu,psi,n,nu = cls.mu,cls.psi,cls.n,cls.nu
 
         ufunc('a= sqrt(n*(u - '+str(p-q)+' + 1.0))')(r,n,nu)
+        ufunc('a=0')(sg)
         chol_batched(psi,sg,bd=2)
 
         orig_shape = xi.shape
