@@ -1421,8 +1421,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_int'
-    tests = TestsPP
+    single_test = 'test_niw_predll'
+    tests = TestsClustering
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))

@@ -15,16 +15,15 @@ import time
 
 from jinja2 import Template
 
-np_dtype, cuda_dtype = np.float64, 'double'
-#np_dtype, cuda_dtype = np.float32, 'float'
-caching = True
-if not caching:
-    def memoize(obj):
-        return obj
+if True:    # set True for double precision
+    np_dtype, cuda_dtype = np.float64, 'double'
+else:
+    np_dtype, cuda_dtype = np.float32, 'float'
 
+if False:   # set True to disable caching
+    memoize = lambda x : x
 
 ## end settings
-
 cublas_handle = cublas.cublasCreate()
 atexit.register(lambda : cublas.cublasDestroy(cublas_handle) )
 
@@ -51,17 +50,24 @@ class array(GPUArray):
     allocator = pycuda.tools.DeviceMemoryPool().allocate
     #allocator = None
     def __init__(self,sz, dtype = np_dtype):
-        GPUArray.__init__(self,sz,dtype,allocator=self.allocator)
-        self.slc = self.__canonical_slice(None ,self.shape)
+        GPUArray.__init__(self,sz,dtype,allocator=self.allocator) 
+        self.__slc = None
         self.brd = True
-        self.__transposed = False
+        self.transposed = False
         self.newhash()
+
+    def view(self):
+        rt = GPUArray.view(self)
+        rt.__class__ = self.__class__
+        rt.__slc = self.__slc
+        rt.brd = self.brd
+        rt.transposed = self.transposed
+        #rt.hash_id = self.hash_id
+        return rt
         
 
     def __getitem__(self,slc):
         r = self.view()
-        r.__class__ = self.__class__
-        r.hash_id = self.hash_id
         
         if not slc is None:
             try:
@@ -71,9 +77,8 @@ class array(GPUArray):
 
             slc =  tuple(( None 
                 if s is None else (s.start,s.stop,s.step) for s in slc))
+        r.__slc = slc
 
-        r.slc = self.__canonical_slice(slc,self.shape)
-        r.brd = self.brd
         return r
 
 
@@ -86,29 +91,22 @@ class array(GPUArray):
     @property
     def no_broadcast(self):
         r = self.view()
-        r.__class__ = self.__class__
         r.brd = False
-        r.slc = self.slc
-        r.hash_id = self.hash_id
         return r
 
     @property
     def T(self):
         r = self.view()
-        r.__class__ = self.__class__
-        r.__transposed = True
-        r.hash_id = self.hash_id
+        r.transposed = True
         return r
 
     @property
-    def is_transposed(self):
-        try:
-            return self.__transposed
-        except:
-            return False
-    @property
     def bptrs(self):
         return self.__get_bptrs(self.ptr,self.shape,self.strides)
+
+    @property
+    def slc(self):
+        return self.__canonical_slice(self.__slc,self.shape)
 
     @staticmethod
     @memoize
@@ -239,7 +237,6 @@ __device__ {{ dtype }} digamma({{ dtype }} x) {
   xx4 = xx2*xx2;
   result += log(x)+(1./24.)*xx2-(7.0/960.0)*xx4+(31.0/8064.0)*xx4*xx2-(127.0/30720.0)*xx4*xx4;
   return result;}""").render(dtype = cuda_dtype)
-
 
 @memoize
 def grid_block_sizes(mx):
@@ -624,81 +621,6 @@ def rowwise(fnc,name='noname'):
 
 
 
-# experimental
-@memoize
-def k_mm_batched(m,k,n,dm,dn):
-
-    template = Template("""
-
-    __global__ void mm({{ dtype }} *ag, {{ dtype }} *bg, {{ dtype }} *cg ) {
-
-        int i = threadIdx.x*{{ dm }};
-        int j = threadIdx.y*{{ dn }};
-        int l = blockIdx.z * blockDim.z + threadIdx.z;
-        
-        {% for rq,(sm,sn) in rng  %} 
-        if (i{{ sm }}{{ m - dm + 1}} and j{{ sn }}{{ n - dn + 1}}) {
-        
-        {% for r,q in rq %}
-        {{ dtype }} *a{{ r }}_{{ q }} = ag+l*{{ m*o }} + i*{{ o }} + {{ r*o }};
-        {{ dtype }} *b{{ r }}_{{ q }} = bg+l*{{ o*n }} + j + {{ q }};
-        {{ dtype }} *c{{ r }}_{{ q }} = cg+l*{{ m*n }} + i*{{ n }} + 
-                        {{ r*n }} + j + {{ q }}; 
-        {{ dtype }} s{{ r }}_{{ q }} = 0;
-        {% endfor %}
-
-        for (int k =0; k<{{ o }}; k++ ){
-
-            {% for r,q in rq %}
-            s{{ r }}_{{ q }} += *(a{{ r }}_{{ q }} + k)  * *(b{{ r }}_{{ q }} + k*{{ n }} );{% endfor %}
-        }
-        
-        {% for r,q in rq %}
-        *c{{ r }}_{{ q }} = s{{ r }}_{{ q }};{% endfor %}
-        return;
-        };
-        {% endfor %}
-    
-    }
-
-    """)
-
-    tmp = ''
-    #tmp += indexing_template.render(nds=nds)
-    
-    rng = [([(i,j) for i in range(ddm) for j in range(ddn) ],(sm,sn))
-            for ddm,sm in zip((dm, m%dm),('<','>=')) 
-            for ddn,sn in zip((dn, n%dn),('<','>=')) 
-            if ddm > 0 and ddn>0]
-    
-    tmp += template.render(m=int(m),n=int(n),o=int(k),dm = int(dm), dn=int(dn),
-            rng=rng,  dtype=cuda_dtype 
-             )
-
-    perm_mod = SourceModule(tmp)
-    f = perm_mod.get_function("mm")
-    return f.prepare('PPP')
-
-def mm_batched(a,b,c, dm=1,dn=2 ):
-
-    if not( a.shape[0]==b.shape[0] and b.shape[0]==c.shape[0] ):
-        raise TypeError
-
-    if not( a.shape[1]==c.shape[1] and b.shape[2]==c.shape[2] 
-            and a.shape[2]==b.shape[1] ):
-        raise TypeError
-    
-    l,m,k = a.shape
-    l,k,n = b.shape
-    l,m,n = c.shape
-    bs = (m/dm+int(m%dm>0),n/dn+int(n%dn>0),1)
-    
-    return k_mm_batched(m,k,n,dm,dn).prepared_call((1,1,l),bs,
-        a.gpudata,b.gpudata,c.gpudata)
-
-
-
-
 @memoize
 def k_cumprod(l,m,dm):
     
@@ -824,12 +746,12 @@ def cumprod(a,dm=1 ):
 
 def batch_matrix_mult(a,b,c):
 
-    if a.is_transposed:
+    if a.transposed:
         q,k,m = a.shape
     else:
         q,m,k = a.shape
     
-    if b.is_transposed:
+    if b.transposed:
         q,n,k = b.shape
     else:
         q,k,n = b.shape
@@ -837,11 +759,11 @@ def batch_matrix_mult(a,b,c):
     alpha = np_dtype(1.0)
     beta  = np_dtype(0.0)
 
-    ta = 't' if a.is_transposed else 'n'
-    tb = 't' if b.is_transposed else 'n'
+    ta = 't' if a.transposed else 'n'
+    tb = 't' if b.transposed else 'n'
     
-    lda = m if a.is_transposed else k
-    ldb = k if b.is_transposed else n
+    lda = m if a.transposed else k
+    ldb = k if b.transposed else n
     ldc = n 
 
     if cuda_dtype=='float':
@@ -863,12 +785,12 @@ def batch_matrix_mult(a,b,c):
 
 def matrix_mult(a,b,c):
 
-    if a.is_transposed:
+    if a.transposed:
         k,m = a.shape
     else:
         m,k = a.shape
     
-    if b.is_transposed:
+    if b.transposed:
         n,k = b.shape
     else:
         k,n = b.shape
@@ -876,11 +798,11 @@ def matrix_mult(a,b,c):
     alpha = np_dtype(1.0)
     beta  = np_dtype(0.0)
 
-    ta = 't' if a.is_transposed else 'n'
-    tb = 't' if b.is_transposed else 'n'
+    ta = 't' if a.transposed else 'n'
+    tb = 't' if b.transposed else 'n'
     
-    lda = m if a.is_transposed else k
-    ldb = k if b.is_transposed else n
+    lda = m if a.transposed else k
+    ldb = k if b.transposed else n
     ldc = n 
         
     if cuda_dtype=='float':
@@ -952,3 +874,79 @@ class row_reduction:
 
 row_max = row_reduction('a = b>a ? b : a')
 row_sum = row_reduction('a += b')
+# experimental
+@memoize
+def k_mm_batched(m,k,n,dm,dn):
+
+    template = Template("""
+
+    __global__ void mm({{ dtype }} *ag, {{ dtype }} *bg, {{ dtype }} *cg ) {
+
+        int i = threadIdx.x*{{ dm }};
+        int j = threadIdx.y*{{ dn }};
+        int l = blockIdx.z * blockDim.z + threadIdx.z;
+        
+        {% for rq,(sm,sn) in rng  %} 
+        if (i{{ sm }}{{ m - dm + 1}} and j{{ sn }}{{ n - dn + 1}}) {
+        
+        {% for r,q in rq %}
+        {{ dtype }} *a{{ r }}_{{ q }} = ag+l*{{ m*o }} + i*{{ o }} + {{ r*o }};
+        {{ dtype }} *b{{ r }}_{{ q }} = bg+l*{{ o*n }} + j + {{ q }};
+        {{ dtype }} *c{{ r }}_{{ q }} = cg+l*{{ m*n }} + i*{{ n }} + 
+                        {{ r*n }} + j + {{ q }}; 
+        {{ dtype }} s{{ r }}_{{ q }} = 0;
+        {% endfor %}
+
+        for (int k =0; k<{{ o }}; k++ ){
+
+            {% for r,q in rq %}
+            s{{ r }}_{{ q }} += *(a{{ r }}_{{ q }} + k)  * *(b{{ r }}_{{ q }} + k*{{ n }} );{% endfor %}
+        }
+        
+        {% for r,q in rq %}
+        *c{{ r }}_{{ q }} = s{{ r }}_{{ q }};{% endfor %}
+        return;
+        };
+        {% endfor %}
+    
+    }
+
+    """)
+
+    tmp = ''
+    #tmp += indexing_template.render(nds=nds)
+    
+    rng = [([(i,j) for i in range(ddm) for j in range(ddn) ],(sm,sn))
+            for ddm,sm in zip((dm, m%dm),('<','>=')) 
+            for ddn,sn in zip((dn, n%dn),('<','>=')) 
+            if ddm > 0 and ddn>0]
+    
+    tmp += template.render(m=int(m),n=int(n),o=int(k),dm = int(dm), dn=int(dn),
+            rng=rng,  dtype=cuda_dtype 
+             )
+
+    perm_mod = SourceModule(tmp)
+    f = perm_mod.get_function("mm")
+    return f.prepare('PPP')
+
+def mm_batched(a,b,c, dm=1,dn=2 ):
+
+    if not( a.shape[0]==b.shape[0] and b.shape[0]==c.shape[0] ):
+        raise TypeError
+
+    if not( a.shape[1]==c.shape[1] and b.shape[2]==c.shape[2] 
+            and a.shape[2]==b.shape[1] ):
+        raise TypeError
+    
+    l,m,k = a.shape
+    l,k,n = b.shape
+    l,m,n = c.shape
+    bs = (m/dm+int(m%dm>0),n/dn+int(n%dn>0),1)
+    
+    return k_mm_batched(m,k,n,dm,dn).prepared_call((1,1,l),bs,
+        a.gpudata,b.gpudata,c.gpudata)
+
+
+
+
+

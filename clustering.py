@@ -1,6 +1,7 @@
 from tools import *
 import pytools
 
+
 class NIW(object):
     """Normal Inverse Wishart. Conjugate prior for multivariate Gaussian"""
     def __init__(self,p,l):
