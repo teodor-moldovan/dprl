@@ -69,7 +69,7 @@ def toc((start,end)):
         
 
 ## sliced array utils
-class array(GPUArray):
+class array_old(GPUArray):
     def __init__(self,sz):
         GPUArray.__init__(self,sz,np_dtype)
         self.newhash()
@@ -156,9 +156,106 @@ class array(GPUArray):
             a.ptr+a.shape[0]*a.strides[0],a.strides[0],
             dtype=cublas.ctypes.c_void_p)
 
+class array(GPUArray):    
+    allocator = pycuda.tools.DeviceMemoryPool().allocate
+    def __init__(self,sz, dtype = np_dtype):
+        GPUArray.__init__(self,sz,dtype,allocator=self.allocator)
+        self.slc = self.canonical_slice(None ,self.shape)
+        self.brd = True
+        self.__transposed = False
+        
+    def __getitem__(self,slc):
+        r = self.view()
+        r.__class__ = self.__class__
+        
+        if not slc is None:
+            try:
+                iterator = iter(slc)
+            except TypeError:
+                slc = (slc,)
+
+            slc =  tuple(( None 
+                if s is None else (s.start,s.stop,s.step) for s in slc))
+
+        r.slc = self.canonical_slice(slc,self.shape)
+        r.brd = self.brd
+        return r
+
+
+    @property
+    def no_broadcast(self):
+        r = self.view()
+        r.__class__ = self.__class__
+        r.brd = False
+        r.slc = self.slc
+        return r
+
+    @property
+    def T(self):
+        r = self.view()
+        r.__class__ = self.__class__
+        r.__transposed = True
+        return r
+
+    @property
+    def is_transposed(self):
+        try:
+            return self.__transposed
+        except:
+            return False
+    @property
+    def bptrs(self):
+        return self.get_bptrs(self.ptr,self.shape,self.strides)
+
+    @staticmethod
+    @memoize
+    def canonical_slice(s,sh):
+
+        if s is None:
+            s = ((None,None,None),) *len(sh)
+
+        s = list(s) 
+        sh_ = list(sh)
+
+        for i in range(len(s)):
+            if s[i] is None:
+                sh_.insert(i,1)
+                s[i] = slice(None,None,None)
+            else:
+                s[i] = slice(*s[i])
+        sh = sh_
+
+        rs = tuple(s[i].indices(sh[i])+(sh[i],) for i in range(len(s)))
+
+        return rs
+
+
+    @staticmethod
+    @memoize
+    def get_bptrs(ptr,shape,strides):
+        """
+        Pointer array when input represents a batch of matrices.
+        """
+        
+        start, stop, step = ptr, ptr+shape[0]*strides[0], strides[0] 
+
+        #return gpuarray.arange(start,stop,step,dtype=cublas.ctypes.c_void_p)
+
+        size = int(np.ceil((stop-start)/step))
+
+        dtype = cublas.ctypes.c_void_p
+        func = gpuarray.elementwise.get_arange_kernel(dtype)
+        result = array((size,), dtype)
+        
+        func.prepared_call(result._grid, result._block,
+            result.gpudata, start, step, size)
+
+        return result
+
+
 def to_gpu(s):
     d = array(s.shape)
-    d.set(s.astype(np_dtype))
+    d.set(s.astype(d.dtype))
     return d
 
 @memoize

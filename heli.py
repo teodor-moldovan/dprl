@@ -57,8 +57,7 @@ class Heli(DynamicalSystem, Environment):
     def __init__(self, noise = 0):
 
         DynamicalSystem.__init__(self, 12, 4, 
-            control_bounds = [[-1.0,-1.0,-1.0,-1.0],[1.0,1.0,1.0,1.0]],
-            h_min = .1)
+            control_bounds = [[-1.0,-1.0,-1.0,-1.0],[1.0,1.0,1.0,1.0]])
 
         start = np.zeros(self.nx)
         
@@ -159,8 +158,7 @@ class OptimisticHeli(OptimisticDynamicalSystem):
 
         OptimisticDynamicalSystem.__init__(self, 12, 4, 
             [[-1.0,-1.0,-1.0,-1.0],[1.0,1.0,1.0,1.0]],
-            6, predictor,
-            h_min = .1, **kwargs)
+            6, predictor, **kwargs)
 
         g = 9.81
         self.k_f       = self.generate_k_f(g)

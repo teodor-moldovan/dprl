@@ -9,6 +9,13 @@ import pycuda.driver as drv
 import pycuda.scan
 
 class TestsTools(unittest.TestCase):
+    def test_array(self):
+        lst = [ array((10,10)).ptr for it in range(10)]
+        self.assertEqual(len(set(lst)), 1)
+        
+        lst = [ id(array((10,10,10)).bptrs) for it in range(10)]
+        self.assertEqual(len(set(lst)), 1)
+
     def test_chol(self):
         l,m = 32*8*11,32
         np.random.seed(6)
@@ -1222,33 +1229,33 @@ class TestsHeli(unittest.TestCase):
 
     def test_iter(self):
 
-        env = Heli(noise = 0.05)
+        env = Heli(noise = 0.1)
         model = OptimisticHeli(StreamingNIW)
         
-        seed = 11 # 11,15
+        seed = 28 # 11,15,22
         np.random.seed(seed)
 
         zr = np.zeros(env.nu)
-        trj = env.step(lambda t,x: zr, 21) 
+        trj = env.step(lambda t,x: zr, 21, random_control=True) 
 
         model.update(trj)
         
         lg = np.hstack((trj[0], trj[2][:,-6:] ))
         
         end = np.zeros(12)
-        end[9:12] = np.array([0,0,-1])
+        end[9:12] = np.array([0,0,0])
         end[7] = np.pi
 
-        pp = CollocationPlanner(model,20,hotstart=True)
+        pp = CollocationPlanner(model,15,hotstart=True)
         
-        for t in range(70):
+        for t in range(30):
+            print env.state
             pi = pp.solve(env.state,end)
-            trj = env.step(pi,int(env.h_min/env.dt))
+            trj = env.step(pi,20)
 
             lg_ = np.hstack((trj[0], trj[2][:,-6:] ))
             lg = np.vstack((lg,lg_))
             model.update(trj)
-            print env.state
 
         angle = np.sqrt((lg[:,1:4]*lg[:,1:4]).sum(1))
         lg[:,1:4] *= (np.sin(.5*angle) / angle)[:,np.newaxis]
@@ -1412,8 +1419,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_iter'
-    tests = TestsHeli
+    single_test = 'test_niw_ss'
+    tests = TestsClustering
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))

@@ -160,7 +160,7 @@ class Environment:
         self.t = 0
         self.noise = noise
 
-    def step(self, policy, n = 1):
+    def step(self, policy, n = 1, random_control=False):
 
         seed = int(np.random.random()*1000)
 
@@ -170,8 +170,9 @@ class Environment:
             sd = seed+ int(t/self.dt)
             np.random.seed(sd)
 
-            #nz = self.noise*np.random.normal(size=self.nu)
-            #u = u + nz
+            if random_control:
+                nz = self.noise*np.random.normal(size=self.nu)
+                u = u + nz
 
             dx = self.f(to_gpu(x.reshape(1,x.size)),to_gpu(u.reshape(1,u.size)))
             dx = dx.get().reshape(-1)
@@ -199,18 +200,20 @@ class Environment:
         t,dx,x,u = zip(*trj)
         t,dx,x,u = np.vstack(t), np.vstack(dx), np.vstack(x), np.vstack(u)
 
-        dx += self.noise*np.random.normal(size=dx.size).reshape(dx.shape)
-        u  += self.noise*np.random.normal(size= u.size).reshape( u.shape)
+
+        nz = self.noise*np.random.normal(size=dx.shape[0]*self.nx/2)
+        dx[:,:self.nx/2] += nz.reshape(dx.shape[0],self.nx/2)
+        #dx += self.noise*np.random.normal(size=dx.size).reshape(dx.shape)
+        #u  += self.noise*np.random.normal(size= u.size).reshape( u.shape)
 
         return t,dx,x,u
 
 
 class DynamicalSystem(object):
-    def __init__(self,nx,nu,control_bounds=None, h_min = None):
+    def __init__(self,nx,nu,control_bounds=None):
         self.nx = nx
         self.nu = nu
         self.control_bounds = control_bounds
-        self.h_min = h_min
 
     @memoize
     def f(self,x,u):
@@ -229,7 +232,7 @@ class DynamicalSystem(object):
 
 class OptimisticDynamicalSystem(DynamicalSystem):
     def __init__(self,nx,nu,control_bounds, 
-            nxi, pred, xi_bound = 0.0, **kwargs):
+            nxi, pred, xi_bound = 1.0, **kwargs):
 
         DynamicalSystem.__init__(self,nx,nu+nxi,**kwargs)
 
@@ -386,7 +389,7 @@ class CollocationPlanner(Planner):
         if r < 1:
 
             nds = self.nodes
-            df = (-(r - nds)[np.newaxis,:]*self.rcp_nodes_diff) + np.eye(nds.size)
+            df = ((r - nds)[np.newaxis,:]*self.rcp_nodes_diff) + np.eye(nds.size)
             w = df.prod(axis=1)
 
              
@@ -396,8 +399,7 @@ class CollocationPlanner(Planner):
 
         bl,bu = self.ds.control_bounds 
         
-        us = np.maximum(np.array(bl)[np.newaxis,:],
-             np.minimum(np.array(bu)[np.newaxis,:],us) )
+        us = np.maximum(np.array(bl)[np.newaxis,:], np.minimum(np.array(bu)[np.newaxis,:],us) )
         return us
 
 
@@ -427,7 +429,7 @@ class CollocationPlanner(Planner):
 
         
 
-    def prep_solver(self,u_cost = 0.0):
+    def prep_solver(self,u_cost = 0.001):
         nx,nu,l = self.ds.nx,self.ds.nu,self.l
         n = l* (nx+nu) + 1
         m = l*nx #+ l
@@ -489,7 +491,7 @@ class CollocationPlanner(Planner):
         if KTR_set_double_param_by_name(kc, "opttol", 1.0E-3):
             raise RuntimeError ("Error setting parameter 'opttol'")
 
-        if KTR_set_int_param(kc, KTR_PARAM_OUTLEV, 2):
+        if KTR_set_int_param(kc, KTR_PARAM_OUTLEV, 1):
             raise RuntimeError ("Error setting parameter 'outlev'")
 
         if KTR_set_int_param(kc, KTR_PARAM_ALGORITHM, 2):
@@ -632,7 +634,7 @@ class CollocationPlanner(Planner):
                 self.ret_obj, None, None, None, None, None, None)
         
         #xu = np.array(self.ret_x[1:1+l*(nx+nu)]).reshape(l,-1)
-        #print xu[:,:nx]
+        #print xu[:,nx:]
         #print (xu[:,2:4]*xu[:,2:4]).sum(1)
         #print xu[:,nx:]
 
