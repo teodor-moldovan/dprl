@@ -69,104 +69,21 @@ def toc((start,end)):
         
 
 ## sliced array utils
-class array_old(GPUArray):
-    def __init__(self,sz):
-        GPUArray.__init__(self,sz,np_dtype)
-        self.newhash()
-        self.slc = self.canonical_slice(None,self.shape)
-        self.brd = True
-        
-    def newhash(self):
-        self.hash_id = np.random.random()
-        
-
-    def __hash__(self):
-        return hash((self.ptr,self.shape,self.hash_id))
-    def __getitem__(self,slc):
-        r = self.view()
-        r.__class__ = self.__class__
-        r.slc = self.canonical_slice(slc,self.shape)
-        r.brd = self.brd
-        r.hash_id = self.hash_id
-        return r
-
-
-    @property
-    def no_broadcast(self):
-        r = self.view()
-        r.__class__ = self.__class__
-        r.brd = False
-        r.slc = self.slc
-        r.hash_id = self.hash_id
-        return r
-
-    @staticmethod
-    def canonical_slice(s,sh):
-
-        if s is None:
-            s = [slice(None,None,None),]* len(sh)
-        
-        if type(s)==slice:
-            s = [s,]
-        
-        s = list(s)
-        
-        sh_ = list(sh)
-        for i in range(len(s)):
-            if s[i] is None:
-                sh_.insert(i,1)
-                s[i] = slice(None,None,None)
-        sh = sh_
-        rs = tuple(s[i].indices(sh[i])+(sh[i],) for i in range(len(s)))
-        return rs
-
-
-    @property
-    def T(self):
-        r = self.view()
-        r.__class__ = self.__class__
-        r.__transposed = True
-        try:
-            r.cached_bptrs = self.cached_bptrs
-        except:
-            pass
-        return r
-
-    @property
-    def is_transposed(self):
-        try:
-            return self.__transposed
-        except:
-            return False
-    @property
-    def bptrs(self):
-        try:
-            return self.cached_bptrs
-        except:
-            self.set_bptrs()
-            return self.cached_bptrs
-
-    def set_bptrs(self):
-        """
-        Pointer array when input represents a batch of matrices.
-        """
-        a = self
-
-        self.cached_bptrs = gpuarray.arange(a.ptr,
-            a.ptr+a.shape[0]*a.strides[0],a.strides[0],
-            dtype=cublas.ctypes.c_void_p)
-
 class array(GPUArray):    
     allocator = pycuda.tools.DeviceMemoryPool().allocate
+    #allocator = None
     def __init__(self,sz, dtype = np_dtype):
         GPUArray.__init__(self,sz,dtype,allocator=self.allocator)
         self.slc = self.canonical_slice(None ,self.shape)
         self.brd = True
         self.__transposed = False
+        self.newhash()
         
+
     def __getitem__(self,slc):
         r = self.view()
         r.__class__ = self.__class__
+        r.hash_id = self.hash_id
         
         if not slc is None:
             try:
@@ -182,12 +99,19 @@ class array(GPUArray):
         return r
 
 
+    def __hash__(self):
+        return hash((self.ptr,self.shape,self.hash_id))
+    def newhash(self):
+        self.hash_id = np.random.random()
+        
+
     @property
     def no_broadcast(self):
         r = self.view()
         r.__class__ = self.__class__
         r.brd = False
         r.slc = self.slc
+        r.hash_id = self.hash_id
         return r
 
     @property
@@ -195,6 +119,7 @@ class array(GPUArray):
         r = self.view()
         r.__class__ = self.__class__
         r.__transposed = True
+        r.hash_id = self.hash_id
         return r
 
     @property
@@ -325,7 +250,7 @@ indexing_template = Template("""
     {% endfor %} 
     """)
 
-digamma_src = """
+digamma_src = Template("""
 __device__ {{ dtype }} digamma({{ dtype }} x) {
   {{ dtype }} result = 0, xx, xx2, xx4;
   for ( ; x < 7; ++x)
@@ -335,7 +260,7 @@ __device__ {{ dtype }} digamma({{ dtype }} x) {
   xx2 = xx*xx;
   xx4 = xx2*xx2;
   result += log(x)+(1./24.)*xx2-(7.0/960.0)*xx4+(31.0/8064.0)*xx4*xx2-(127.0/30720.0)*xx4*xx4;
-  return result;}"""
+  return result;}""").render(dtype = cuda_dtype)
 
 
 @memoize

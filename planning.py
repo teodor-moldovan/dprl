@@ -215,7 +215,6 @@ class DynamicalSystem(object):
         self.nu = nu
         self.control_bounds = control_bounds
 
-    @memoize
     def f(self,x,u):
         """ returns state derivative given state and control"""
         

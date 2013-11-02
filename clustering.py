@@ -29,6 +29,7 @@ class NIW(object):
             return x[:,:,np.newaxis],x[:,np.newaxis,:]
         
         p = self.p
+
         d, dmu, dpsi, dnnu = niw_ss_ws(x.shape[0],p)
         xl,xr = niw_ss_xlr(x)
 
@@ -91,7 +92,7 @@ class NIW(object):
             
             tmpl = Template("""
 
-                __device__ {{ dtype }} multipsi({ dtype }} x){
+                __device__ {{ dtype }} multipsi({{ dtype }} x){
                     {{ dtype }} s=0.0;
                     for (int i=0;i< {{ p }};i++) s+= digamma(x - .5*i); 
                     return s;
@@ -104,7 +105,7 @@ class NIW(object):
                 -   {{ 0.5*p }}* log( nu )+ .5*multipsi( .5*nu)"""
                 ).render(p=p,l2=np.log(2.0)),
                 name='norm_const',
-                preface = digamma_src + tmpl.render(p=p, dtype = cuda_dtype)  )
+                preface = digamma_src + tmpl.render(p=p, dtype = cuda_dtype))
 
             f2 = ufunc('d = ld - .5*  d',name='ll_scaling')
 

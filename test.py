@@ -1105,7 +1105,7 @@ class TestsClustering(unittest.TestCase):
         x  = to_gpu(  x)
         xi = to_gpu(  xi)
         
-        prd = Predictor(mix)
+        prd = mix
 
         for i in range(10):
             x.newhash()
@@ -1248,7 +1248,7 @@ class TestsHeli(unittest.TestCase):
 
         pp = CollocationPlanner(model,15,hotstart=True)
         
-        for t in range(30):
+        for t in range(100):
             print env.state
             pi = pp.solve(env.state,end)
             trj = env.step(pi,20)
@@ -1260,8 +1260,7 @@ class TestsHeli(unittest.TestCase):
         angle = np.sqrt((lg[:,1:4]*lg[:,1:4]).sum(1))
         lg[:,1:4] *= (np.sin(.5*angle) / angle)[:,np.newaxis]
         
-        np.savetxt('traj'+str(seed)+'.csv', lg, delimiter=',', header = 
-            " time(s), quaternion x, quaternion y, quaternion z (obtain quaternion w from fact that quaternion has unit norm), position x, position y, position z (positive is down) ") 
+        #np.savetxt('traj'+str(seed)+'.csv', lg, delimiter=',', header = " time(s), quaternion x, quaternion y, quaternion z (obtain quaternion w from fact that quaternion has unit norm), position x, position y, position z (positive is down) ") 
        
         
 
@@ -1419,8 +1418,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_niw_ss'
-    tests = TestsClustering
+    single_test = 'test_iter'
+    tests = TestsHeli
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))
