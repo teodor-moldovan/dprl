@@ -18,37 +18,15 @@ from jinja2 import Template
 np_dtype, cuda_dtype = np.float64, 'double'
 #np_dtype, cuda_dtype = np.float32, 'float'
 caching = True
+if not caching:
+    def memoize(obj):
+        return obj
+
 
 ## end settings
 
 cublas_handle = cublas.cublasCreate()
 atexit.register(lambda : cublas.cublasDestroy(cublas_handle) )
-
-memoize_cache = {}
-memoize_funcs = {}
-def memoize_closure(obj):
-     ck = obj.__name__
-     if ck in memoize_funcs:
-        return memoize_funcs[ck]
-
-     cache = memoize_cache[ck] = {}  
- 
-     @functools.wraps(obj)
-     def memoizer(*args):
-         if args not in cache:
-             #print 'cache miss ',obj
-             cache[args] = obj(*args)
-         return cache[args]
-        
-     memoize_funcs[ck] = memoizer
-     return memoizer
-
-if not caching:
-    def memoize_closure(obj):
-        return obj
-
-    def memoize(obj):
-        return obj
 
 
 # timing tools
@@ -74,7 +52,7 @@ class array(GPUArray):
     #allocator = None
     def __init__(self,sz, dtype = np_dtype):
         GPUArray.__init__(self,sz,dtype,allocator=self.allocator)
-        self.slc = self.canonical_slice(None ,self.shape)
+        self.slc = self.__canonical_slice(None ,self.shape)
         self.brd = True
         self.__transposed = False
         self.newhash()
@@ -94,7 +72,7 @@ class array(GPUArray):
             slc =  tuple(( None 
                 if s is None else (s.start,s.stop,s.step) for s in slc))
 
-        r.slc = self.canonical_slice(slc,self.shape)
+        r.slc = self.__canonical_slice(slc,self.shape)
         r.brd = self.brd
         return r
 
@@ -130,11 +108,11 @@ class array(GPUArray):
             return False
     @property
     def bptrs(self):
-        return self.get_bptrs(self.ptr,self.shape,self.strides)
+        return self.__get_bptrs(self.ptr,self.shape,self.strides)
 
     @staticmethod
     @memoize
-    def canonical_slice(s,sh):
+    def __canonical_slice(s,sh):
 
         if s is None:
             s = ((None,None,None),) *len(sh)
@@ -157,7 +135,7 @@ class array(GPUArray):
 
     @staticmethod
     @memoize
-    def get_bptrs(ptr,shape,strides):
+    def __get_bptrs(ptr,shape,strides):
         """
         Pointer array when input represents a batch of matrices.
         """

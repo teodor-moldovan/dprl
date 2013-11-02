@@ -1358,12 +1358,18 @@ class TestsPP(unittest.TestCase):
 
         tpl = Template(
         """
+        __device__ void f(
+                {{ dtype }} *p1,
+                {{ dtype }} *p2 
+                ){
+
         {{ dtype }} s=0;
         
         {% for i in rm %}s=0;
         {% for j in rn %}s += *(p1 + {{ j }})*{{ an[i][j] }};
         {% endfor %}
         *(p2+{{ i }}) = s;{% endfor %}
+        };
 
         """
         ).render(rm=range(m),rn=range(n),an=an, dtype = cuda_dtype)
@@ -1372,10 +1378,7 @@ class TestsPP(unittest.TestCase):
 
         
         def f(y):
-            @memoize_closure
-            def test_num_diff_f_ws(l,m):
-                return array((l,m))
-            d = test_num_diff_f_ws(y.shape[0],m) 
+            d = array((y.shape[0],m)) 
             f_k(y,d)
             return d
 
@@ -1402,7 +1405,7 @@ class TestsPP(unittest.TestCase):
 
     def test_cartpole(self): 
 
-        ds = OptimisticCartpole(Predictor(Mixture.from_file('../../data/cartpole/batch_vdp.npy')))
+        ds = OptimisticCartpole(Mixture.from_file('../../data/cartpole/batch_vdp.npy'))
 
         #ds = Cartpole()
 
@@ -1418,8 +1421,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_iter'
-    tests = TestsHeli
+    single_test = 'test_int'
+    tests = TestsPP
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))

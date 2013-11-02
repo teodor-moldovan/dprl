@@ -49,24 +49,27 @@ class ExplicitRK(object):
             a = c + {% for a in rng %}{% if not a==0 %} b{{ loop.index }} * {{ a }} + {% endif %}{% endfor %} 0.0 """)
 
         self.fs = [tpl.render(rng=a) for a in ar]   
-        self.inds = tuple((tuple((i for v,i in zip(a,range(len(a))) if v!=0 )) for a in ar))
+        self.inds = tuple((tuple((i for v,i in zip(a,range(len(a))) if v!=0 ))
+                 for a in ar))
 
         
+
+    @staticmethod
+    @memoize
+    def __batch_integrate_ws(s,(l,n),nds,name): 
+        y = array((l,n))
+        t = array((l,1))
+         
+        kn =  [array((l,n)) for i in range(s)]
+        ks = [ [kn[i] for i in nd] for nd in nds]
+        return y,kn,ks,t
+
     def integrate(self,fnc, y0,hb): 
         """return state x_h given x_0, control u and h  """
         # todo higher order. eg: http://www.peterstone.name/Maplepgs/Maple/nmthds/RKcoeff/Runge_Kutta_schemes/RK5/RKcoeff5b_1.pdf
 
-        @memoize_closure
-        def explrk_batch_integrate_ws((l,n),nds,name): 
-            s = self.ns
-            y = array((l,n))
-            t = array((l,1))
-             
-            kn =  [array((l,n)) for i in range(s)]
-            ks = [ [kn[i] for i in nd] for nd in nds]
-            return y,kn,ks,t
-
-        y,kn,ks,t = explrk_batch_integrate_ws(y0.shape,self.inds,self.name)    
+        y,kn,ks,t = self.__batch_integrate_ws(self.ns,y0.shape,
+                        self.inds,self.name)    
 
         ufunc('a=b')(y,y0)
 
@@ -113,12 +116,12 @@ class NumDiff(object):
 
     @staticmethod
     @memoize
-    def ws_x(o,l,n):
+    def __ws_x(o,l,n):
         return array((o,l,n,n)) ##
 
     @staticmethod
     @memoize
-    def ws_df(l,n,m):
+    def __ws_df(l,n,m):
         return array((l,n,m))
 
     def diff(self,f,x):
@@ -126,7 +129,7 @@ class NumDiff(object):
         o = self.order*2
         l,n = x.shape
 
-        xn = self.ws_x(o,l,n)
+        xn = self.__ws_x(o,l,n)
         dx,w = self.prep(n) 
 
         ufunc('a=b+c')(xn,x[None,:,None,:],dx)
@@ -139,7 +142,7 @@ class NumDiff(object):
 
         orig_shape,m = y.shape, y.shape[1]
 
-        df = self.ws_df(l,n,m)
+        df = self.__ws_df(l,n,m)
 
         y.shape = (o,l*n*m)
         df.shape = (l*n*m,1)
@@ -215,15 +218,17 @@ class DynamicalSystem(object):
         self.nu = nu
         self.control_bounds = control_bounds
 
+    @staticmethod
+    @memoize
+    def __f_ws(l,n):
+        return array((l,n))    
+
     def f(self,x,u):
         """ returns state derivative given state and control"""
         
-        @memoize_closure
-        def ds_f_ws(l,n):
-            return array((l,n))    
         
         l = x.shape[0]
-        y = ds_f_ws(l,self.nx)
+        y = self.__f_ws(l,self.nx)
         
         self.k_f(x,u,y)
         
@@ -246,12 +251,13 @@ class OptimisticDynamicalSystem(DynamicalSystem):
         bu = ods[1] + [xi_bound]*self.nxi
         self.control_bounds =  [bl,bu]
 
-    def pred_input(self,x,u):
-        @memoize_closure
-        def opt_ds_pred_input_ws(l,n,m):
-            return array((l,n)), array((l,m))
+    @staticmethod
+    @memoize
+    def __pred_input_ws(l,n,m):
+        return array((l,n)), array((l,m))
 
-        x0,xi = opt_ds_pred_input_ws(x.shape[0],
+    def pred_input(self,x,u):
+        x0,xi = self.__pred_input_ws(x.shape[0],
                 self.predictor.p-self.nxi,self.nxi)
         x0.newhash()
         xi.newhash()
@@ -259,13 +265,14 @@ class OptimisticDynamicalSystem(DynamicalSystem):
         self.k_pred_in(x,u,x0,xi)
         return x0,xi
 
+    @staticmethod
+    @memoize
+    def __f_with_prediction_ws(l,nx):
+        return array((l,nx))
     def f_with_prediction(self,x,y,u):
 
-        @memoize_closure
-        def opt_ds_f_with_prediction_ws(l,nx):
-            return array((l,nx))
         
-        dx = opt_ds_f_with_prediction_ws(x.shape[0], self.nx)
+        dx = self.__f_with_prediction_ws(x.shape[0], self.nx)
         dx.newhash()
         self.k_f(x,y,u,dx)
         
@@ -280,13 +287,14 @@ class OptimisticDynamicalSystem(DynamicalSystem):
         y = self.predictor.predict(x0,xi)
         return self.f_with_prediction(x,y,u)
         
+    @staticmethod
+    @memoize
+    def __update_input_ws(l,n):
+        return array((l,n))
+
     def update_input(self,dx,x,u):
 
-        @memoize_closure
-        def opt_ds_update_input_ws(l,n):
-            return array((l,n))
-
-        w = opt_ds_update_input_ws(x.shape[0], self.predictor.p)
+        w = self.__update_input_ws(x.shape[0], self.predictor.p)
         w.newhash()
         self.k_update(dx,x,u,w)
         
@@ -354,18 +362,22 @@ class CollocationPlanner(Planner):
         KTR_free(self.kc)
 
 
+
+    @staticmethod
+    @memoize
+    def __f_ws(l,nx,nu):
+        return array((l,nx)), array((l,nu))
+
+    @staticmethod
+    @memoize
+    def __f_wsx(x,nx,nu):
+        return x[:,:nx], x[:,nx:nx+nu]
+
     def f_sp(self,x):
         
-        @memoize_closure
-        def collocationplanner_f_ws(l,nx,nu):
-            return array((l,nx)), array((l,nu))
-
-        @memoize_closure
-        def collocationplanner_f_wsx(x,nx,nu):
-            return x[:,:nx], x[:,nx:nx+nu]
         
-        y,u = collocationplanner_f_wsx(x,self.ds.nx,self.ds.nu)
-        y_,u_ = collocationplanner_f_ws(x.shape[0],self.ds.nx,self.ds.nu)
+        y,u = self.__f_wsx(x,self.ds.nx,self.ds.nu)
+        y_,u_ = self.__f_ws(x.shape[0],self.ds.nx,self.ds.nu)
         
         ufunc('a=b')(y_,y)
         ufunc('a=b')(u_,u)
