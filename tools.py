@@ -54,6 +54,7 @@ class array(GPUArray):
         self.__slc = None
         self.brd = True
         self.transposed = False
+        self.hash_id = [0,]
         self.newhash()
 
     def view(self):
@@ -62,9 +63,13 @@ class array(GPUArray):
         rt.__slc = self.__slc
         rt.brd = self.brd
         rt.transposed = self.transposed
-        #rt.hash_id = self.hash_id
+        rt.hash_id = self.hash_id
         return rt
         
+
+    def set(self,*args,**kwargs):
+        GPUArray.set(self,*args,**kwargs)
+        self.newhash()
 
     def __getitem__(self,slc):
         r = self.view()
@@ -83,9 +88,9 @@ class array(GPUArray):
 
 
     def __hash__(self):
-        return hash((self.ptr,self.shape,self.hash_id))
+        return hash((self.ptr,self.shape,self.hash_id[0]))
     def newhash(self):
-        self.hash_id = np.random.random()
+        self.hash_id[0] += 1.0
         
 
     @property
@@ -328,6 +333,7 @@ def chol_batched(s,d,bd=1, ):
     if l % bd != 0:
         bd = 1
 
+    d.newhash()
     return k_chol_batched(m,bd).prepared_call((1,1,l/bd),(m,1,bd),
         s.gpudata,d.gpudata)
 
@@ -407,6 +413,7 @@ def solve_triangular(l,x,d=None,
     if k % bd != 0:
         bd = 1
 
+    d.newhash()
     return k_solve_triangular(m,n,bd,back_substitution,identity).prepared_call((1,1,k/bd),(n,1,bd),l.gpudata,x.gpudata,d.gpudata)
 
 
@@ -466,6 +473,7 @@ def outer_product(s,d,bd = 1):
     if l % bd != 0:
         raise NotImplementedError
     
+    d.newhash()
     return k_outer_product(m,n,bd).prepared_call((1,1,l/bd),(n,n,bd),s.gpudata,d.gpudata)
  
 
@@ -503,6 +511,7 @@ def chol2log_det(s,d):
 
     gs,bs = grid_block_sizes(l)
 
+    d.newhash()
     return k_chol2log_det(m).prepared_call((gs,1,1),(bs,1,1),s.gpudata,d.gpudata)
  
 
@@ -558,7 +567,7 @@ def k_ufunc(fnc,nds,name,preface):
     return perm_mod.get_function("ufunc_"+name).prepare('P'*len(nds))
 
 
-def ufunc(fnc,name='noname',preface=''):
+def ufunc(fnc,name='noname',preface='',output_inds=(0,)):
     def call(*args)  :
         
         cs = tuple((a.slc for a in args ))
@@ -567,6 +576,11 @@ def ufunc(fnc,name='noname',preface=''):
 
         k_ufunc(fnc, nds,name,preface).prepared_call(
                 (gs,1,1),(bs,1,1),*[p.gpudata for p in args] )
+        
+        for o in output_inds:
+            args[o].newhash()
+
+
         
     return call
 
@@ -602,7 +616,7 @@ def k_rowwise(fnc,nds,name):
     return perm_mod.get_function("rowwise_"+name).prepare('P'*len(nds))
 
 
-def rowwise(fnc,name='noname'):
+def rowwise(fnc,name='noname', output_inds=(-1,)):
         
     def call(*args)  :
          
@@ -614,8 +628,12 @@ def rowwise(fnc,name='noname'):
         ns = tuple(( a.shape[1] if len(a.shape)==2 else 1 for a in args  ))
         gs,bs = grid_block_sizes(s.pop())
         
+        for o in output_inds:
+            args[o].newhash()
+
         k_rowwise(fnc, ns,name).prepared_call(
                 (gs,1,1),(bs,1,1),*[p.gpudata for p in args] )
+
         
     return call
 
@@ -740,6 +758,7 @@ def cumprod(a,dm=1 ):
 
     bs = (m/dm+int(m%dm>0),m/dm+int(m%dm>0),1)
     
+    a.newhash()
     return k_cumprod(l,m,dm).prepared_call((1,1,1),bs,a.gpudata)
 
 
@@ -772,6 +791,7 @@ def batch_matrix_mult(a,b,c):
     if cuda_dtype=='double':
         fnc = cublas.cublasDgemmBatched
   
+    c.newhash()
     fnc(cublas_handle, tb, ta,
         n,m,k,
         alpha,
@@ -812,6 +832,7 @@ def matrix_mult(a,b,c):
         fnc = cublas.cublasDgemm
     
     
+    c.newhash()
     fnc(cublas_handle, tb, ta,
         n,m,k,
         alpha,
@@ -867,6 +888,8 @@ class row_reduction:
 
         gs,bs = grid_block_sizes(np.prod(l))
         
+
+        d.newhash()
         return k_row_reduction(self.fnc, self.name).prepared_call(
                 (gs,1,1),(bs,1,1), s.gpudata, d.gpudata, np.int32(k)  )
 
@@ -943,6 +966,8 @@ def mm_batched(a,b,c, dm=1,dn=2 ):
     l,m,n = c.shape
     bs = (m/dm+int(m%dm>0),n/dn+int(n%dn>0),1)
     
+
+    c.newhash()
     return k_mm_batched(m,k,n,dm,dn).prepared_call((1,1,l),bs,
         a.gpudata,b.gpudata,c.gpudata)
 

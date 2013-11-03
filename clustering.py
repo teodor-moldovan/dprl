@@ -31,11 +31,8 @@ class NIW(object):
 
     @memoize
     def sufficient_statistics(self,x):
-
         
-        p = self.p
-
-        d, dmu, dpsi, dnnu = self.__ss_ws(x.shape[0],p)
+        d, dmu, dpsi, dnnu = self.__ss_ws(x.shape[0],self.p)
         xl,xr = self.__ss_xlr(x)
 
         ufunc('a=b')(dmu,x)

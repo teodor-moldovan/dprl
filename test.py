@@ -1229,14 +1229,14 @@ class TestsHeli(unittest.TestCase):
 
     def test_iter(self):
 
-        env = Heli(noise = 0.1)
+        env = Heli(noise = 0.5)
         model = OptimisticHeli(StreamingNIW)
         
-        seed = 28 # 11,15,22
+        seed = 29 # 11,15,22
         np.random.seed(seed)
 
-        zr = np.zeros(env.nu)
-        trj = env.step(lambda t,x: zr, 21, random_control=True) 
+
+        trj = env.step(ZeroPolicy(env.nu), 21, random_control=True) 
 
         model.update(trj)
         
@@ -1253,9 +1253,10 @@ class TestsHeli(unittest.TestCase):
             pi = pp.solve(env.state,end)
             trj = env.step(pi,20)
 
-            lg_ = np.hstack((trj[0], trj[2][:,-6:] ))
-            lg = np.vstack((lg,lg_))
-            model.update(trj)
+            if not trj is None:
+                lg_ = np.hstack((trj[0], trj[2][:,-6:] ))
+                lg = np.vstack((lg,lg_))
+                model.update(trj)
 
         angle = np.sqrt((lg[:,1:4]*lg[:,1:4]).sum(1))
         lg[:,1:4] *= (np.sin(.5*angle) / angle)[:,np.newaxis]
@@ -1421,8 +1422,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_niw_predll'
-    tests = TestsClustering
+    single_test = 'test_iter'
+    tests = TestsHeli
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))

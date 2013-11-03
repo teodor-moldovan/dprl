@@ -156,6 +156,13 @@ class NumDiff(object):
         return df
 
 
+class ZeroPolicy:
+    def __init__(self,n):
+        self.zr = np.zeros(n)
+    def u(self,t,x):
+        return self.zr
+    max_h = float('inf')
+
 class Environment:
     def __init__(self, state, dt = .01, noise = 0.0):
         self.state = state
@@ -168,7 +175,7 @@ class Environment:
         seed = int(np.random.random()*1000)
 
         def f(t,x):
-            u = policy(t,x).reshape(-1)[:self.nu]
+            u = policy.u(t,x).reshape(-1)[:self.nu]
             
             sd = seed+ int(t/self.dt)
             np.random.seed(sd)
@@ -186,7 +193,7 @@ class Environment:
             return dx,u #.get().reshape(-1)
 
 
-        h = self.dt*n
+        h = min(self.dt*n,policy.max_h)
         
         ode = scipy.integrate.ode(lambda t_,x_ : f(t_,x_)[0])
         ode.set_integrator('dop853')
@@ -197,6 +204,13 @@ class Environment:
             ode.integrate(ode.t+self.dt) 
             dx,u = f(ode.t,ode.y)
             trj.append((self.t+ode.t,dx,ode.y,u))
+        
+        if len(trj)==0:
+            ode.integrate(h) 
+            self.state[:] = ode.y
+            self.t += ode.t
+            return None
+            
 
         self.state[:] = ode.y
         self.t += ode.t
@@ -259,8 +273,6 @@ class OptimisticDynamicalSystem(DynamicalSystem):
     def pred_input(self,x,u):
         x0,xi = self.__pred_input_ws(x.shape[0],
                 self.predictor.p-self.nxi,self.nxi)
-        x0.newhash()
-        xi.newhash()
 
         self.k_pred_in(x,u,x0,xi)
         return x0,xi
@@ -273,7 +285,6 @@ class OptimisticDynamicalSystem(DynamicalSystem):
 
         
         dx = self.__f_with_prediction_ws(x.shape[0], self.nx)
-        dx.newhash()
         self.k_f(x,y,u,dx)
         
         return dx
@@ -282,8 +293,6 @@ class OptimisticDynamicalSystem(DynamicalSystem):
     def f(self,x,u):
 
         x0,xi = self.pred_input(x,u)
-        x0.newhash()
-        xi.newhash()
         y = self.predictor.predict(x0,xi)
         return self.f_with_prediction(x,y,u)
         
@@ -295,7 +304,6 @@ class OptimisticDynamicalSystem(DynamicalSystem):
     def update_input(self,dx,x,u):
 
         w = self.__update_input_ws(x.shape[0], self.predictor.p)
-        w.newhash()
         self.k_update(dx,x,u,w)
         
         return w
@@ -382,7 +390,6 @@ class CollocationPlanner(Planner):
         ufunc('a=b')(y_,y)
         ufunc('a=b')(u_,u)
         
-        y_.newhash()
         return self.ds.f(y_,u_)
 
 
@@ -397,16 +404,15 @@ class CollocationPlanner(Planner):
         xu = np.array(self.ret_x[1:1+l*(nx+nu)]).reshape(l,-1)
         u = xu[:,nx:].reshape(l,nu)
 
-        if r < 1:
+        if r < -1 or r > 1:
+            raise TypeError
 
-            nds = self.nodes
-            df = ((r - nds)[np.newaxis,:]*self.rcp_nodes_diff) + np.eye(nds.size)
-            w = df.prod(axis=1)
+        nds = self.nodes
+        df = ((r - nds)[np.newaxis,:]*self.rcp_nodes_diff) + np.eye(nds.size)
+        w = df.prod(axis=1)
 
-             
-            us = np.dot(w,u)
-        else:
-            us = u[-1,:]
+         
+        us = np.dot(w,u)
 
         bl,bu = self.ds.control_bounds 
         
@@ -543,7 +549,6 @@ class CollocationPlanner(Planner):
             h = np.exp(x[0])
 
             buff.set(tmp)
-            buff.newhash()
 
             mv = np.array(x[1+l*(nx+nu):1+l*(2*nx+nu)]).reshape(l,-1)
             
@@ -574,7 +579,6 @@ class CollocationPlanner(Planner):
 
 
             buff.set(tmp)
-            buff.newhash()
 
             df = self.differentiator.diff(lambda x_: self.f_sp(x_), buff)
             f = self.f_sp(buff) 
@@ -649,7 +653,8 @@ class CollocationPlanner(Planner):
         #print (xu[:,2:4]*xu[:,2:4]).sum(1)
         #print xu[:,nx:]
 
-        return (lambda t,x: self.u(t,x))
+        self.max_h = np.exp(self.ret_x[0])
+        return self
         
 
 

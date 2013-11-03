@@ -244,9 +244,9 @@ class OptimisticHeli(OptimisticDynamicalSystem):
             // s  = angular velocity (heli frame), velocity (lab frame), 
             // rotation (Euler axis times angle), position
             // u  = controls, pseudo-controls
-            // o  = angular velocity (heli frame), velocity (heli frame), 
+            // o  = out: angular velocity (heli frame), velocity (heli frame), 
             // controls
-            // xi = pseudo controls
+            // xi = out: pseudo controls
 
             // recover quaternion
             {{ dtype }}4 q, qi;
@@ -278,7 +278,7 @@ class OptimisticHeli(OptimisticDynamicalSystem):
 
         fn = tpl.render(dtype = cuda_dtype)
 
-        return rowwise(fn,'heli_pred_in')
+        return rowwise(fn,'heli_pred_in', output_inds=(2,3))
 
 
     def generate_k_f(self,g):

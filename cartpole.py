@@ -87,7 +87,7 @@ class OptimisticCartpole(OptimisticDynamicalSystem):
             """
             )
         fn = tpl.render(dtype = cuda_dtype)
-        self.k_pred_in = rowwise(fn,'opt_cartpole_pred_in')
+        self.k_pred_in = rowwise(fn,'opt_cartpole_pred_in',output_inds=(2,3))
 
         tpl = Template(
         """
