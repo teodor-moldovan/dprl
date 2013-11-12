@@ -2,12 +2,12 @@ from planning import *
 import pylab as plt
 
 class Cartpole(DynamicalSystem, Environment):
-    def __init__(self):
+    def __init__(self, noise = 0):
 
         DynamicalSystem.__init__(self,4,1, 
                     control_bounds = [[-10.0],[10.0]],)
 
-        Environment.__init__(self, [0,0,np.pi,0])
+        Environment.__init__(self, [0,0,np.pi,0], .01, noise=noise)
 
 
         self.l = .1    # pole length
@@ -54,6 +54,20 @@ class Cartpole(DynamicalSystem, Environment):
                 dtype = cuda_dtype)
 
         self.k_f = rowwise(fn,'cartpole')
+
+    @staticmethod
+    def wrap_angles(angles):
+        return np.mod(angles + 2*np.pi,4*np.pi)-2*np.pi
+        
+    def step(self,*args,**kwargs):
+        rt = Environment.step(self,*args,**kwargs) 
+
+        if not rt is None:
+            angles = rt[2][:,2]
+            angles[:] = self.wrap_angles(angles)        
+            self.state[2] = self.wrap_angles(self.state[2])        
+
+        return rt
 
 class OptimisticCartpole(OptimisticDynamicalSystem):
     def __init__(self,predictor,**kwargs):
@@ -113,22 +127,62 @@ class OptimisticCartpole(OptimisticDynamicalSystem):
         fn = tpl.render(dtype = cuda_dtype)
         self.k_f = rowwise(fn,'opt_cartpole_f')
 
+
+        tpl = Template(
+        """
+        __device__ void f(
+                {{ dtype }} ds[],
+                {{ dtype }}  s[], 
+                {{ dtype }}  u[],
+                {{ dtype }}  o[]
+                ){
+
+            // ds : d/dt state
+            // s  : state
+            // u  : controls
+            // o  : output for learner
+            
+            o[0] = ds[0];
+            o[1] = ds[1];
+            o[2] = s[0];
+            o[3] = s[2];
+            o[4] = u[0];
+            } 
+            """
+            )
+
+        fn = tpl.render(dtype = cuda_dtype)
+        self.k_update  = rowwise(fn,'opt_cartpole_update')
+
 class CartpolePlanner(CollocationPlanner):
     def initializations(self,ws,we):
+
         h0 = -1.0
         x0 = self.waypoint_spline((ws,we))
-        
         yield h0, x0
 
+        #for t in range(2):
+        #    h = -1.0+np.random.normal()
+        #    yield h,x0
+
+        m = np.zeros(ws.shape)
+        
+        i = 1
         while True:
-            m = np.zeros(ws.shape)
-            m[2] = 4*np.pi*np.random.random()-np.pi
-            m[2] = np.pi
-            #m[0:2] = np.random.normal(size=2)
-            h = 5.0*np.random.random()
+            
+            #ws0 = ws.copy()
+            #ws0[2] = ws[2] -np.sign(ws[2]-we[2] ) *(np.random.normal()>0)*np.pi
+            
+            #print ws0[2], ws[2]
+
+            #m[2]= (i%3 - 1) * np.pi
+
+            m[2] = 2*np.pi*np.random.normal() 
+
+            h = 1.0 + 3.0*np.random.normal()
+            #h = 3.0+4.0*np.random.normal()
             x = self.waypoint_spline((ws,m,we))
 
+            i = i+1
             yield h,x
-
-
 

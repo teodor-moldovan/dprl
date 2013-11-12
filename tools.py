@@ -4,7 +4,7 @@ import scikits.cuda.cublas as cublas
 from pycuda.compiler import SourceModule
 import pycuda.scan
 from pycuda import gpuarray
-from pytools import memoize
+from pytools import my_decorator
 import functools
 from pycuda.gpuarray import GPUArray
 from collections import OrderedDict
@@ -19,6 +19,26 @@ if True:    # set True for double precision
     np_dtype, cuda_dtype = np.float64, 'double'
 else:
     np_dtype, cuda_dtype = np.float32, 'float'
+
+@my_decorator
+def memoize(func, *args):
+    # by Michele Simionato
+    # http://www.phyast.pitt.edu/~micheles/python/
+
+    try:
+        return func._memoize_dic[args]
+    except AttributeError:
+        # _memoize_dic doesn't exist yet.
+
+        result = func(*args)
+        func._memoize_dic = {args: result}
+        return result
+    except KeyError:
+        #print 'cache miss: ', func
+        result = func(*args)
+        func._memoize_dic[args] = result
+        return result
+    
 
 if False:   # set True to disable caching
     memoize = lambda x : x

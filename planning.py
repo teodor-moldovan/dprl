@@ -3,6 +3,7 @@ from knitro import *
 import numpy.polynomial.legendre as legendre
 import pylab as plt
 import scipy.integrate 
+from sys import stdout
 
 class ExplicitRK(object):    
     def __init__(self,st='lw6'):
@@ -88,8 +89,9 @@ class NumDiff(object):
         self.h = h
         self.order = order
 
+    @staticmethod
     @memoize
-    def prep(self,n):
+    def prep(n,h,order):
         constants = (
             ((-1,1), (-.5,.5)),
             ((-1,1,-2,2),
@@ -100,9 +102,8 @@ class NumDiff(object):
              (-4.0/5, 4.0/5, 1.0/5,-1.0/5,-4.0/105,4.0/105, 1.0/280,-1.0/280)),
             )
 
-        h = self.h
 
-        c,w = constants[self.order-1]
+        c,w = constants[order-1]
 
         w = to_gpu(np.array(w)/float(h))
         w.shape = (w.size,1)
@@ -115,12 +116,10 @@ class NumDiff(object):
         
 
     @staticmethod
-    @memoize
     def __ws_x(o,l,n):
         return array((o,l,n,n)) ##
 
     @staticmethod
-    @memoize
     def __ws_df(l,n,m):
         return array((l,n,m))
 
@@ -130,7 +129,7 @@ class NumDiff(object):
         l,n = x.shape
 
         xn = self.__ws_x(o,l,n)
-        dx,w = self.prep(n) 
+        dx,w = self.prep(n,self.h,self.order) 
 
         ufunc('a=b+c')(xn,x[None,:,None,:],dx)
         
@@ -188,6 +187,7 @@ class Environment:
             dx = dx.get().reshape(-1)
 
             nz = self.noise*np.random.normal(size=self.nx/2)
+            # changed
             dx[:self.nx/2] += nz
 
             return dx,u #.get().reshape(-1)
@@ -227,10 +227,15 @@ class Environment:
 
 
 class DynamicalSystem(object):
-    def __init__(self,nx,nu,control_bounds=None):
+    def __init__(self,nx,nu,control_bounds=None,u_costs = None):
         self.nx = nx
         self.nu = nu
         self.control_bounds = control_bounds
+        
+        if u_costs is None:
+            u_costs = np.zeros(nu)
+        self.u_costs = u_costs
+            
 
     @staticmethod
     @memoize
@@ -250,23 +255,34 @@ class DynamicalSystem(object):
 
 class OptimisticDynamicalSystem(DynamicalSystem):
     def __init__(self,nx,nu,control_bounds, 
-            nxi, pred, xi_bound = 1.0, **kwargs):
+            nxi, pred, xi_bound = None, **kwargs):
 
         DynamicalSystem.__init__(self,nx,nu+nxi,**kwargs)
 
         self.nxi = nxi
         self.predictor = pred
         self.original_ds_control_bounds = control_bounds
-        self.set_control_bounds(xi_bound)
+
+        if False:
+            self.set_control_bounds(1.0)
+        else:
+            self.set_control_bounds(None)
+            self.u_costs[-nxi:] = 10.0
+
         
     def set_control_bounds(self, xi_bound):
         ods = self.original_ds_control_bounds
-        bl = ods[0] + [-xi_bound]*self.nxi
-        bu = ods[1] + [xi_bound]*self.nxi
+        
+        if not xi_bound is None:
+            bl = ods[0] + [-xi_bound]*self.nxi
+            bu = ods[1] + [xi_bound]*self.nxi
+        else:
+            bl = ods[0] + [ -KTR_INFBOUND,]*self.nxi
+            bu = ods[1] + [  KTR_INFBOUND,]*self.nxi
+
         self.control_bounds =  [bl,bu]
 
     @staticmethod
-    @memoize
     def __pred_input_ws(l,n,m):
         return array((l,n)), array((l,m))
 
@@ -278,7 +294,6 @@ class OptimisticDynamicalSystem(DynamicalSystem):
         return x0,xi
 
     @staticmethod
-    @memoize
     def __f_with_prediction_ws(l,nx):
         return array((l,nx))
     def f_with_prediction(self,x,y,u):
@@ -297,7 +312,6 @@ class OptimisticDynamicalSystem(DynamicalSystem):
         return self.f_with_prediction(x,y,u)
         
     @staticmethod
-    @memoize
     def __update_input_ws(l,n):
         return array((l,n))
 
@@ -315,42 +329,8 @@ class OptimisticDynamicalSystem(DynamicalSystem):
         w = self.update_input(dx,x,u)
         self.predictor.update(w)
 
-class Planner(object):
-    def __init__(self, ds,l,hotstart=False):
-        """ initialize planner for dynamical system"""
-        self.ds = ds
-        self.l=l
-        self.hotstart=hotstart
-        self.is_first = True
-
-    def min_acc_traj(self,a,b,t=None):
-        nt = self.l
-        if t is None:
-            t = np.linspace(0,1.0,nt)
-        d = a.size/2
-            
-        v0,x0 = a[:d],a[d:]
-        v1,x1 = b[:d],b[d:]
-            
-        a0 = 4*(x1-x0) - (3*v0+v1)
-        a1 = -4*(x1-x0) + (3*v1+v0)
-
-        xm, vm = x0 + .5*v0 + .25 * a0, v0 + .5*a0
-        
-        ts = t[t<=.5][:,np.newaxis]
-        xs0 = x0[np.newaxis,:] + ts*v0[np.newaxis,:] + .5*ts*ts*a0[np.newaxis,:]
-        vs0 = v0[np.newaxis,:] + ts*a0[np.newaxis,:]
-
-        ts = 1.0-t[t>.5][:,np.newaxis]
-        xs1 = x1[np.newaxis,:] - ts*v1[np.newaxis,:] + .5*ts*ts*a1[np.newaxis,:]
-        vs1 = v1[np.newaxis,:] - ts*a1[np.newaxis,:]
-            
-        return np.array(np.bmat([[vs0,xs0],[vs1,xs1]]))
-
-
-
 class CollocationPlanner():
-    def __init__(self, ds,l,hotstart=False):
+    def __init__(self, ds,l, hotstart=False):
         """ initialize planner for dynamical system"""
         self.ds = ds
         self.l=l
@@ -360,7 +340,6 @@ class CollocationPlanner():
         self.differentiator = NumDiff()
         self.poly_approx()
         
-        self.u_cost = .000
         self.kc = self.prep_solver() 
         #self.end_index = 0
 
@@ -370,12 +349,10 @@ class CollocationPlanner():
 
 
     @staticmethod
-    @memoize
     def __f_ws(l,nx,nu):
         return array((l,nx)), array((l,nu))
 
     @staticmethod
-    @memoize
     def __f_wsx(x,nx,nu):
         return x[:,:nx], x[:,nx:nx+nu]
 
@@ -460,7 +437,13 @@ class CollocationPlanner():
         buff = self.__buff(l,nx+nu)
         
         tmp = np.array(x[1:1+l*(nx+nu)]).reshape(l,-1)
-        obj[0] = x[0] + self.u_cost*np.sum(tmp[:,nx:]*tmp[:,nx:]) 
+        
+        try:
+            uc = self.ds.u_costs*self.u_cost/10.0 
+        except:
+            uc = self.ds.u_costs
+
+        obj[0] = x[0] + np.dot(uc,np.sum(tmp[:,nx:]*tmp[:,nx:],0) )
 
         #h = x[0]
         h = np.exp(x[0])
@@ -492,10 +475,16 @@ class CollocationPlanner():
 
 
         tmp = np.array(x[1:l*(nx+nu)+1]).reshape(l,-1)
-        obj_grad = tmp.copy()
-        obj_grad[:,:nx] = 0
 
-        objGrad[:] = [1.0]+ (self.u_cost*2.0*obj_grad).reshape(-1).tolist()
+        try:
+            uc = self.ds.u_costs*(self.u_cost/10.0) 
+        except:
+            uc = self.ds.u_costs
+        
+        obj_grad = np.zeros(tmp.shape)
+        obj_grad[:,nx:] = 2.0*uc[np.newaxis,:]*tmp[:,nx:]
+
+        objGrad[:] = [1.0,]+ obj_grad.reshape(-1).tolist()
 
         #dh,h = 1.0, x[0]
         dh,h = np.exp(x[0]),np.exp(x[0])
@@ -523,7 +512,6 @@ class CollocationPlanner():
 
 
     @staticmethod
-    @memoize
     def jac_ij(nx,nu,l):
 
         ji1 = [(v,c) 
@@ -594,12 +582,12 @@ class CollocationPlanner():
         if KTR_set_double_param_by_name(kc, "opttol", 1.0E-2):
             raise RuntimeError ("Error setting parameter 'opttol'")
 
-        if KTR_set_int_param(kc, KTR_PARAM_OUTLEV, 3):
+        if KTR_set_int_param(kc, KTR_PARAM_OUTLEV, 0):
             raise RuntimeError ("Error setting parameter 'outlev'")
 
         ###
 
-        #if KTR_set_double_param(kc, KTR_PARAM_DELTA, 1e-6):
+        #if KTR_set_double_param(kc, KTR_PARAM_DELTA, 1e-4):
         #    raise RuntimeError ("Error setting parameter 'outlev'")
 
         #if KTR_set_int_param(kc, KTR_PARAM_SOC, 2):
@@ -690,19 +678,21 @@ class CollocationPlanner():
     def hotstart_init(self,start,end):
         if self.hotstart and not self.is_first:
             yield start,end,self.ret_x, self.ret_lambda
-        else:
-            ws = self.state2waypoint(start)
-            we = self.state2waypoint(end)
-            for h,x in self.initializations(ws,we):
-                l = [0.0,]*len(self.ret_lambda)
-                s = (x[0][:self.ds.nx]).reshape(-1).tolist()
-                e = (x[-1][:self.ds.nx]).reshape(-1).tolist()
-                yield s,e,[h,] + x.reshape(-1).tolist() , l 
-        
+
+        ws = self.state2waypoint(start)
+        we = self.state2waypoint(end)
+        for h,x in self.initializations(ws,we):
+            l = [0.0,]*len(self.ret_lambda)
+            s = (x[0][:self.ds.nx]).reshape(-1).tolist()
+            e = (x[-1][:self.ds.nx]).reshape(-1).tolist()
+            yield s,e,[h,] + x.reshape(-1).tolist() , l 
 
     def solve(self, start, end):
-
+        
         for s,e,x,l in self.hotstart_init(start,end):
+            stdout.write('.')
+            stdout.flush()
+
             self.bind_state(0,s)
             self.bind_state(-1,e)
 
@@ -710,15 +700,26 @@ class CollocationPlanner():
             KTR_restart(self.kc, x, l)
 
             #KTR_solve
-            #nStatus = KTR_check_first_ders (self.kc, self.ret_x, 2, 1e-6, 1e-6, 0, 0.0, None,None,None,None);
+            #nStatus = KTR_check_first_ders (self.kc, self.ret_x, 
+            #           2, 1e-6, 1e-6, 0, 0.0, None,None,None,None);
 
             nStatus = KTR_solve (self.kc, self.ret_x, self.ret_lambda, 0, 
                     self.ret_obj, None, None, None, None, None, None)
             
             if nStatus == 0:
                 break
-            
-        self.max_h = np.exp(self.ret_x[0])
+
+        if nStatus != 0:
+            raise RuntimeError()
+
+
+        
+        nx,nu,l = self.ds.nx,self.ds.nu,self.l
+        x = self.ret_x
+        tmp = np.array(x[1:1+l*(nx+nu)]).reshape(l,-1)
+
+        self.max_h = np.exp(x[0])
+        self.u_cost = np.dot(self.ds.u_costs,np.sum(tmp[:,nx:]*tmp[:,nx:],0) ) 
         self.is_first = False
         
         return self

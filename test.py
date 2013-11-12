@@ -1197,8 +1197,6 @@ class TestsCartpole(unittest.TestCase):
         c.f(x,u)
         toc(t)
         
-        
-         
          
     def test_pp(self):
         pp = CollocationPlanner(Cartpole(),15)
@@ -1230,6 +1228,7 @@ class TestsCartpole(unittest.TestCase):
     def test_more(self): 
 
         ds = Cartpole()
+        ds = OptimisticCartpole(Mixture.from_file('../../data/cartpole/batch_vdp.npy'))
 
         pp = CartpolePlanner(ds,15)
 
@@ -1237,7 +1236,7 @@ class TestsCartpole(unittest.TestCase):
         #pp.solve(np.array([0,0,np.pi*1.1,0]), np.array([0,0,0,0]))
 
         #pp.solve(np.array([0,0,np.pi*.4,0]), np.array([0,0,2*np.pi,0]))
-        pp.solve(np.array([0,0,np.pi*.4,0]), np.array([0,0,0,0]))
+        #pp.solve(np.array([0,0,-np.pi*.4,2.0]), np.array([0,0,0,0]))
 
         #pp.solve(np.array([0.0, 2.0, np.pi, 1.3]), 
         #        np.array([[0.0,0.0,2*np.pi,0.0]]))
@@ -1245,6 +1244,37 @@ class TestsCartpole(unittest.TestCase):
         #pp.solve(np.array([0,0,np.pi*.1,0]), np.array([0,0,2*np.pi,0]))
         #pp.solve(np.array([0,0,-np.pi*.01,0]), np.array([0,0,0,0]))
         
+
+    def test_iter(self):
+        env = Cartpole(noise = 0.1)
+
+        p,k = 5, 50
+        learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
+        model = OptimisticCartpole(learner)
+        #model = Cartpole()
+
+        seed = 29 # 11,15,22
+        np.random.seed(seed)
+
+        trj = env.step(ZeroPolicy(env.nu), 21, random_control=True) 
+
+        model.update(trj)
+        
+        end = np.zeros(4)
+
+        pp = CartpolePlanner(model,15,hotstart=True)
+        
+        for t in range(10000):
+            s = env.state
+            print ('{:9.3f} '*4).format(*s)
+            pi = pp.solve(env.state,end)
+            print pi.max_h, pi.u_cost
+            trj = env.step(pi,2)
+
+            if not trj is None:
+                model.update(trj)
+
+
 
 class TestsHeli(unittest.TestCase):
     def test_f(self):
@@ -1479,7 +1509,7 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_more'
+    single_test = 'test_iter'
     tests = TestsCartpole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()

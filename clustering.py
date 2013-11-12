@@ -1,7 +1,6 @@
 from tools import *
 import pytools
 
-
 class NIW(object):
     """Normal Inverse Wishart. Conjugate prior for multivariate Gaussian"""
     def __init__(self,p,l):
@@ -34,12 +33,10 @@ class NIW(object):
         return d,d[:,:p],d.no_broadcast[:,p:p*(p+1),np.newaxis], d[:,-2:]
 
     @staticmethod
-    @memoize
     def __ss_xlr(x):
         return x[:,:,np.newaxis],x[:,np.newaxis,:]
 
     @classmethod
-    @memoize
     def __sufficient_statistics(self,p,x):
         
         d, dmu, dpsi, dnnu = self.__ss_ws(x.shape[0],p)
@@ -57,7 +54,6 @@ class NIW(object):
 
 
     @staticmethod
-    @memoize
     def __from_nat_slices(s,p):
         return ( s[:,-2:-1],s[:,-1:],s[:,:p],
             s.no_broadcast[:,p:-2,np.newaxis],
@@ -66,7 +62,6 @@ class NIW(object):
             )
 
     @staticmethod
-    @memoize
     def __from_nat_sliced_params(n,nu):
         return n[:,np.newaxis],nu[:,np.newaxis] 
 
@@ -87,7 +82,6 @@ class NIW(object):
     def __get_nat_ws(l,p):
         return array((l,p*(p+1)+2 ))
 
-    @memoize
     def get_nat(self):
 
         p = self.p
@@ -141,7 +135,6 @@ class NIW(object):
                 fc,f2,f3
                 )
 
-    @memoize
     def __ex_ll_prep(slf): 
         p,l = slf.p,slf.l
         
@@ -182,14 +175,12 @@ class NIW(object):
 
 
     @staticmethod
-    @memoize
     def __ll_eb(extras): 
         return extras[None,:]
 
 
 
 
-    @memoize
     def expected_ll(self,x,extras=None):
         ss_dim, tprm,lds,f2,f3 = self.__ex_ll_prep()
 
@@ -242,7 +233,6 @@ class NIW(object):
 
 
 
-    @memoize
     def __pp_ll_prep(slf): 
 
         p,l = slf.p,slf.l
@@ -287,7 +277,6 @@ class NIW(object):
 
 
 
-    @memoize
     def predictive_posterior_ll(self,x,extras=None):
         ss_dim, tprm,lds,nus,f2,f3 = self.__pp_ll_prep()
 
@@ -315,7 +304,6 @@ class NIW(object):
         return cls(p,l)
 
     @staticmethod
-    @memoize
     def __marginal_prep(mu,psi,p):
         return mu[:,-p:],psi[:,-p:,-p:] 
             
@@ -350,7 +338,6 @@ class NIW(object):
                 )
             
     @staticmethod
-    @memoize
     def __conditional_prep(p,q,psi,mu,n,dmu,dn): 
         return (psi[:,p-q:,p-q:],
                 psi[:,p-q:p,:p-q],psi[:,:p-q,:p-q],
@@ -415,7 +402,6 @@ class NIW(object):
         return sg,out,r, r[:,None]
 
 
-    @memoize
     def predict(self,x,xi):
         
         if x.shape[0] != self.l:
@@ -467,7 +453,6 @@ class SBP(object):
     def __exp_ll_ws(l):
         return array((l,)), array((l,)), array((l,))
 
-    @memoize
     def __expected_ll(self):
 
         b1,b2,d = self.__exp_ll_ws(self.l) 
@@ -479,7 +464,6 @@ class SBP(object):
         cumsum_ex(b2,d)
         return d,b1
 
-    @memoize
     def expected_ll(self):
         c,b1 = self.__expected_ll()
         d = array(c.shape)
@@ -491,7 +475,6 @@ class SBP(object):
     def __alpha_prior_update_ws(l):
         return to_gpu(np.array([-1+l,0]))
 
-    @memoize
     def alpha_prior_update(self):
         c,b1 = self.__expected_ll()
         l = self.l
@@ -505,7 +488,6 @@ class SBP(object):
     def __pp_ll_ws(l):
         return array((l,)), array((l,)), array((l,))
 
-    @memoize
     def predictive_posterior_ll(self):
 
         b1,b2,d = self.__pp_ll_ws(self.l) 
@@ -538,7 +520,6 @@ class Mixture(object):
         dg = array((k,))
         return dg, dg[:,None]
 
-    @memoize
     def predictive_posterior_resps(self,x):         
 
         ex = self.sbp.predictive_posterior_ll()
@@ -561,7 +542,6 @@ class Mixture(object):
         return dg, dg[:,None]
 
 
-    @memoize
     def pseudo_resps(self,x):
 
         ex = self.sbp.expected_ll()
@@ -609,7 +589,6 @@ class Mixture(object):
         return tau_,clusters_
 
 
-    @memoize
     def predict_weighted(self,x,xi):
 
         mix = self
@@ -677,12 +656,11 @@ class StreamingNIW(object):
         return self.niw.p
         
 class BatchVDP(object):
-    def __init__(self,mix,buffer_size=None,
-             w =.1, kl_tol = 1e-8, max_iters = 10000):
+    def __init__(self,mix,buffer_size=11*32*8,
+             w =.1, kl_tol = 1e-4, max_iters = 10000):
         
-        if buffer_size is not None:
-            self.buff = array((buffer_size, mix.clusters.prior.size))
-            self.clear()
+        self.buff = array((buffer_size, mix.clusters.prior.size))
+        self.clear() 
         
         self.mix = mix
         self.w = to_gpu(np.array([[w]]))
@@ -713,6 +691,7 @@ class BatchVDP(object):
         ufunc('a='+str(d)+' *i + j')(ind, i[:,None], self.__drng(d)[None,:]) 
         
         rev_fancy_index(ss,ind,self.buff)
+
     def update(self,ss):
         self.append(ss)
         self.learn(self.buff)
