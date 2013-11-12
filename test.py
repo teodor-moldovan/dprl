@@ -16,6 +16,23 @@ class TestsTools(unittest.TestCase):
         lst = [ id(array((10,10,10)).bptrs) for it in range(10)]
         self.assertEqual(len(set(lst)), 1)
 
+    def test_fancy_index(self):
+        
+        n = 1000
+        i = to_gpu(np.arange(n)[::-1])
+        j = to_gpu(np.arange(n))
+        inds = array((n,n))
+
+        ufunc('a='+str(n)+'* i + j ')(inds, i[:,None],j[None,:] ) 
+        
+        s = to_gpu(np.eye(n))
+        d = array((n,n))
+        
+        fancy_index(s,inds,d)
+        np.testing.assert_equal(d.get(),s.get()[np.int_(i.get())])
+        
+        
+
     def test_chol(self):
         l,m = 32*8*11,32
         np.random.seed(6)
@@ -495,16 +512,21 @@ class TestsClustering(unittest.TestCase):
          
          
     def test_niw_streaming(self):
-        l,m = 32*8*11, 32
+        l,p = 32*8*11, 32
+        k,q = 15, 6 
 
         np.random.seed(1)
-        xn = np.random.normal(size=l*m).reshape(l,m)
+        xn = np.random.normal(size=l*p).reshape(l,p)
 
-        x = to_gpu(xn)
+        s = StreamingNIW(p)
+        s.update(to_gpu(xn))
+
+
+        x = np.random.normal(size=k*q).reshape(k,q)
+        xi = np.random.normal(size=k*(p-q)).reshape(k,p-q)
+
+        s.predict(to_gpu(x),to_gpu(xi))
         
-        s = StreamingNIW(m)
-        s.update(x)
-
          
          
     def test_niw_nat(self):
@@ -1120,6 +1142,39 @@ class TestsClustering(unittest.TestCase):
         toc(t)
 
 
+    def test_vdp(self):
+        l,k,p = 32*11, 44, 8
+
+        np.random.seed(1)
+        xn = np.concatenate((np.random.normal(size=l*p/2) , 
+                    100.0+np.random.normal(size=l*p/2))).reshape(l,p)
+
+        s = BatchVDP(Mixture(SBP(k),NIW(p,k)))
+        
+        np.random.seed(1)
+        s.learn(to_gpu(xn))
+        np.random.seed(1)
+        t = tic()
+        s.learn(to_gpu(xn))
+        toc(t)
+
+         
+    def test_streaming_vdp(self):
+        l,n,k,p = 32*11*8,22, 44, 8
+
+
+        s = BatchVDP(Mixture(SBP(k),NIW(p,k)),buffer_size = l)
+
+        np.random.seed(1)
+        
+        for t in range(100):
+            xn = 10*np.random.normal(size=p)[np.newaxis,:]+np.random.normal(size=n*p).reshape(n,p)
+            
+            t=tic()
+            s.update(to_gpu(xn))
+            toc(t)
+            
+         
 class TestsCartpole(unittest.TestCase):
     def test_f(self):
         l = 32*11*8
@@ -1171,6 +1226,25 @@ class TestsCartpole(unittest.TestCase):
         pp = CollocationPlanner(ds,15)
         start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
         pp.solve(start,end)
+
+    def test_more(self): 
+
+        ds = Cartpole()
+
+        pp = CartpolePlanner(ds,15)
+
+        #pp.solve( [0,0,np.pi,0], [0,0,0,0])
+        #pp.solve(np.array([0,0,np.pi*1.1,0]), np.array([0,0,0,0]))
+
+        #pp.solve(np.array([0,0,np.pi*.4,0]), np.array([0,0,2*np.pi,0]))
+        pp.solve(np.array([0,0,np.pi*.4,0]), np.array([0,0,0,0]))
+
+        #pp.solve(np.array([0.0, 2.0, np.pi, 1.3]), 
+        #        np.array([[0.0,0.0,2*np.pi,0.0]]))
+
+        #pp.solve(np.array([0,0,np.pi*.1,0]), np.array([0,0,2*np.pi,0]))
+        #pp.solve(np.array([0,0,-np.pi*.01,0]), np.array([0,0,0,0]))
+        
 
 class TestsHeli(unittest.TestCase):
     def test_f(self):
@@ -1404,26 +1478,9 @@ class TestsPP(unittest.TestCase):
         
         
 
-    def test_cartpole(self): 
-
-        ds = OptimisticCartpole(Mixture.from_file('../../data/cartpole/batch_vdp.npy'))
-
-        #ds = Cartpole()
-
-        #pp = CvxgenPlanner(ds,50)
-        #pp = KnitroPlanner(ds,50)
-        pp = CollocationPlanner(ds,15)
-
-        #pp.solve(np.array([0,0,np.pi,0]), np.array([0,0,0,0]))
-        #pp.solve(np.array([0,0,np.pi*1.1,0]), np.array([0,0,0,0]))
-        pp.solve(np.array([0,0,np.pi*.4,0]), np.array([0,0,2*np.pi,0]))
-        #pp.solve(np.array([0,0,np.pi*.1,0]), np.array([0,0,2*np.pi,0]))
-        #pp.solve(np.array([0,0,-np.pi*.01,0]), np.array([0,0,0,0]))
-        
-
 if __name__ == '__main__':
-    single_test = 'test_iter'
-    tests = TestsHeli
+    single_test = 'test_more'
+    tests = TestsCartpole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))

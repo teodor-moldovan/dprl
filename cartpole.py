@@ -113,6 +113,22 @@ class OptimisticCartpole(OptimisticDynamicalSystem):
         fn = tpl.render(dtype = cuda_dtype)
         self.k_f = rowwise(fn,'opt_cartpole_f')
 
+class CartpolePlanner(CollocationPlanner):
+    def initializations(self,ws,we):
+        h0 = -1.0
+        x0 = self.waypoint_spline((ws,we))
+        
+        yield h0, x0
+
+        while True:
+            m = np.zeros(ws.shape)
+            m[2] = 4*np.pi*np.random.random()-np.pi
+            m[2] = np.pi
+            #m[0:2] = np.random.normal(size=2)
+            h = 5.0*np.random.random()
+            x = self.waypoint_spline((ws,m,we))
+
+            yield h,x
 
 
 

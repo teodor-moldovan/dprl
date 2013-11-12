@@ -338,6 +338,73 @@ def chol_batched(s,d,bd=1, ):
         s.gpudata,d.gpudata)
 
 
+def k_fancy_index():
+    template = Template("""
+
+    __global__ void fancy_index(
+        {{ dtype }}* s, {{ dtype }} *i, {{ dtype }} *d 
+        ) {
+        int ind = blockIdx.x * blockDim.x  + threadIdx.x; 
+        
+        *(d+ind) = *(s + __{{ dtype }}2int_rd(*(i+ind)));
+    }
+
+    """) 
+
+    
+    tmp = template.render(dtype=cuda_dtype)
+    mod = SourceModule(tmp)
+    
+    return mod.get_function("fancy_index").prepare('PPP')
+
+
+def fancy_index(s,i,d):
+
+    if i.size != d.size or s.size != d.size:
+        raise TypeError
+
+    gs,bs = grid_block_sizes(s.size)
+
+        
+    d.newhash()
+    return k_fancy_index().prepared_call((gs,1,1),(bs,1,1),
+        s.gpudata, i.gpudata, d.gpudata)
+
+
+
+def k_rev_fancy_index():
+    template = Template("""
+
+    __global__ void rev_fancy_index(
+        {{ dtype }}* s, {{ dtype }} *i, {{ dtype }} *d 
+        ) {
+        int ind = blockIdx.x * blockDim.x  + threadIdx.x; 
+        
+        *(d+ __{{ dtype }}2int_rd(*(i+ind))) = *(s + ind);
+    }
+
+    """) 
+
+    
+    tmp = template.render(dtype=cuda_dtype)
+    mod = SourceModule(tmp)
+    
+    return mod.get_function("rev_fancy_index").prepare('PPP')
+
+
+def rev_fancy_index(s,i,d):
+
+    if i.size != s.size:
+        raise TypeError
+
+    gs,bs = grid_block_sizes(s.size)
+
+        
+    d.newhash()
+    return k_rev_fancy_index().prepared_call((gs,1,1),(bs,1,1),
+        s.gpudata, i.gpudata, d.gpudata)
+
+
 @memoize
 def k_solve_triangular(m,n,bd,bck,identity):
     template = Template("""
@@ -771,9 +838,17 @@ def batch_matrix_mult(a,b,c):
         q,m,k = a.shape
     
     if b.transposed:
-        q,n,k = b.shape
+        q_,n,k_ = b.shape
     else:
-        q,k,n = b.shape
+        q_,k_,n = b.shape
+        
+    q__, m__,n__ = c.shape
+
+    if q_!= q or k_!=k:
+        raise TypeError
+
+    if q__!= q or m__!=m or n__!=n:
+        raise TypeError
     
     alpha = np_dtype(1.0)
     beta  = np_dtype(0.0)
@@ -811,9 +886,14 @@ def matrix_mult(a,b,c):
         m,k = a.shape
     
     if b.transposed:
-        n,k = b.shape
+        n,k_ = b.shape
     else:
-        k,n = b.shape
+        k_,n = b.shape
+    
+    m__,n__ = c.shape
+    if k_!=k or m__!=m or n__!=n:
+        raise TypeError
+    
     
     alpha = np_dtype(1.0)
     beta  = np_dtype(0.0)

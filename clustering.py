@@ -13,6 +13,15 @@ class NIW(object):
         self.psi = array((l,p,p))
         self.n   = array((l,))
         self.nu  = array((l,)) 
+
+        # set default prior
+        #
+        # old version used 2*d+1+2, this seems to work well
+        # 2*d + 1 was also a good choice but can't remember why
+
+        lbd = [0,]*(p+p*p+1)+[2*p+1]
+        self.prior = to_gpu(np.array(lbd).reshape(1,-1))
+
         
     def __hash__(self):
         return hash((self.mu,self.psi,self.n,self.nu,self.p,self.l))
@@ -29,10 +38,11 @@ class NIW(object):
     def __ss_xlr(x):
         return x[:,:,np.newaxis],x[:,np.newaxis,:]
 
+    @classmethod
     @memoize
-    def sufficient_statistics(self,x):
+    def __sufficient_statistics(self,p,x):
         
-        d, dmu, dpsi, dnnu = self.__ss_ws(x.shape[0],self.p)
+        d, dmu, dpsi, dnnu = self.__ss_ws(x.shape[0],p)
         xl,xr = self.__ss_xlr(x)
 
         ufunc('a=b')(dmu,x)
@@ -40,6 +50,10 @@ class NIW(object):
         ufunc('a=1.0')(dnnu)
         
         return d
+
+
+    def sufficient_statistics(self,x):
+        return self.__sufficient_statistics(self.p,x)
 
 
     @staticmethod
@@ -127,9 +141,6 @@ class NIW(object):
                 fc,f2,f3
                 )
 
-
-
-
     @memoize
     def __ex_ll_prep(slf): 
         p,l = slf.p,slf.l
@@ -151,6 +162,7 @@ class NIW(object):
         batch_matrix_mult(tx.T,tx,tf)
         
         tprm = tprm.no_broadcast
+
         
         ufunc('a=-2.0*b')(tprm[:,np.newaxis,:p], tf[:,-1:,:-1] )
         ufunc('a=b')(tprm[:,p:-2,np.newaxis],  tf[:,:-1,:-1] )
@@ -297,7 +309,7 @@ class NIW(object):
 
 
 
-    @staticmethod
+    @classmethod
     @memoize
     def __marginal_new_like_me(cls,p,l):
         return cls(p,l)
@@ -311,7 +323,7 @@ class NIW(object):
 
         p0 = self.p
                 
-        dst = self.__marginal_new_like_me(self.__class__,p,self.l)
+        dst = self.__marginal_new_like_me(p,self.l)
         mus, psis = self.__marginal_prep(self.mu,self.psi,p)
         
         ufunc('a=b-'+str(p0-p))(dst.nu,self.nu )
@@ -349,7 +361,7 @@ class NIW(object):
                 dn[:,None,None]
                 )
 
-    @staticmethod
+    @classmethod
     @memoize
     def __cond_new_like_me(cls,p,l):
         return cls(p,l)
@@ -358,10 +370,11 @@ class NIW(object):
 
         if x.shape[0] != self.l:
             raise TypeError
+
         p = self.p
         l,q = x.shape
 
-        dst = self.__cond_new_like_me(self.__class__, p-q,self.l)
+        dst = self.__cond_new_like_me(p-q,self.l)
 
         td,te,tx,tf,tdb1,txb1,txb2,tfb1,tfb2,tfb3 = self.__conditional_ws(p,l,q)
         
@@ -421,7 +434,10 @@ class NIW(object):
 
         orig_shape = xi.shape
         xi.shape= xi.shape +(1,)
+        out.shape= out.shape +(1,)
+
         batch_matrix_mult(sg,xi,out) 
+        out.shape= orig_shape
         xi.shape = orig_shape
         
         ufunc('a = a/c + b',name='fnl')(out,rb,mu)
@@ -434,16 +450,17 @@ class SBP(object):
         self.l = l
         self.al = array((self.l,))
         self.bt = array((self.l,))
-        self.a = array((1,))
 
     def __hash__(self):
         return hash((self.l,self.al,self.bt))
 
         
-    def from_counts(self,counts):
-        cumsum_ex(counts,self.bt)
+    def from_counts(self,counts,alpha=None):
+        if alpha is None:
+            alpha = self.a
+        cumsum_in(counts,self.bt)
         ufunc('a = b+1.0')(self.al, counts)
-        ufunc('a += b')(self.bt, self.a)
+        ufunc('a = -a + b + c')(self.bt, self.bt[self.l-1:self.l], alpha)
 
     @staticmethod
     @memoize
@@ -451,7 +468,7 @@ class SBP(object):
         return array((l,)), array((l,)), array((l,))
 
     @memoize
-    def expected_ll(self):
+    def __expected_ll(self):
 
         b1,b2,d = self.__exp_ll_ws(self.l) 
 
@@ -460,8 +477,28 @@ class SBP(object):
         ufunc('d = digamma(a) - c',preface=digamma_src)(b1,self.al,b1 )
 
         cumsum_ex(b2,d)
-        ufunc('a+=b')(d, b1)
+        return d,b1
+
+    @memoize
+    def expected_ll(self):
+        c,b1 = self.__expected_ll()
+        d = array(c.shape)
+        ufunc('a=b+c')(d,c, b1)
         return d
+
+    @staticmethod
+    @memoize
+    def __alpha_prior_update_ws(l):
+        return to_gpu(np.array([-1+l,0]))
+
+    @memoize
+    def alpha_prior_update(self):
+        c,b1 = self.__expected_ll()
+        l = self.l
+        r = self.__alpha_prior_update_ws(l)
+        ufunc('a=-b')(r[1:2],c[l-1:l] )
+        return r
+
 
     @staticmethod
     @memoize
@@ -529,6 +566,7 @@ class Mixture(object):
 
         ex = self.sbp.expected_ll()
         d = self.clusters.expected_ll(x,extras=ex)
+
         dg,dgb = self.__pseudo_resps_ws(x.shape[0])
 
         row_max(d,dg)
@@ -593,21 +631,9 @@ class Mixture(object):
     predict = predict_weighted
 class StreamingNIW(object):
     def __init__(self,p):
-        self.niw = NIW(p,1)
-        # set prior
-        #
-        # old version used 2*d+1+2, this seems to work well
-        # 2*d + 1 was also a good choice but can't remember why
-        
-        lbd = np.concatenate((
-                np.zeros(p), 
-                np.zeros(p*p),
-                np.zeros(1),
-                np.array([2*p+1])
-                ))
-        self.prior = to_gpu(lbd.reshape(1,-1))
-        self.ss = array((self.prior.shape))
-        ufunc('a=b')(self.ss, self.prior)
+        self.niw = NIW(p,1)        
+        self.ss = array((self.niw.prior.shape))
+        ufunc('a=b')(self.ss, self.niw.prior)
 
     @staticmethod
     @memoize
@@ -620,10 +646,9 @@ class StreamingNIW(object):
     def update(self,x):
         
         ss =  self.niw.sufficient_statistics(x)
-
         w,dss =  self.__streamingniw_update_ws(x.shape[0],self.ss.size) 
 
-        matrix_mult(w,ss,dss)
+        matrix_mult(w.T,ss,dss)
         ufunc('a+=b')(self.ss,dss)
         self.niw.from_nat(self.ss)
 
@@ -638,7 +663,7 @@ class StreamingNIW(object):
 
         mix = self
         k,p,q = x.shape[0], x.shape[1]+xi.shape[1],x.shape[1]
-        
+
         clusters_ = self.__predictor_predict_ws(k,p)
         ufunc('a=b')(clusters_.psi,self.niw.psi)
         ufunc('a=b')(clusters_.mu,self.niw.mu)
@@ -650,4 +675,129 @@ class StreamingNIW(object):
     @property
     def p(self):
         return self.niw.p
+        
+class BatchVDP(object):
+    def __init__(self,mix,buffer_size=None,
+             w =.1, kl_tol = 1e-8, max_iters = 10000):
+        
+        if buffer_size is not None:
+            self.buff = array((buffer_size, mix.clusters.prior.size))
+            self.clear()
+        
+        self.mix = mix
+        self.w = to_gpu(np.array([[w]]))
+        self.s = to_gpu(np.array([0.0,0]))
+        
+        self.kl_tol = kl_tol
+        self.max_iters = max_iters 
+
+    def clear(self):
+        self.buff.fill(0.0)
+        self.buff_ind = 0
+        
+    def append(self, ss):
+
+        if ss.shape[1] == self.p:
+            ss = self.mix.clusters.sufficient_statistics(ss)
+        n,d = ss.shape
+        
+        if self.buff_ind + n >= self.buff.shape[0]:
+            raise TypeError
+
+        i = array((n,))
+        ind = array(ss.shape)
+        i.fill(self.buff_ind)
+        self.buff_ind += n
+
+        ufunc('a+=b')(i,self.__drng(n))
+        ufunc('a='+str(d)+' *i + j')(ind, i[:,None], self.__drng(d)[None,:]) 
+        
+        rev_fancy_index(ss,ind,self.buff)
+    def update(self,ss):
+        self.append(ss)
+        self.learn(self.buff)
+        
+
+    def predict(self,*args,**kwargs):
+        return self.mix.predict(*args,**kwargs)
+
+    @staticmethod
+    @memoize
+    def __ones(n):
+        w = array((n,1))
+        w.fill(1.0)
+        return w
+
+    @staticmethod
+    @memoize
+    def __drng(d):
+        return  to_gpu(np.arange(d))
+
+    @staticmethod
+    @memoize
+    def __learn_ws(n,k,d):
+        return (array((1,d)), array((k,d)), 
+            array((n,1)), array((k,)),array((2,)), array((k,)),
+             array((k)), array((k,d)), array((k,d))
+            )
+
+    def learn(self,ss):
+        cl, sbp = self.mix.clusters, self.mix.sbp
+
+        if ss.shape[1] == cl.p:
+            ss = cl.sufficient_statistics(ss)
+
+        n,k,d = ss.shape[0], cl.l, ss.shape[1]
+
+        (lbd, tau, w, counts, post_s, old_counts, 
+            counts_sorted, tau_sorted, tau_i) = self.__learn_ws(n,k,d) 
+
+        matrix_mult(self.__ones(n).T,ss,lbd)
+        
+        ufunc('a/=(b/w)')(lbd, lbd[:,d-1:d], self.w)
+        ufunc('a+=b')(lbd, cl.prior)
+        
+        ex_alpha = to_gpu(np.array([1.0]))
+        
+        phi = to_gpu(np.random.random(size=n*k).reshape((n,k)))
+        w.shape = (w.size,)
+        row_sum(phi,w)
+        w.shape = (w.size,1)
+        ufunc('a /= b')(phi,w)
+        old_counts.fill(1.0)
+        
+        for i in range(self.max_iters):
+            matrix_mult(phi.T,ss,tau)
+            ufunc('a=b')(counts[:,None],tau[:,d-1:d])
+            ufunc('a+=b')(tau,lbd)
+             
+            ufunc('a = b*(log(b)-log(a)) ')(old_counts,counts)
+            kl = pycuda.gpuarray.sum(old_counts)
+            ufunc('a = b')(old_counts,counts)
+            
+            if abs(kl.get()) < self.kl_tol:
+                break
+
+            # sorting 
+            i = to_gpu(np.argsort(-counts.get()))   # gpu implementation needed
+            ufunc('a='+str(d)+' *i + j')(tau_i, i[:,None], 
+                    self.__drng(d)[None,:]) 
+            fancy_index(tau, tau_i, tau_sorted)
+            fancy_index(counts, i, counts_sorted)
+            
+            # updating mixture
+            sbp.from_counts(counts_sorted,ex_alpha)
+            cl.from_nat(tau_sorted)
+        
+            # updating alpha prior
+            ufunc('a=b+c')(post_s,self.s,sbp.alpha_prior_update())
+            ufunc('a=b/c')(ex_alpha,post_s[0:1],post_s[1:2]) 
+         
+            # computing responsibilities for next iteration
+            phi = self.mix.pseudo_resps(ss)
+
+
+    @property
+    def p(self):
+        return self.mix.clusters.p
         

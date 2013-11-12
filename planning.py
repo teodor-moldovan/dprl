@@ -106,12 +106,12 @@ class NumDiff(object):
 
         w = to_gpu(np.array(w)/float(h))
         w.shape = (w.size,1)
-        dfs = h*np.array(c)
+        dfs = h*np.array(c,dtype=np_dtype)
 
         dx = to_gpu(
             np.eye(n)[np.newaxis,:,:]*dfs[:,np.newaxis,np.newaxis]
             )[:,None,:,:]
-        return dx,w 
+        return dx,w.T
         
 
     @staticmethod
@@ -145,7 +145,7 @@ class NumDiff(object):
         df = self.__ws_df(l,n,m)
 
         y.shape = (o,l*n*m)
-        df.shape = (l*n*m,1)
+        df.shape = (1,l*n*m)
         
         matrix_mult(w,y,df) 
 
@@ -321,6 +321,7 @@ class Planner(object):
         self.ds = ds
         self.l=l
         self.hotstart=hotstart
+        self.is_first = True
 
     def min_acc_traj(self,a,b,t=None):
         nt = self.l
@@ -348,23 +349,20 @@ class Planner(object):
 
 
 
-    def interp_traj(self,a,b,t=None):
+class CollocationPlanner():
+    def __init__(self, ds,l,hotstart=False):
+        """ initialize planner for dynamical system"""
+        self.ds = ds
+        self.l=l
+        self.hotstart=hotstart
+        self.is_first = True
 
-        nt = self.l
-        if t is None:
-            t = np.linspace(0,1.0,nt)
-        
-        return a[np.newaxis,:]*(1.0-t)[:,np.newaxis] + t[:,np.newaxis]*b[np.newaxis,:]
-
-
-    init_guess = interp_traj
-class CollocationPlanner(Planner):
-    def __init__(self,*args,**kwargs):
-        Planner.__init__(self,*args,**kwargs)
         self.differentiator = NumDiff()
         self.poly_approx()
+        
+        self.u_cost = .000
         self.kc = self.prep_solver() 
-        self.is_first = True
+        #self.end_index = 0
 
     def __del__(self):
         KTR_free(self.kc)
@@ -446,29 +444,87 @@ class CollocationPlanner(Planner):
 
         
 
-    def prep_solver(self,u_cost = 0.001):
+
+    @staticmethod
+    @memoize
+    def __buff(l,n):
+        return array((l,n))
+
+    def callbackEvalFC(self,evalRequestCode, n, m, nnzJ, nnzH, x, lambda_, 
+                obj, c, objGrad, jac, hessian, hessVector, userParams):
+
+        if not evalRequestCode == KTR_RC_EVALFC:
+            return KTR_RC_CALLBACK_ERR
+
         nx,nu,l = self.ds.nx,self.ds.nu,self.l
-        n = l* (nx+nu) + 1
-        m = l*nx #+ l
+        buff = self.__buff(l,nx+nu)
         
-        self.ret_x = [0,]*n
-        self.ret_lambda = [0,]*(n+m)
-        self.ret_obj = [0,]
+        tmp = np.array(x[1:1+l*(nx+nu)]).reshape(l,-1)
+        obj[0] = x[0] + self.u_cost*np.sum(tmp[:,nx:]*tmp[:,nx:]) 
 
-        objGoal = KTR_OBJGOAL_MINIMIZE
-        objType = KTR_OBJTYPE_QUADRATIC;
+        #h = x[0]
+        h = np.exp(x[0])
 
-        mi =  [ -KTR_INFBOUND,]
-        bndsLo = mi + (mi*nx + self.ds.control_bounds[0])*l
-        mi =  [ KTR_INFBOUND,]
-        bndsUp = mi + (mi*nx + self.ds.control_bounds[1])*l 
+        buff.set(tmp)
 
-        self.bndsLo = bndsLo
-        self.bndsUp = bndsUp
+        mv = np.array(x[1+l*(nx+nu):1+l*(2*nx+nu)]).reshape(l,-1)
+        
+        x,u = tmp[:,:nx], tmp[:,nx:]
+        f = (.5*h) * self.f_sp(buff).get() 
+        
+        ze = -np.array(np.matrix(self.D)*np.matrix(x)).copy()
+        df = f-ze
+        #df[:,2:] = 0
 
-        cType   = [ KTR_CONTYPE_GENERAL ]*l*nx
-        cBndsLo = [ 0.0 ]*m
-        cBndsUp = [ 0.0 ]*m
+        c[:]= df.copy().reshape(-1).tolist() 
+
+        return 0
+
+
+
+    def callbackEvalGA(self,evalRequestCode, n, m, nnzJ, nnzH, x, lambda_, 
+                obj, c, objGrad, jac, hessian, hessVector, userParams):
+        if not evalRequestCode == KTR_RC_EVALGA:
+            return KTR_RC_CALLBACK_ERR
+
+        nx,nu,l = self.ds.nx,self.ds.nu,self.l
+        buff = self.__buff(l,nx+nu)
+
+
+        tmp = np.array(x[1:l*(nx+nu)+1]).reshape(l,-1)
+        obj_grad = tmp.copy()
+        obj_grad[:,:nx] = 0
+
+        objGrad[:] = [1.0]+ (self.u_cost*2.0*obj_grad).reshape(-1).tolist()
+
+        #dh,h = 1.0, x[0]
+        dh,h = np.exp(x[0]),np.exp(x[0])
+
+        buff.set(tmp)
+
+        df = self.differentiator.diff(lambda x_: self.f_sp(x_), buff)
+        f = self.f_sp(buff) 
+        f,df = f.get(), df.get()
+
+        x,u = tmp[:,:nx], tmp[:,nx:]
+
+        d1 = (.5*dh) * f 
+        d2 = (.5*h) * df
+
+        wx = np.newaxis
+        tmp = np.hstack((d1[:,wx,:],d2)).copy()
+        tmp[:,1:1+nx,:] += self.ddiag[:,wx,wx]*np.eye(nx)[wx,:,:]
+
+        jac[:] = tmp.reshape(-1).tolist() + self.dnodiag_list*nx
+
+        #return KTR_RC_CALLBACK_ERR
+
+        return 0
+
+
+    @staticmethod
+    @memoize
+    def jac_ij(nx,nu,l):
 
         ji1 = [(v,c) 
                     for t in range(l)
@@ -483,8 +539,35 @@ class CollocationPlanner(Planner):
                     if tc != tv
               ]
 
-        jacIxVar, jacIxConstr = zip(*(ji1+ji2))
+        return zip(*(ji1+ji2))
 
+
+    def prep_solver(self):
+        nx,nu,l = self.ds.nx,self.ds.nu,self.l
+        n = l* (nx+nu) + 1
+        m = l*nx #+ l
+        
+        self.ret_x = [0,]*n
+        self.ret_lambda = [0,]*(n+m)
+        self.ret_obj = [0,]
+
+        objGoal = KTR_OBJGOAL_MINIMIZE
+        objType = KTR_OBJTYPE_QUADRATIC;
+        #objType = KTR_OBJTYPE_LINEAR;
+
+        mi =  [ -KTR_INFBOUND,]
+        bndsLo = mi + (mi*nx + self.ds.control_bounds[0])*l
+        mi =  [ KTR_INFBOUND,]
+        bndsUp = mi + (mi*nx + self.ds.control_bounds[1])*l 
+
+        self.bndsLo = bndsLo
+        self.bndsUp = bndsUp
+
+        cType   = [ KTR_CONTYPE_GENERAL ]*l*nx
+        cBndsLo = [ 0.0 ]*m
+        cBndsUp = [ 0.0 ]*m
+
+        jacIxVar, jacIxConstr = self.jac_ij(nx,nu,l)
 
         #jacIxVar,jacIxConstr= zip(*[(i,j) for i in range(n) for j in range(m)])
         
@@ -496,6 +579,9 @@ class CollocationPlanner(Planner):
 
         #---- DEMONSTRATE HOW TO SET KNITRO PARAMETERS.
 
+        if KTR_set_int_param(kc, KTR_PARAM_ALGORITHM, 2):
+            raise RuntimeError ("Error setting parameter 'algorithm'")
+
         if KTR_set_int_param_by_name(kc, "hessopt", 3):
             raise RuntimeError ("Error setting parameter 'hessopt'")
 
@@ -505,23 +591,35 @@ class CollocationPlanner(Planner):
         if KTR_set_double_param_by_name(kc, "feastol", 1.0E-4):
             raise RuntimeError ("Error setting parameter 'feastol'")
 
-        if KTR_set_double_param_by_name(kc, "opttol", 1.0E-3):
+        if KTR_set_double_param_by_name(kc, "opttol", 1.0E-2):
             raise RuntimeError ("Error setting parameter 'opttol'")
 
-        if KTR_set_int_param(kc, KTR_PARAM_OUTLEV, 1):
+        if KTR_set_int_param(kc, KTR_PARAM_OUTLEV, 3):
             raise RuntimeError ("Error setting parameter 'outlev'")
 
-        if KTR_set_int_param(kc, KTR_PARAM_ALGORITHM, 2):
-            raise RuntimeError ("Error setting parameter 'algorithm'")
+        ###
+
+        #if KTR_set_double_param(kc, KTR_PARAM_DELTA, 1e-6):
+        #    raise RuntimeError ("Error setting parameter 'outlev'")
+
+        #if KTR_set_int_param(kc, KTR_PARAM_SOC, 2):
+        #    raise RuntimeError ("Error setting parameter 'outlev'")
+
+        ##
+
+
+        if KTR_set_int_param(kc, KTR_PARAM_PAR_CONCURRENT_EVALS, 0):
+            raise RuntimeError ("Error setting parameter")
+
+        if KTR_set_double_param(kc, KTR_PARAM_INFEASTOL, 1e-6):
+            raise RuntimeError ("Error setting parameter")
+
 
         #if KTR_set_int_param(kc, KTR_PARAM_LINSOLVER, 3):
         #    raise RuntimeError ("Error setting parameter 'linsolver'")
 
-        #if KTR_set_int_param(kc,KTR_PARAM_MAXIT,1):
-        #    raise RuntimeError ("Error setting parameter 'maxit'")
-
-        #if KTR_set_int_param(kc,KTR_PARAM_MULTISTART,1):
-        #    raise RuntimeError ("Error setting parameter 'ms_enable'")
+        if KTR_set_int_param(kc,KTR_PARAM_MAXIT,1000):
+            raise RuntimeError ("Error setting parameter 'maxit'")
 
         #---- INITIALIZE KNITRO WITH THE PROBLEM DEFINITION.
         ret = KTR_init_problem (kc, n, objGoal, objType, bndsLo, bndsUp,
@@ -535,126 +633,94 @@ class CollocationPlanner(Planner):
 
         # define callbacks: 
         
-        buff = array((l,nx+nu))
         
-        def callbackEvalFC (evalRequestCode, n, m, nnzJ, nnzH, x, lambda_, 
-                    obj, c, objGrad, jac, hessian, hessVector, userParams):
-            if not evalRequestCode == KTR_RC_EVALFC:
-                return KTR_RC_CALLBACK_ERR
-            
-            tmp = np.array(x[1:1+l*(nx+nu)]).reshape(l,-1)
-            obj[0] = x[0] + u_cost*np.sum(tmp[:,nx:]*tmp[:,nx:]) 
-
-            h = x[0]
-            h = np.exp(x[0])
-
-            buff.set(tmp)
-
-            mv = np.array(x[1+l*(nx+nu):1+l*(2*nx+nu)]).reshape(l,-1)
-            
-            x,u = tmp[:,:nx], tmp[:,nx:]
-            f = (.5*h) * self.f_sp(buff).get() 
-            
-            ze = -np.array(np.matrix(self.D)*np.matrix(x)).copy()
-
-            c[:]= (f-ze).copy().reshape(-1).tolist() 
-
-            return 0
-
-
-        def callbackEvalGA (evalRequestCode, n, m, nnzJ, nnzH, x, lambda_, 
-                    obj, c, objGrad, jac, hessian, hessVector, userParams):
-            if not evalRequestCode == KTR_RC_EVALGA:
-                return KTR_RC_CALLBACK_ERR
-
-
-            tmp = np.array(x[1:l*(nx+nu)+1]).reshape(l,-1)
-            obj_grad = tmp.copy()
-            obj_grad[:,:nx] = 0
-
-            objGrad[:] = [1.0]+ (u_cost*2.0*obj_grad).reshape(-1).tolist()
-
-            dh,h = 1.0, x[0]
-            dh,h = np.exp(x[0]),np.exp(x[0])
-
-
-            buff.set(tmp)
-
-            df = self.differentiator.diff(lambda x_: self.f_sp(x_), buff)
-            f = self.f_sp(buff) 
-            f,df = f.get(), df.get()
-
-            x,u = tmp[:,:nx], tmp[:,nx:]
-
-            d1 = (.5*dh) * f 
-            d2 = (.5*h) * df
-
-            wx = np.newaxis
-            tmp = np.hstack((d1[:,wx,:],d2)).copy()
-            tmp[:,1:1+nx,:] += self.ddiag[:,wx,wx]*np.eye(nx)[wx,:,:]
-
-            jac[:] = tmp.reshape(-1).tolist() + self.dnodiag_list*nx
-
-            #return KTR_RC_CALLBACK_ERR
-
-            return 0
-
-
+        def callbackEvalFC(*args):
+            return self.callbackEvalFC(*args)
         if KTR_set_func_callback(kc, callbackEvalFC):
             raise RuntimeError ("Error registering function callback.")
+        def callbackEvalGA(*args):
+            return self.callbackEvalGA(*args)
 
         if KTR_set_grad_callback(kc, callbackEvalGA):
             raise RuntimeError ("Error registering gradient callback.")
                 
         return kc
 
+    def state2waypoint(self,state):
+        try:
+            state = state.tolist()
+        except:
+            pass
+
+        state = [0 if s is None else s for s in state] + [0,]*self.ds.nu
+        return np.array(state)
+
+    def waypoint_spline(self,ws, t= None):
+        if t is None:
+            #t = np.linspace(0,1.0,self.l)
+            t = (self.nodes+1.0)/2.0
+        ws = np.array(ws)
+
+        tw = np.arange(len(ws))*(1.0/(len(ws)-1))
+        r = np.array([np.interp(t,tw, w ) for w in ws.T]).T
+
+        return r
+
+    def initializations(self,ws,we):
+        w =  self.waypoint_spline((ws,we))
+        yield 0.0, w
+        while True:
+            h = np.random.normal()
+            yield h,w
+
+
+        
+    def bind_state(self,i,state):
+        nx,nu,l = self.ds.nx,self.ds.nu,self.l
+        
+        if i<0:
+            i = l+i
+        tl, tu = 1+ (i+1)*(nx+nu)-(nx+nu), 1+(i+1)*(nx+nu) - nu
+        
+        self.bndsLo[tl: tu] = [-KTR_INFBOUND if i is None else i for i in state]
+        self.bndsUp[tl: tu] = [ KTR_INFBOUND if i is None else i for i in state]
+        
+
+
+    def hotstart_init(self,start,end):
+        if self.hotstart and not self.is_first:
+            yield start,end,self.ret_x, self.ret_lambda
+        else:
+            ws = self.state2waypoint(start)
+            we = self.state2waypoint(end)
+            for h,x in self.initializations(ws,we):
+                l = [0.0,]*len(self.ret_lambda)
+                s = (x[0][:self.ds.nx]).reshape(-1).tolist()
+                e = (x[-1][:self.ds.nx]).reshape(-1).tolist()
+                yield s,e,[h,] + x.reshape(-1).tolist() , l 
+        
+
     def solve(self, start, end):
 
-        nx,nu,l = self.ds.nx,self.ds.nu,self.l
+        for s,e,x,l in self.hotstart_init(start,end):
+            self.bind_state(0,s)
+            self.bind_state(-1,e)
 
-        # todo: set start   
+            KTR_chgvarbnds(self.kc, self.bndsLo, self.bndsUp)
+            KTR_restart(self.kc, x, l)
 
-        # KTR_chgvarbnds
-        bndsLo = self.bndsLo
-        bndsUp = self.bndsUp
+            #KTR_solve
+            #nStatus = KTR_check_first_ders (self.kc, self.ret_x, 2, 1e-6, 1e-6, 0, 0.0, None,None,None,None);
 
-        #if not self.ds.h_min is None:
-        #   bndsLo[0] = np.log(self.ds.h_min)
-
-        bndsLo[1:1+nx] = start.tolist()
-        bndsUp[1:1+nx] = start.tolist()
-
-        tl, tu = 1+l*(nx+nu)-(nx+nu), 1+l*(nx+nu) - nu
-        bndsLo[tl: tu] = end.tolist()
-        bndsUp[tl: tu] = end.tolist()
-
-        KTR_chgvarbnds(self.kc, bndsLo, bndsUp)
-        
-        if self.hotstart is False or self.is_first:
-            self.is_first=False
-            x = self.init_guess(start,end,(self.nodes+1.0)/2.0)
-            trj = np.append(x,np.zeros((self.l,nu)),axis=1)
-
-            prev_x = [-1,] + trj.reshape(-1).tolist()
-            prev_l = None
-        else:
-            prev_x, prev_l = self.ret_x, self.ret_lambda
-
-        KTR_restart(self.kc,prev_x,prev_l)
-
-        # KTR_solve
-        #nStatus = KTR_check_first_ders (self.kc, self.ret_x, 2, 1e-6, 1e-6, 0, 0.0, None,None,None,None);
-
-        nStatus = KTR_solve (self.kc, self.ret_x, self.ret_lambda, 0, 
-                self.ret_obj, None, None, None, None, None, None)
-        
-        #xu = np.array(self.ret_x[1:1+l*(nx+nu)]).reshape(l,-1)
-        #print xu[:,nx:]
-        #print (xu[:,2:4]*xu[:,2:4]).sum(1)
-        #print xu[:,nx:]
-
+            nStatus = KTR_solve (self.kc, self.ret_x, self.ret_lambda, 0, 
+                    self.ret_obj, None, None, None, None, None, None)
+            
+            if nStatus == 0:
+                break
+            
         self.max_h = np.exp(self.ret_x[0])
-        return self
+        self.is_first = False
         
+        return self
 
 
