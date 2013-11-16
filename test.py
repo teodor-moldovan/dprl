@@ -7,6 +7,8 @@ import scipy.linalg
 import scipy.special
 import pycuda.driver as drv
 import pycuda.scan
+import dpcluster
+import cPickle
 
 class TestsTools(unittest.TestCase):
     def test_array(self):
@@ -1142,21 +1144,44 @@ class TestsClustering(unittest.TestCase):
         toc(t)
 
 
-    def test_vdp(self):
-        l,k,p = 32*11, 44, 8
-
+    def setUp(self):
         np.random.seed(1)
-        xn = np.concatenate((np.random.normal(size=l*p/2) , 
-                    100.0+np.random.normal(size=l*p/2))).reshape(l,p)
+        As = np.array([[[1,2,5],[2,2,2]],
+                       [[-4,3,-1],[2,2,2]],
+                       [[-4,3,1],[-2,-2,-2]],
+                        ])
+        mus = np.array([[10,0,0],
+                        [0,10,0],
+                        [0,0,10],
+                        ])
 
-        s = BatchVDP(Mixture(SBP(k),NIW(p,k)))
+        n = 120
+        self.nc = mus.shape[0]
+        self.data = np.vstack([self.gen_data(A,mu,n=n) for A,mu in zip(As,mus)])
+        self.As=As
+        self.mus=mus
+
         
-        np.random.seed(1)
-        s.learn(to_gpu(xn))
-        np.random.seed(1)
-        t = tic()
-        s.learn(to_gpu(xn))
-        toc(t)
+
+
+    def gen_data(self,A, mu, n=10):
+        xs = np.random.multivariate_normal(mu,np.eye(mu.size),size=n)
+        ys = (np.einsum('ij,nj->ni',A,xs)
+            + np.random.multivariate_normal(
+                    np.zeros(A.shape[0]),np.eye(A.shape[0]),size=n))
+        
+        return np.hstack((ys,xs))
+        
+    def test_vdp(self):
+
+        data = self.data
+        l,p =  data.shape
+        k = 50
+
+        s = BatchVDP(Mixture(SBP(k),NIW(p,k)),w=.4)
+        
+        s.learn(to_gpu(data))
+        print s.mix.sbp.al.get() -1.0
 
          
     def test_streaming_vdp(self):
@@ -1225,6 +1250,45 @@ class TestsCartpole(unittest.TestCase):
         start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
         pp.solve(start,end)
 
+    def test_model(self):
+
+        ds = Cartpole()
+        
+        l,p,k = 1000, 5,11*8
+
+        np.random.seed(5)
+
+        r = (np.random.random(size=l*5).reshape(l,-1) - .5)*2.0
+        
+        r[:,0] *= 30
+        r[:,1] *= 3
+        r[:,2] *= 2*np.pi
+        r[:,3] *= 1
+        r[:,4] *= 10
+        
+        x,u = r[:,:4], r[:,4:5]
+        uxi = np.insert(u,1,0,axis=1)
+        
+        dx = ds.f(to_gpu(x),to_gpu(u)).get()
+
+        for t in range(10):
+            learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
+            model = OptimisticCartpole(learner)
+            
+            trj = (None,dx,x,u)
+
+            model.update(trj)
+
+            ind = np.where(np.logical_and(-np.pi<x[:,2], x[:,2]<np.pi))
+            dx_ = model.f(to_gpu(x),to_gpu(uxi)).get()
+                
+            r = np.sum(dx[ind]*dx_[ind],0)/np.sqrt(np.sum(dx[ind]*dx[ind],0)*np.sum(dx_[ind]*dx_[ind],0))
+            
+            cl = learner.mix.clusters
+        
+            print r
+        
+
     def test_more(self): 
 
         ds = Cartpole()
@@ -1246,35 +1310,67 @@ class TestsCartpole(unittest.TestCase):
         
 
     def test_iter(self):
-        env = Cartpole(noise = 0.1)
-
-        p,k = 5, 50
-        learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
-        model = OptimisticCartpole(learner)
-        #model = Cartpole()
 
         seed = 29 # 11,15,22
         np.random.seed(seed)
 
-        trj = env.step(ZeroPolicy(env.nu), 21, random_control=True) 
+        p,k = 5, 11*8
+        learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
+        model = OptimisticCartpole(learner)
+        #model = Cartpole()
+
+
+        env = Cartpole(noise = 1.0)
+        trj = env.step(ZeroPolicy(env.nu), 51, random_control=True) 
+
+        env = Cartpole(noise = .001)
 
         model.update(trj)
-        
+
         end = np.zeros(4)
 
-        pp = CartpolePlanner(model,15,hotstart=True)
+        pp = CartpolePlanner(model,15,hotstart=False)
+        plt.show()
+        plt.ion()
         
         for t in range(10000):
             s = env.state
             print ('{:9.3f} '*4).format(*s)
             pi = pp.solve(env.state,end)
-            print pi.max_h, pi.u_cost
+            try:
+                pi.ll_slack
+                print pi.max_h, pi.ll_slack
+            except:
+                print pi.max_h
+
             trj = env.step(pi,2)
+
+            nx,nu,l = pi.ds.nx,pi.ds.nu,pi.l
+            tmp = np.array(pi.ret_x[1:1+l*(nx+nu)]).reshape(l,-1)
+            
+            plt.clf()
+            plt.plot(tmp[:,2],tmp[:,0])
+            plt.draw()
+
 
             if not trj is None:
                 model.update(trj)
 
 
+
+    def test_compare_pred(self):
+        
+        l = 10
+        mix = Mixture.from_file('../../data/cartpole/batch_vdp.npy')
+        
+        np.random.seed(0)
+        x  = np.random.random(size=l*3).reshape(l,-1)
+        xi = np.zeros((l,2))
+        
+        
+        f = mix.predict(to_gpu(x),to_gpu(xi))
+        
+        
 
 class TestsHeli(unittest.TestCase):
     def test_f(self):
@@ -1495,7 +1591,7 @@ class TestsPP(unittest.TestCase):
         df = num.diff(f,x)
         toc(t)
 
-        np.testing.assert_array_almost_equal(df.get()[0], an.T,10)
+        np.testing.assert_array_almost_equal(df.get()[0], an.T,8)
         
         
 
@@ -1509,7 +1605,7 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_iter'
+    single_test = 'test_pp'
     tests = TestsCartpole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()

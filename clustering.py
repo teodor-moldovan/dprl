@@ -18,7 +18,7 @@ class NIW(object):
         # old version used 2*d+1+2, this seems to work well
         # 2*d + 1 was also a good choice but can't remember why
 
-        lbd = [0,]*(p+p*p+1)+[2*p+1]
+        lbd = [0,]*(p+p*p+1)+[2*p+1+2]
         self.prior = to_gpu(np.array(lbd).reshape(1,-1))
 
         
@@ -65,6 +65,7 @@ class NIW(object):
     def __from_nat_sliced_params(n,nu):
         return n[:,np.newaxis],nu[:,np.newaxis] 
 
+    @memoize_one
     def from_nat(self,s):
 
         sn,snu,smu,spsi,smul,smur,snb = self.__from_nat_slices(s,self.p)
@@ -82,6 +83,7 @@ class NIW(object):
     def __get_nat_ws(l,p):
         return array((l,p*(p+1)+2 ))
 
+    @memoize_one
     def get_nat(self):
 
         p = self.p
@@ -127,6 +129,7 @@ class NIW(object):
 
 
         return (array((l,p,p)), 
+                array((l,p,p)), 
                 array((l,p,p+1)), 
                 array((l,p+1,p+1)), 
                 to_gpu(np.eye(p)),
@@ -135,25 +138,29 @@ class NIW(object):
                 fc,f2,f3
                 )
 
+    @memoize_one
     def __ex_ll_prep(slf): 
         p,l = slf.p,slf.l
         
-        te,tx,tf,teye,tprm,ld,fc,f2,f3 =  slf.__ex_ll_prep_ws(p,l)
+        te0,te,tx,tf,teye,tprm,ld,fc,f2,f3 =  slf.__ex_ll_prep_ws(p,l)
         
-        ufunc('d = e / nu')(te, slf.psi, slf.nu[:,np.newaxis,np.newaxis])
-        chol_batched(te, te, bd = 4)
+        ufunc('d = e / nu')(te0, slf.psi, slf.nu[:,np.newaxis,np.newaxis])
+
+        chol_batched(te0, te, bd = 4)
         
         chol2log_det(te,ld)
         
         ufunc('a=b')(tx[:,:,:p],teye[None,:,:])
         ufunc('a=b')(tx[:,:,p:p+1],slf.mu[:,:,None])
         
+
         solve_triangular(te,tx,bd = 4)        
 
         fc(ld, slf.n, slf.nu)
         
         batch_matrix_mult(tx.T,tx,tf)
         
+
         tprm = tprm.no_broadcast
 
         
@@ -175,12 +182,14 @@ class NIW(object):
 
 
     @staticmethod
+    @memoize_one
     def __ll_eb(extras): 
         return extras[None,:]
 
 
 
 
+    @memoize_one
     def expected_ll(self,x,extras=None):
         ss_dim, tprm,lds,f2,f3 = self.__ex_ll_prep()
 
@@ -222,7 +231,7 @@ class NIW(object):
             'd = ld + e -.5*(nu + 1.0)*log( 1.0 + d/( nu - '+str(p)+'+1.0))'
             ,name='ll_scaling')
 
-        return (array((l,p,p)), 
+        return (array((l,p,p)), array((l,p,p)), 
                 array((l,p,p+1)), 
                 array((l,p+1,p+1)), 
                 to_gpu(np.eye(p)),
@@ -233,18 +242,19 @@ class NIW(object):
 
 
 
+    @memoize_one
     def __pp_ll_prep(slf): 
 
         p,l = slf.p,slf.l
             
-        te,tx,tf,teye,tprm,ld,fc,f2,f3,f0=slf.__pp_ll_prep_ws(p,l)
+        te0,te,tx,tf,teye,tprm,ld,fc,f2,f3,f0=slf.__pp_ll_prep_ws(p,l)
         
         asgn = ufunc('a=b')
 
-        f0(te,slf.psi, slf.n[:,np.newaxis,np.newaxis],
+        f0(te0,slf.psi, slf.n[:,np.newaxis,np.newaxis],
             slf.nu[:,np.newaxis,np.newaxis])
 
-        chol_batched(te, te, bd = 4)
+        chol_batched(te0, te, bd = 4)
         
         chol2log_det(te,ld)
 
@@ -277,6 +287,7 @@ class NIW(object):
 
 
 
+    @memoize_one
     def predictive_posterior_ll(self,x,extras=None):
         ss_dim, tprm,lds,nus,f2,f3 = self.__pp_ll_prep()
 
@@ -304,9 +315,11 @@ class NIW(object):
         return cls(p,l)
 
     @staticmethod
+    @memoize_one
     def __marginal_prep(mu,psi,p):
         return mu[:,-p:],psi[:,-p:,-p:] 
             
+    @memoize_one
     def marginal(self,p):
 
         p0 = self.p
@@ -327,10 +340,11 @@ class NIW(object):
     def __conditional_ws(p,l,q):
         td = array((l,q)) 
         te = array((l,q,q)) 
+        te0 = array((l,q,q)) 
         tx = array((l,q,p-q+1)) 
         tf = array((l,p-q+1,p-q+1)) 
 
-        return (td,te,tx,tf, 
+        return (td,te,te0,tx,tf, 
                 td[:,:,None], 
                 tx[:,:,:p-q], tx[:,:,p-q:p-q+1],
                 tf[:,:p-q,p-q:p-q+1],tf[:,:p-q,:p-q],
@@ -338,6 +352,7 @@ class NIW(object):
                 )
             
     @staticmethod
+    @memoize_one
     def __conditional_prep(p,q,psi,mu,n,dmu,dn): 
         return (psi[:,p-q:,p-q:],
                 psi[:,p-q:p,:p-q],psi[:,:p-q,:p-q],
@@ -353,25 +368,27 @@ class NIW(object):
     def __cond_new_like_me(cls,p,l):
         return cls(p,l)
                 
+    @memoize_one
     def conditional(self,x):
 
         if x.shape[0] != self.l:
-            raise TypeError
+            raise RuntimeError('Non implemented')
+        
 
         p = self.p
         l,q = x.shape
 
         dst = self.__cond_new_like_me(p-q,self.l)
 
-        td,te,tx,tf,tdb1,txb1,txb2,tfb1,tfb2,tfb3 = self.__conditional_ws(p,l,q)
+        td,te,te0,tx,tf,tdb1,txb1,txb2,tfb1,tfb2,tfb3 = self.__conditional_ws(p,l,q)
         
         (psib1,psib2,psib3,mub1, mub2, nb, dmub1,dnb) = self.__conditional_prep(
                         p,q,self.psi,self.mu,self.n,dst.mu,dst.n)
         
         asgn = ufunc('a=b')
 
-        asgn(te,psib1)
-        chol_batched(te, te,bd=4)
+        asgn(te0,psib1)
+        chol_batched(te0, te,bd=4)
 
         ufunc('a =c - b')( td,x,mub1 )  
         asgn( txb1,psib2 )
@@ -394,27 +411,24 @@ class NIW(object):
 
     @staticmethod
     @memoize
-    def __predict_ws(k,p,q):
-        sg  = array((k,p-q,p-q))
-        out = array((k,p-q))
+    def __mean_plus_stdev_ws(k,p):
+        sg  = array((k,p,p))
+        out = array((k,p))
         r = array((k,))
         
         return sg,out,r, r[:,None]
 
 
-    def predict(self,x,xi):
+    @memoize_one
+    def mean_plus_stdev(self,xi):
         
-        if x.shape[0] != self.l:
-            raise TypeError
-        
-        k,p,q = x.shape[0], x.shape[1]+xi.shape[1],x.shape[1]
+        k,p = xi.shape[0], self.p
 
-        sg,out,r,rb = self.__predict_ws(k,p,q)
-
-        cls = self.conditional(x)
+        sg,out,r,rb = self.__mean_plus_stdev_ws(k,p)
+        cls = self
         mu,psi,n,nu = cls.mu,cls.psi,cls.n,cls.nu
 
-        ufunc('a= sqrt(n*(u - '+str(p-q)+' + 1.0))')(r,n,nu)
+        ufunc('a= sqrt(n*(u - '+str(p)+' + 1.0))')(r,n,nu)
         ufunc('a=0')(sg)
         chol_batched(psi,sg,bd=2)
 
@@ -430,6 +444,18 @@ class NIW(object):
         
         return out
 
+    @memoize_one
+    def predict(self,x,xi):
+        
+        if x.shape[0] != self.l:
+            raise TypeError
+        
+        k,p,q = x.shape[0], x.shape[1]+xi.shape[1],x.shape[1]
+
+        cls = self.conditional(x)
+        return cls.mean_plus_stdev(xi)
+
+
 class SBP(object):
     """Truncated Stick Breaking Process"""
     def __init__(self,l):
@@ -439,8 +465,6 @@ class SBP(object):
 
     def __hash__(self):
         return hash((self.l,self.al,self.bt))
-
-        
     def from_counts(self,counts,alpha=None):
         if alpha is None:
             alpha = self.a
@@ -453,6 +477,7 @@ class SBP(object):
     def __exp_ll_ws(l):
         return array((l,)), array((l,)), array((l,))
 
+    @memoize_one
     def __expected_ll(self):
 
         b1,b2,d = self.__exp_ll_ws(self.l) 
@@ -464,6 +489,7 @@ class SBP(object):
         cumsum_ex(b2,d)
         return d,b1
 
+    @memoize_one
     def expected_ll(self):
         c,b1 = self.__expected_ll()
         d = array(c.shape)
@@ -475,6 +501,7 @@ class SBP(object):
     def __alpha_prior_update_ws(l):
         return to_gpu(np.array([-1+l,0]))
 
+    @memoize_one
     def alpha_prior_update(self):
         c,b1 = self.__expected_ll()
         l = self.l
@@ -488,6 +515,7 @@ class SBP(object):
     def __pp_ll_ws(l):
         return array((l,)), array((l,)), array((l,))
 
+    @memoize_one
     def predictive_posterior_ll(self):
 
         b1,b2,d = self.__pp_ll_ws(self.l) 
@@ -520,6 +548,7 @@ class Mixture(object):
         dg = array((k,))
         return dg, dg[:,None]
 
+    @memoize_one
     def predictive_posterior_resps(self,x):         
 
         ex = self.sbp.predictive_posterior_ll()
@@ -542,6 +571,7 @@ class Mixture(object):
         return dg, dg[:,None]
 
 
+    @memoize_one
     def pseudo_resps(self,x):
 
         ex = self.sbp.expected_ll()
@@ -557,7 +587,7 @@ class Mixture(object):
         return d
 
 
-    @memoize
+    @memoize_one
     def marginal(self,p):
         return self.__class__(self.sbp, self.clusters.marginal(p))
 
@@ -588,8 +618,8 @@ class Mixture(object):
         
         return tau_,clusters_
 
-
-    def predict_weighted(self,x,xi):
+    @memoize_one
+    def predict_joint(self,x,xi):
 
         mix = self
         k,p,q = x.shape[0], x.shape[1]+xi.shape[1],x.shape[1]
@@ -604,10 +634,32 @@ class Mixture(object):
 
         matrix_mult(prob,tau,tau_) 
         clusters_.from_nat(tau_)
+        
+        rt = clusters_.predict(x,xi)
+        return rt
 
-        return clusters_.predict(x,xi)
+    @memoize_one
+    def predict_conditional(self,x,xi):
 
-    predict = predict_weighted
+        mix = self
+        k,p,q,r = x.shape[0], x.shape[1]+xi.shape[1],x.shape[1], xi.shape[1]
+        
+        xclusters = mix.clusters.marginal(q)
+
+        xmix = Mixture(mix.sbp,xclusters)  
+        prob = xmix.predictive_posterior_resps(x) 
+        
+        tau_,clusters_ = self.__predictor_predict_ws(k,r)
+
+        tau = mix.clusters.conditional(x).get_nat()
+
+        matrix_mult(prob,tau,tau_) 
+        clusters_.from_nat(tau_)        
+
+        rt = clusters_.mean_plus_stdev(xi)
+        return rt
+
+    predict = predict_joint
 class StreamingNIW(object):
     def __init__(self,p):
         self.niw = NIW(p,1)        
@@ -656,7 +708,7 @@ class StreamingNIW(object):
         return self.niw.p
         
 class BatchVDP(object):
-    def __init__(self,mix,buffer_size=11*32*8,
+    def __init__(self,mix,buffer_size=11*32*32,
              w =.1, kl_tol = 1e-4, max_iters = 10000):
         
         self.buff = array((buffer_size, mix.clusters.prior.size))
@@ -668,6 +720,8 @@ class BatchVDP(object):
         
         self.kl_tol = kl_tol
         self.max_iters = max_iters 
+
+        n,k = buffer_size, mix.sbp.l
 
     def clear(self):
         self.buff.fill(0.0)
@@ -738,7 +792,8 @@ class BatchVDP(object):
         
         ex_alpha = to_gpu(np.array([1.0]))
         
-        phi = to_gpu(np.random.random(size=n*k).reshape((n,k)))
+        self.phi0 = np.random.random(size=n*k).reshape((n,k))
+        phi = to_gpu(self.phi0)
         w.shape = (w.size,)
         row_sum(phi,w)
         w.shape = (w.size,1)
@@ -774,8 +829,7 @@ class BatchVDP(object):
          
             # computing responsibilities for next iteration
             phi = self.mix.pseudo_resps(ss)
-
-
+        
     @property
     def p(self):
         return self.mix.clusters.p

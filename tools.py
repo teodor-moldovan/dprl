@@ -40,8 +40,20 @@ def memoize(func, *args):
         return result
     
 
+@my_decorator
+def memoize_one(func, *args):
+    try:
+        return func._memoize_one_dic
+    except AttributeError:
+        # _memoize_dic doesn't exist yet.
+
+        result = func(*args)
+        func._memoize_dic = result
+        return result
+
 if False:   # set True to disable caching
     memoize = lambda x : x
+    memoize_one = lambda x : x
 
 ## end settings
 cublas_handle = cublas.cublasCreate()
@@ -345,8 +357,8 @@ def k_chol_batched(m,bd):
 def chol_batched(s,d,bd=1, ):
 
 
-    #if s.gpudata==d.gpudata:
-    #    raise NotImplementedError
+    if s.gpudata==d.gpudata:
+        raise NotImplementedError
 
     l,m,m = d.shape
 

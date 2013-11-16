@@ -56,8 +56,7 @@ def rotation_utils():
 class Heli(DynamicalSystem, Environment):
     def __init__(self, noise = 0):
 
-        DynamicalSystem.__init__(self, 12, 4, 
-            control_bounds = [[-1.0,-1.0,-1.0,-1.0],[1.0,1.0,1.0,1.0]])
+        DynamicalSystem.__init__(self, 12, 4,)
 
         start = np.zeros(self.nx)
         
@@ -157,7 +156,6 @@ class OptimisticHeli(OptimisticDynamicalSystem):
             predictor =  predictor(6+4+6)
 
         OptimisticDynamicalSystem.__init__(self, 12, 4, 
-            [[-1.0,-1.0,-1.0,-1.0],[1.0,1.0,1.0,1.0]],
             6, predictor, **kwargs)
 
         g = 9.81
@@ -237,8 +235,7 @@ class OptimisticHeli(OptimisticDynamicalSystem):
         __device__ void f(
                 {{ dtype }}  s[],
                 {{ dtype }}  u[], 
-                {{ dtype }}  o[],
-                {{ dtype }} xi[]
+                {{ dtype }}  o[]
                 ){
 
             // s  = angular velocity (heli frame), velocity (lab frame), 
@@ -246,7 +243,6 @@ class OptimisticHeli(OptimisticDynamicalSystem):
             // u  = controls, pseudo-controls
             // o  = out: angular velocity (heli frame), velocity (heli frame), 
             // controls
-            // xi = out: pseudo controls
 
             // recover quaternion
             {{ dtype }}4 q, qi;
@@ -269,8 +265,6 @@ class OptimisticHeli(OptimisticDynamicalSystem):
             o[0] = w.x; o[1] = w.y; o[2] = w.z;
             o[3] = vh.x; o[4] = vh.y; o[5] = vh.z;
             o[6] = u[0]; o[7] = u[1]; o[8] = u[2]; o[9]= u[3];
-            
-            for (int i=0;i<6;i++) xi[i] = u[4+i]; 
         }
         """
         )
@@ -278,7 +272,7 @@ class OptimisticHeli(OptimisticDynamicalSystem):
 
         fn = tpl.render(dtype = cuda_dtype)
 
-        return rowwise(fn,'heli_pred_in', output_inds=(2,3))
+        return rowwise(fn,'heli_pred_in')
 
 
     def generate_k_f(self,g):

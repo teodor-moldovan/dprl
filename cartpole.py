@@ -4,8 +4,7 @@ import pylab as plt
 class Cartpole(DynamicalSystem, Environment):
     def __init__(self, noise = 0):
 
-        DynamicalSystem.__init__(self,4,1, 
-                    control_bounds = [[-10.0],[10.0]],)
+        DynamicalSystem.__init__(self,4,1)
 
         Environment.__init__(self, [0,0,np.pi,0], .01, noise=noise)
 
@@ -14,8 +13,8 @@ class Cartpole(DynamicalSystem, Environment):
         self.mc = .7    # cart mass
         self.mp = .325     # mass at end of pendulum
         self.g = 9.81   # gravitational accel
-        self.umin = -10.0     # action bounds
-        self.umax = 10.0
+        self.ucoeff = 10.0
+        self.friction = .0
 
         tpl = Template(
         """
@@ -26,17 +25,17 @@ class Cartpole(DynamicalSystem, Environment):
 
         {{ dtype }} td = y[0];
         {{ dtype }} xd = y[1];
-        {{ dtype }} u = us[0];
+        {{ dtype }} u = us[0]* {{ ucoeff }};
         
-        {{ dtype }} s = sinf(y[2]);
-        {{ dtype }} c = cosf(y[2]);
+        {{ dtype }} s = sin(y[2]);
+        {{ dtype }} c = cos(y[2]);
         
         yd[2] = td;
         yd[3] = xd;
 
         {{ dtype }} tmp = 1.0/({{ mc }}+{{ mp }}*s*s);
         yd[0] = (u *c - {{ mp * l }}* td*td * s*c + {{ (mc+mp) *g }}*s) 
-                *{{ 1.0/l }}*tmp;
+                *{{ 1.0/l }}*tmp - {{ ff }}*td;
          
         yd[1] = (u - {{ mp * l}}*s*td*td +{{ mp*g }}*c*s )*tmp; 
 
@@ -49,8 +48,8 @@ class Cartpole(DynamicalSystem, Environment):
                 mc=self.mc,
                 mp=self.mp,
                 g = self.g,
-                umin = self.umin,
-                umax = self.umax,
+                ff = self.friction,
+                ucoeff = self.ucoeff,
                 dtype = cuda_dtype)
 
         self.k_f = rowwise(fn,'cartpole')
@@ -72,16 +71,14 @@ class Cartpole(DynamicalSystem, Environment):
 class OptimisticCartpole(OptimisticDynamicalSystem):
     def __init__(self,predictor,**kwargs):
 
-        OptimisticDynamicalSystem.__init__(self,4,1, [[-10.0],[10.0]],
-                    2, predictor, **kwargs)
+        OptimisticDynamicalSystem.__init__(self,4,1,2, predictor, **kwargs)
 
         tpl = Template(
             """
         __device__ void f(
                 {{ dtype }} *p1,
                 {{ dtype }} *p2, 
-                {{ dtype }} *p3,
-                {{ dtype }} *p4
+                {{ dtype }} *p3
                 ){
 
 
@@ -93,15 +90,12 @@ class OptimisticCartpole(OptimisticDynamicalSystem):
             *p3 = *p1;
             *(p3+1) = *(p1+2);
             *(p3+2) = *p2;
-
-            *p4 = *(p2+1);
-            *(p4+1) = *(p2+2);
             }
             
             """
             )
         fn = tpl.render(dtype = cuda_dtype)
-        self.k_pred_in = rowwise(fn,'opt_cartpole_pred_in',output_inds=(2,3))
+        self.k_pred_in = rowwise(fn,'opt_cartpole_pred_in')
 
         tpl = Template(
         """
@@ -157,15 +151,23 @@ class OptimisticCartpole(OptimisticDynamicalSystem):
 class CartpolePlanner(CollocationPlanner):
     def initializations(self,ws,we):
 
-        h0 = -1.0
-        x0 = self.waypoint_spline((ws,we))
-        yield h0, x0
+        h = -1.0
+        x = self.waypoint_spline((ws,we))
+        yield h, x
 
         #for t in range(2):
         #    h = -1.0+np.random.normal()
         #    yield h,x0
 
         m = np.zeros(ws.shape)
+        #m[2] = np.pi
+        #x = self.waypoint_spline((ws,we))
+        #yield h, x
+
+        #m[2] = -np.pi
+        #x = self.waypoint_spline((ws,we))
+        #yield h, x
+
         
         i = 1
         while True:
@@ -177,10 +179,10 @@ class CartpolePlanner(CollocationPlanner):
 
             #m[2]= (i%3 - 1) * np.pi
 
-            m[2] = 2*np.pi*np.random.normal() 
+            m[2] = 2.0*np.pi* 2.0*(np.random.random()-.5 )
 
-            h = 1.0 + 3.0*np.random.normal()
-            #h = 3.0+4.0*np.random.normal()
+            h = 2.0*np.random.normal()
+
             x = self.waypoint_spline((ws,m,we))
 
             i = i+1
