@@ -148,7 +148,6 @@ class OptimisticCartpole(OptimisticDynamicalSystem):
         fn = tpl.render(dtype = cuda_dtype)
         self.k_update  = rowwise(fn,'opt_cartpole_update')
 
-class CartpolePlanner(CollocationPlanner):
     def initializations(self,ws,we):
 
         h = -1.0

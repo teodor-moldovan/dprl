@@ -272,6 +272,29 @@ class DynamicalSystem(object):
 
 
 
+    def state2waypoint(self,state):
+        try:
+            state = state.tolist()
+        except:
+            pass
+
+        state = [0 if s is None else s for s in state] + [0,]*self.nu
+        return np.array(state)
+
+    def initializations(self,ws,we):
+        w =  self.waypoint_spline((ws,we))
+        yield 0.0, w
+        while True:
+            h = np.random.normal()
+            yield h,w
+
+    def waypoint_spline(self,ws):
+        ws = np.array(ws)
+        tw = np.arange(len(ws))*(1.0/(len(ws)-1))
+        
+        return lambda t: np.array([np.interp(t,tw, w ) for w in ws.T]).T
+
+        
 class OptimisticDynamicalSystem(DynamicalSystem):
     def __init__(self,nx,nu, nxi, pred, xi_scale = 1.0, **kwargs):
 
@@ -280,7 +303,6 @@ class OptimisticDynamicalSystem(DynamicalSystem):
         self.xi_scale = xi_scale
         self.nxi = nxi
         self.predictor = pred
-
         
     @staticmethod
     def __pred_input_ws(l,n,m):
@@ -736,6 +758,41 @@ class CollocationPlanner_exp():
         return self
 
 
+class LGL():
+    def __init__(self,l):
+        self.l = l
+
+        n = self.l-1
+        L = legendre.Legendre.basis(n)
+        tau= np.hstack(([-1.0],L.deriv().roots(), [1.0]))
+
+        vs = L(tau)
+        dn = ( tau[:,np.newaxis] - tau[np.newaxis,:] )
+        dn[dn ==0 ] = float('inf')
+
+        D = -vs[:,np.newaxis] / vs[np.newaxis,:] / dn
+        D[0,0] = n*(n+1)/4.0
+        D[-1,-1] = -n*(n+1)/4.0
+
+        self.diff = D
+        self.nodes = tau
+
+        rcp = 1.0/(tau[:,np.newaxis] - tau[np.newaxis,:]+np.eye(tau.size)) - np.eye(tau.size)
+        self.rcp_nodes_diff = rcp
+
+
+    def interp_coefficients(self,r):
+
+        if r < -1 or r > 1:
+            raise TypeError
+
+        nds = self.nodes
+        df = ((r - nds)[np.newaxis,:]*self.rcp_nodes_diff) + np.eye(nds.size)
+        w = df.prod(axis=1)
+
+        return w
+
+        
 
 class CollocationPlanner():
     def __init__(self, ds,l, hotstart=False):
@@ -747,9 +804,9 @@ class CollocationPlanner():
         self.is_first = True
 
         self.differentiator = NumDiff()
-        self.poly_approx()
-        
+        self.collocator = LGL(l)
         self.kc = self.prep_solver() 
+
         #self.end_index = 0
 
     def __del__(self):
@@ -767,45 +824,11 @@ class CollocationPlanner():
         xu = np.array(self.ret_x[1:1+l*(nx+nu)]).reshape(l,-1)
         u = xu[:,nx:].reshape(l,nu)
 
-        if r < -1 or r > 1:
-            raise TypeError
-
-        nds = self.nodes
-        df = ((r - nds)[np.newaxis,:]*self.rcp_nodes_diff) + np.eye(nds.size)
-        w = df.prod(axis=1)
-
-         
+        w = self.collocator.interp_coefficients(r)
         us = np.dot(w,u)
         
         us = np.maximum(-1.0, np.minimum(1.0,us) )
         return us
-
-
-    def poly_approx(self):
-        """ LGL """
-        
-        n = self.l-1
-        L = legendre.Legendre.basis(n)
-        tau= np.hstack(([-1.0],L.deriv().roots(), [1.0]))
-
-        vs = L(tau)
-        dn = ( tau[:,np.newaxis] - tau[np.newaxis,:] )
-        dn[dn ==0 ] = float('inf')
-
-        D = -vs[:,np.newaxis] / vs[np.newaxis,:] / dn
-        D[0,0] = n*(n+1)/4.0
-        D[-1,-1] = -n*(n+1)/4.0
-
-        self.D = D
-        self.nodes = tau
-            
-        self.dnodiag_list = D.reshape(-1)[np.logical_not(np.eye(n+1)).reshape(-1)].tolist()
-        self.ddiag = np.diag(D)
-        
-        rcp = 1.0/(tau[:,np.newaxis] - tau[np.newaxis,:]+np.eye(tau.size)) - np.eye(tau.size)
-        self.rcp_nodes_diff = rcp
-
-        
 
 
     def prep_solver(self):
@@ -842,6 +865,13 @@ class CollocationPlanner():
         cBndsUp = [ 0.0 ]*l*nx + [ 1.0]*l
 
         jacIxVar, jacIxConstr = self.jac_ij()
+
+        #todo: move to different function. consider hashing 
+        D,nodes = self.collocator.diff, self.collocator.nodes 
+        self.dnodiag_list = D.reshape(-1)[np.logical_not(np.eye(nodes.size)).reshape(-1)].tolist()
+        self.ddiag = np.diag(D)
+        self.D = D
+
 
         #jacIxVar,jacIxConstr= zip(*[(i,j) for i in range(n) for j in range(m)])
         
@@ -1040,7 +1070,7 @@ class CollocationPlanner():
         
 
         slc = self.ds.slc_linfquad
-        ll_cost_g = 2.0**u[:,slc]
+        ll_cost_g = 2.0*u[:,slc]
 
         jac[:] = (tmp.reshape(-1).tolist() + self.dnodiag_list*nx
                 + ll_cost_g.copy().reshape(-1).tolist() + [-1.0,]*l
@@ -1051,35 +1081,6 @@ class CollocationPlanner():
         return 0
 
 
-    def state2waypoint(self,state):
-        try:
-            state = state.tolist()
-        except:
-            pass
-
-        state = [0 if s is None else s for s in state] + [0,]*self.ds.nu
-        return np.array(state)
-
-    def waypoint_spline(self,ws, t= None):
-        if t is None:
-            #t = np.linspace(0,1.0,self.l)
-            t = (self.nodes+1.0)/2.0
-        ws = np.array(ws)
-
-        tw = np.arange(len(ws))*(1.0/(len(ws)-1))
-        r = np.array([np.interp(t,tw, w ) for w in ws.T]).T
-
-        return r
-
-    def initializations(self,ws,we):
-        w =  self.waypoint_spline((ws,we))
-        yield 0.0, w
-        while True:
-            h = np.random.normal()
-            yield h,w
-
-
-        
     def bind_state(self,i,state):
         nx,nu,l = self.ds.nx,self.ds.nu,self.l
         
@@ -1096,9 +1097,10 @@ class CollocationPlanner():
         if self.hotstart and not self.is_first:
             yield start,end,self.ret_x, self.ret_lambda
 
-        ws = self.state2waypoint(start)
-        we = self.state2waypoint(end)
-        for h,x in self.initializations(ws,we):
+        ws = self.ds.state2waypoint(start)
+        we = self.ds.state2waypoint(end)
+        for h,spline in self.ds.initializations(ws,we):
+            x = spline((self.collocator.nodes+1.0)/2.0)
             l = [0.0,]*len(self.ret_lambda)
             s = (x[0][:self.ds.nx]).reshape(-1).tolist()
             e = (x[-1][:self.ds.nx]).reshape(-1).tolist()
@@ -1136,7 +1138,6 @@ class CollocationPlanner():
 
         if nStatus != 0:
             raise RuntimeError()
-
 
         
         nx,nu,l = self.ds.nx,self.ds.nu,self.l

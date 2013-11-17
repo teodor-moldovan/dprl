@@ -1294,7 +1294,7 @@ class TestsCartpole(unittest.TestCase):
         ds = Cartpole()
         ds = OptimisticCartpole(Mixture.from_file('../../data/cartpole/batch_vdp.npy'))
 
-        pp = CartpolePlanner(ds,15)
+        pp = CollocationPlanner(ds,15)
 
         #pp.solve( [0,0,np.pi,0], [0,0,0,0])
         #pp.solve(np.array([0,0,np.pi*1.1,0]), np.array([0,0,0,0]))
@@ -1329,7 +1329,7 @@ class TestsCartpole(unittest.TestCase):
 
         end = np.zeros(4)
 
-        pp = CartpolePlanner(model,15,hotstart=False)
+        pp = CollocationPlanner(model,15,hotstart=False)
         plt.show()
         plt.ion()
         
@@ -1605,7 +1605,7 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_pp'
+    single_test = 'test_iter'
     tests = TestsCartpole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
