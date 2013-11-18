@@ -1,5 +1,4 @@
 from planning import *
-import pylab as plt
 
 class Cartpole(DynamicalSystem, Environment):
     def __init__(self, noise = 0):
@@ -85,7 +84,6 @@ class OptimisticCartpole(OptimisticDynamicalSystem):
             // p1 : state
             // p2 : controls
             // p3 : input state to predictor
-            // p4 : input slack to predictor
         
             *p3 = *p1;
             *(p3+1) = *(p1+2);
@@ -150,6 +148,9 @@ class OptimisticCartpole(OptimisticDynamicalSystem):
 
     def initializations(self,ws,we):
 
+        #ws_ = np.zeros(ws.shape)
+        #ws_[2] = ws[2]
+        #ws = ws_
         h = -1.0
         x = self.waypoint_spline((ws,we))
         yield h, x

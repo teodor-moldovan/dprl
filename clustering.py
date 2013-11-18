@@ -18,7 +18,7 @@ class NIW(object):
         # old version used 2*d+1+2, this seems to work well
         # 2*d + 1 was also a good choice but can't remember why
 
-        lbd = [0,]*(p+p*p+1)+[2*p+1+2]
+        lbd = [0,]*(p+p*p+1)+[2*p+1]
         self.prior = to_gpu(np.array(lbd).reshape(1,-1))
 
         
@@ -722,6 +722,7 @@ class BatchVDP(object):
         self.max_iters = max_iters 
 
         n,k = buffer_size, mix.sbp.l
+        self.phi0 = np.random.random(size=n*k).reshape((n,k))
 
     def clear(self):
         self.buff.fill(0.0)
@@ -792,7 +793,6 @@ class BatchVDP(object):
         
         ex_alpha = to_gpu(np.array([1.0]))
         
-        self.phi0 = np.random.random(size=n*k).reshape((n,k))
         phi = to_gpu(self.phi0)
         w.shape = (w.size,)
         row_sum(phi,w)

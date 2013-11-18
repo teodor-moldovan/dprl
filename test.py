@@ -1245,8 +1245,10 @@ class TestsCartpole(unittest.TestCase):
 
     def test_loaded_pp(self):
 
+        # broken after setting control bounds to one
         ds = OptimisticCartpole(Mixture.from_file('../../data/cartpole/batch_vdp.npy'))
-        pp = CollocationPlanner(ds,15)
+        #pp = SqpPlanner(ds,15)
+        #pp = CollocationPlanner(ds,15)
         start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
         pp.solve(start,end)
 
@@ -1323,13 +1325,14 @@ class TestsCartpole(unittest.TestCase):
         env = Cartpole(noise = 1.0)
         trj = env.step(ZeroPolicy(env.nu), 51, random_control=True) 
 
-        env = Cartpole(noise = .001)
+        env = Cartpole(noise = .00001)
 
         model.update(trj)
 
         end = np.zeros(4)
 
-        pp = CollocationPlanner(model,15,hotstart=False)
+        #pp = CollocationPlanner(model,15,hotstart=False)
+        pp = SqpPlanner(model,15)
         plt.show()
         plt.ion()
         
@@ -1345,13 +1348,15 @@ class TestsCartpole(unittest.TestCase):
 
             trj = env.step(pi,2)
 
-            nx,nu,l = pi.ds.nx,pi.ds.nu,pi.l
-            tmp = np.array(pi.ret_x[1:1+l*(nx+nu)]).reshape(l,-1)
+            nx,nu,l = pp.ds.nx,pp.ds.nu,pp.l
+            tmp = np.array(pp.ret_x[1:1+l*(nx+nu)]).reshape(l,-1)
             
             plt.clf()
             plt.plot(tmp[:,2],tmp[:,0])
-            plt.draw()
 
+            plt.xlim([-2*np.pi,2*np.pi])
+            plt.ylim([-30,30])
+            plt.draw()
 
             if not trj is None:
                 model.update(trj)
@@ -1527,10 +1532,6 @@ class TestsPP(unittest.TestCase):
 
         trj = env.step(ZeroPolicy() ,.05)
 
-    def test_col_pi(self):
-        pp = CollocationPlanner(Cartpole(),15)
-        pp.u(.1,None)
-
     def test_int(self):
         i = ExplicitRK('rk4')
         
@@ -1599,6 +1600,35 @@ class TestsPP(unittest.TestCase):
 
         pp = CollocationPlanner(Cartpole(),15)
         start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
+        pi = pp.solve(start,end)
+        
+        
+        
+
+    def test_sqp_linearization(self):
+        pp = SqpPlanner(Cartpole(),7)
+
+        l,nx,nu = pp.l, pp.ds.nx, pp.ds.nu
+        eps = 1e-8
+        
+        np.random.seed(1)
+        z  = np.random.normal(size = 1+ l*(nu+nx))
+        dz = eps*np.random.normal(size = 1+ l*(nu+nx))
+        
+        z_ = z+ dz
+        
+        f , j = pp.linearize_dyn(z) 
+        f_, j_= pp.linearize_dyn(z+dz) 
+        
+        r  = (f_- f)/eps
+        r_ = np.array((np.matrix(j.todense())*np.matrix(dz).T)).reshape(-1)/eps
+
+        np.testing.assert_almost_equal(r,r_,4)
+
+    def test_sqp(self):
+
+        pp = SqpPlanner(Cartpole(),15)
+        start, end = [0,0,.7*np.pi,0], [0,0,2.0*np.pi,0]
         pi = pp.solve(start,end)
         
         
