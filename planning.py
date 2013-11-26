@@ -497,7 +497,7 @@ class CollocationPlanner():
         if KTR_set_double_param_by_name(kc, "opttol", 1.0E-3):
             raise RuntimeError ("Error setting parameter 'opttol'")
 
-        if KTR_set_int_param(kc, KTR_PARAM_OUTLEV, 0):
+        if KTR_set_int_param(kc, KTR_PARAM_OUTLEV, 3):
             raise RuntimeError ("Error setting parameter 'outlev'")
 
         ###
@@ -722,7 +722,9 @@ class CollocationPlanner():
         x = self.ret_x
         tmp = np.array(x[1:1+l*(nx+nu)]).reshape(l,-1)
 
-        #print tmp[:,-nu:]
+        print nx,nu,l
+        print tmp[:,:nx]
+
         #print np.sqrt(np.sum(tmp[:,-2:]*tmp[:,-2:],1))
 
         #uc = self.ds.u_costs
@@ -1319,7 +1321,8 @@ class SqpPlanner():
         if (solsta!=mosek.solsta.optimal 
                 and solsta!=mosek.solsta.near_optimal):
             # mosek bug fix 
-            raise Exception(str(solsta)+", "+str(prosta))
+            print str(solsta)+", "+str(prosta)
+            #raise Exception(str(solsta)+", "+str(prosta))
 
            
         nv = self.nv
@@ -1370,6 +1373,9 @@ class SqpPlanner():
         #plt.plot(x[:,2],x[:,0])
         #plt.draw()
 
+        self.slack_cost = sc
+        print sc
+
         return xx[self.iv_hxu]
 
     def solve(self,start,end):
@@ -1393,6 +1399,7 @@ class SqpPlanner():
         u = z[1:].reshape(l,-1)[:,-nu:]  
         x = z[1:].reshape(l,-1)[:,:nx]  
         
+        #print self.slack_cost
         h = np.exp(z[0])
 
         rt = CollocationPolicy(self.collocator,u.copy(),h)

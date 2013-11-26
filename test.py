@@ -1313,19 +1313,20 @@ class TestsCartpole(unittest.TestCase):
 
     def test_iter(self):
 
-        seed = 29 # 11,15,22
+        seed = 45 # 11,15,22
+        #seed = 29 # 11,15,22
         np.random.seed(seed)
 
-        p,k = 5, 11*8
+        p,k = 7, 11*8
         learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
-        model = OptimisticCartpole(learner)
-        #model = Cartpole()
+        model = OptimisticCartpoleSC(learner)
 
 
-        env = Cartpole(noise = 1.0)
+        env = CartpolePilco(noise = .01)
+        #env.state[2] = 2*np.pi*np.random.uniform()
         trj = env.step(ZeroPolicy(env.nu), 51, random_control=True) 
 
-        env = Cartpole(noise = .00001)
+        #env = Cartpole(noise = .01)
 
         model.update(trj)
 
@@ -1338,7 +1339,7 @@ class TestsCartpole(unittest.TestCase):
         
         for t in range(10000):
             s = env.state
-            print ('{:9.3f} '*4).format(*s)
+            print 'time: ',env.t,'state: ',('{:9.3f} '*4).format(*s)
             pi = pp.solve(env.state,end)
             try:
                 pi.ll_slack
@@ -1376,6 +1377,55 @@ class TestsCartpole(unittest.TestCase):
         f = mix.predict(to_gpu(x),to_gpu(xi))
         
         
+
+class TestsCart2pole(unittest.TestCase):
+    def test_iter(self):
+
+        seed = 45 # 11,15,22
+        np.random.seed(seed)
+
+        p,k = 11, 11*8
+        learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
+        model = OptimisticCart2pole(learner)
+
+        env = Cart2polePilco(noise = .01)
+        trj = env.step(ZeroPolicy(env.nu), 51, random_control=True) 
+
+        model.update(trj)
+        env = Cart2polePilco(noise = .0001)
+
+        end = np.zeros(6)
+
+        #pp = CollocationPlanner(model,15,hotstart=False)
+        pp = SqpPlanner(model,15)
+        plt.show()
+        plt.ion()
+        
+        for t in range(10000):
+            s = env.state
+            print 't: ',('{:4.2f} ').format(env.t),' state: ',('{:9.3f} '*6).format(*s)
+            pi = pp.solve(env.state,end)
+            #try:
+            #    pi.ll_slack
+            #print pi.max_h, pi.ll_slack
+            #except:
+            #print pi.max_h
+
+            trj = env.step(pi,2)
+
+            nx,nu,l = pp.ds.nx,pp.ds.nu,pp.l
+            tmp = np.array(pp.ret_x[1:1+l*(nx+nu)]).reshape(l,-1)
+            
+            plt.clf()
+            plt.plot(tmp[:,3],tmp[:,4])
+
+            plt.xlim([-2*np.pi,2*np.pi])
+            plt.ylim([-2*np.pi,2*np.pi])
+            plt.draw()
+
+            if not trj is None:
+                model.update(trj)
+
 
 class TestsHeli(unittest.TestCase):
     def test_f(self):
@@ -1636,7 +1686,7 @@ class TestsPP(unittest.TestCase):
 
 if __name__ == '__main__':
     single_test = 'test_iter'
-    tests = TestsCartpole
+    tests = TestsCart2pole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))
