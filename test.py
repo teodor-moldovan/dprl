@@ -1,6 +1,7 @@
 import unittest
 from clustering import *
 from cartpole import *
+from cart2pole import *
 from heli import *
 import time
 import scipy.linalg
@@ -1378,7 +1379,7 @@ class TestsCartpole(unittest.TestCase):
         
         
 
-class TestsCart2pole(unittest.TestCase):
+class TestsCartDoublePole(unittest.TestCase):
     def test_iter(self):
 
         seed = 45 # 11,15,22
@@ -1386,13 +1387,13 @@ class TestsCart2pole(unittest.TestCase):
 
         p,k = 11, 11*8
         learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
-        model = OptimisticCart2pole(learner)
+        model = OptimisticCartDoublePole(learner)
 
-        env = Cart2polePilco(noise = .01)
+        env = CartDoublePole(noise = .01)
         trj = env.step(ZeroPolicy(env.nu), 51, random_control=True) 
 
         model.update(trj)
-        env = Cart2polePilco(noise = .0001)
+        env = CartDoublePole(noise = .0001)
 
         end = np.zeros(6)
 
@@ -1425,6 +1426,18 @@ class TestsCart2pole(unittest.TestCase):
 
             if not trj is None:
                 model.update(trj)
+
+
+    def test_pp(self):
+
+        seed = 45 # 11,15,22
+        np.random.seed(seed)
+
+        env = CartDoublePole()
+        end = np.zeros(6)
+        pp = SqpPlanner(env,15)
+        
+        pp.solve(env.state, end)
 
 
 class TestsHeli(unittest.TestCase):
@@ -1686,7 +1699,7 @@ class TestsPP(unittest.TestCase):
 
 if __name__ == '__main__':
     single_test = 'test_iter'
-    tests = TestsCart2pole
+    tests = TestsCartpole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))

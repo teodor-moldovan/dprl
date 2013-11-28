@@ -305,7 +305,7 @@ class DynamicalSystem(object):
 
     def initializations(self,ws,we):
         w =  self.waypoint_spline((ws,we))
-        yield 0.0, w
+        yield -1.0, w
         while True:
             h = np.random.normal()
             yield h,w
@@ -1374,7 +1374,6 @@ class SqpPlanner():
         #plt.draw()
 
         self.slack_cost = sc
-        print sc
 
         return xx[self.iv_hxu]
 
@@ -1387,10 +1386,10 @@ class SqpPlanner():
             x = spline((self.collocator.nodes+1.0)/2.0)
             z = np.concatenate((np.array([h]),x.reshape(-1)))
             
-            for i in range(40):
+            for i in range(100):
                 dz = self.linearize_task(z,start,end)
-                #z = z+ dz
                 z = z+ dz/np.sqrt(i+2.0)
+                #z = z+ dz/np.sqrt(i+2.0)
             break
 
         
@@ -1399,8 +1398,8 @@ class SqpPlanner():
         u = z[1:].reshape(l,-1)[:,-nu:]  
         x = z[1:].reshape(l,-1)[:,:nx]  
         
-        #print self.slack_cost
         h = np.exp(z[0])
+        print h,self.slack_cost
 
         rt = CollocationPolicy(self.collocator,u.copy(),h)
         return rt
