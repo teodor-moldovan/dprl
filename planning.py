@@ -305,7 +305,7 @@ class DynamicalSystem(object):
 
     def initializations(self,ws,we):
         w =  self.waypoint_spline((ws,we))
-        yield -1.0, w
+        yield 0.0, w
         while True:
             h = np.random.normal()
             yield h,w
@@ -1386,7 +1386,7 @@ class SqpPlanner():
             x = spline((self.collocator.nodes+1.0)/2.0)
             z = np.concatenate((np.array([h]),x.reshape(-1)))
             
-            for i in range(100):
+            for i in range(40):
                 dz = self.linearize_task(z,start,end)
                 z = z+ dz/np.sqrt(i+2.0)
                 #z = z+ dz/np.sqrt(i+2.0)
