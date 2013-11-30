@@ -1416,7 +1416,7 @@ class SqpPlanner():
         self.collocator = LGL(l)
 
         self.prep_solver()
-        self.setup_slacks()
+        self.setup_slacks(100.0)
 
     def prep_solver(self):
         l,nx,nu = self.l, self.ds.nx, self.ds.nu
@@ -1446,10 +1446,12 @@ class SqpPlanner():
         
         self.task = task
 
-    def setup_slacks(self):
+    def setup_slacks(self,c):
         
         task = self.task
         
+        w = self.collocator.int_w[:,np.newaxis]+np.zeros(self.ds.nx)
+        w = w.reshape(-1)
 
         l,nx,nu = self.l, self.ds.nx, self.ds.nu
 
@@ -1464,18 +1466,8 @@ class SqpPlanner():
         task.putaijlist(self.ic_dyn, 
                 self.iv_slack_neg, -np.ones(self.ic_dyn.size))
 
-    def set_slack_weights(self,lb=None,c=1.0,d=100):
-        
-        if lb is None:
-            lb = np.ones((self.l,self.ds.nx))
-        lb.reshape((self.l,self.ds.nx))
-        lb = np.maximum(np.abs(lb),c)
-
-        w = self.collocator.int_w[:,np.newaxis]*lb*d
-        w = w.reshape(-1)
-
-        self.task.putclist(self.iv_slack_pos, w) 
-        self.task.putclist(self.iv_slack_neg, w) 
+        task.putclist(self.iv_slack_pos, c*w) 
+        task.putclist(self.iv_slack_neg, c*w) 
 
     def bind_state(self,i,state):
 
@@ -1630,7 +1622,7 @@ class SqpPlanner():
         inds = self.__linearize_inds(l,nx,nu)
         jd = np.concatenate((dd.reshape(-1), gh.reshape(-1), gxu.reshape(-1)))
         
-        #jd[np.abs(jd)<1e-8]=0
+        #jd[np.abs(jd)<1e-5]=0
         jac = coo_matrix((jd,inds)).tocsr().tocoo()
 
         diff  = (.5*f +   hi*d).reshape(-1)
@@ -1662,25 +1654,20 @@ class SqpPlanner():
         if (solsta!=mosek.solsta.optimal 
                 and solsta!=mosek.solsta.near_optimal):
             # mosek bug fix 
-            print str(solsta)+", "+str(prosta)
+            #print str(solsta)+", "+str(prosta)
             raise TypeError
 
            
-        nv,nc = self.nv,self.nc
+        nv = self.nv
         xx = np.zeros(self.nv)
-        lb = np.zeros(self.nc)
 
         warnings.simplefilter("ignore", RuntimeWarning)
         task.getsolutionslice(mosek.soltype.itr,
                             mosek.solitem.xx,
                             0,nv, xx)
 
-        task.getsolutionslice(mosek.soltype.itr,
-                            mosek.solitem.y,
-                            0,nc, lb)
-
         warnings.simplefilter("default", RuntimeWarning)
-        return xx,lb
+        return xx
 
         
     def linearize_task(self,z,start,end):
@@ -1693,14 +1680,12 @@ class SqpPlanner():
         self.bind_state(-1, np.array(end) - xu[-1,:nx])
         self.bound_controls(-xu[:,-nu:])
         self.set_dynamics_delta(z)
-        self.set_slack_weights(self.duals)
 
         bdk = mosek.boundkey
         task = self.task
-        task.putbound(mosek.accmode.var,0, bdk.ra, -4.0-z[0],8.0-z[0] )
+        task.putbound(mosek.accmode.var,0, bdk.ra, -4.0-z[0],2.0-z[0] )
         
-        xx,lb = self.qp_solve()
-        self.duals = lb
+        xx = self.qp_solve()
         
         slacks = xx[np.concatenate((self.iv_slack_pos,self.iv_slack_neg))].reshape(2,l,nx)
 
@@ -1725,7 +1710,6 @@ class SqpPlanner():
         
         ws = self.ds.state2waypoint(start)
         we = self.ds.state2waypoint(end)
-        self.duals= None
 
         for h,spline in self.ds.initializations(ws,we):
             x = spline((self.collocator.nodes+1.0)/2.0)

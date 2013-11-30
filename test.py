@@ -1393,7 +1393,7 @@ class TestsCartDoublePole(unittest.TestCase):
         trj = env.step(ZeroPolicy(env.nu), 50, random_control=True) 
 
         model.update(trj)
-        env = CartDoublePole(noise = 0.001)
+        env = CartDoublePole(noise = 0)
 
         end = np.zeros(6)
 
@@ -1775,8 +1775,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_iter'
-    tests = TestsCartDoublePole
+    single_test = 'test_pp'
+    tests = TestsCartpole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))
