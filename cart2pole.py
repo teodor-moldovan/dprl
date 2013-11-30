@@ -99,8 +99,8 @@ class OptimisticCartDoublePole(OptimisticDynamicalSystem):
             // p1 : state
             // p2 : controls
             // p3 : input state to predictor
-            o[0 ] = s[0];
-            o[1 ] = s[1];
+            o[0 ] = s[0]*s[0];
+            o[1 ] = s[1]*s[1];
             o[2 ] = s[2];
             o[3 ] = cos(s[3]);
             o[4 ] = sin(s[3]);
@@ -153,8 +153,8 @@ class OptimisticCartDoublePole(OptimisticDynamicalSystem):
             o[0 ] = ds[0];
             o[1 ] = ds[1];
             o[2 ] = ds[2];
-            o[3 ] = s[0];
-            o[4 ] = s[1];
+            o[3 ] = s[0]*s[0];
+            o[4 ] = s[1]*s[1];
             o[5 ] = s[2];
             o[6 ] = cos(s[3]);
             o[7 ] = sin(s[3]);

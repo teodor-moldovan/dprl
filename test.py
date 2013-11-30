@@ -1393,12 +1393,12 @@ class TestsCartDoublePole(unittest.TestCase):
         trj = env.step(ZeroPolicy(env.nu), 50, random_control=True) 
 
         model.update(trj)
-        env = CartDoublePole(noise = .0001)
+        env = CartDoublePole(noise = 0.001)
 
         end = np.zeros(6)
 
         #pp = CollocationPlanner(model,15,hotstart=False)
-        pp = SqpPlanner(model,15)
+        pp = SqpPlanner(model,35)
         plt.show()
         plt.ion()
 
@@ -1412,7 +1412,7 @@ class TestsCartDoublePole(unittest.TestCase):
             #except:
             #print pi.max_h
 
-            trj = env.step(pi,5)
+            trj = env.step(pi,10)
 
             nx,nu,l = pp.ds.nx,pp.ds.nu,pp.l
             tmp = np.array(pp.ret_x[1:1+l*(nx+nu)]).reshape(l,-1)
@@ -1775,7 +1775,7 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_pp_iter'
+    single_test = 'test_iter'
     tests = TestsCartDoublePole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
