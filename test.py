@@ -1225,7 +1225,7 @@ class TestsCartpole(unittest.TestCase):
         
          
     def test_pp(self):
-        pp = CollocationPlanner(Cartpole(),15)
+        pp = SqpPlanner(Cartpole(),15)
         start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
         pp.solve(start,end)
 
@@ -1333,7 +1333,7 @@ class TestsCartpole(unittest.TestCase):
 
         end = np.zeros(4)
 
-        #pp = CollocationPlanner(model,15,hotstart=False)
+        pp = CollocationPlanner(model,15,hotstart=False)
         pp = SqpPlanner(model,15)
         plt.show()
         plt.ion()
@@ -1389,8 +1389,8 @@ class TestsCartDoublePole(unittest.TestCase):
         learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
         model = OptimisticCartDoublePole(learner)
 
-        env = CartDoublePole(noise = .01)
-        trj = env.step(ZeroPolicy(env.nu), 51, random_control=True) 
+        env = CartDoublePole(noise = .1)
+        trj = env.step(ZeroPolicy(env.nu), 50, random_control=True) 
 
         model.update(trj)
         env = CartDoublePole(noise = .0001)
@@ -1401,7 +1401,7 @@ class TestsCartDoublePole(unittest.TestCase):
         pp = SqpPlanner(model,15)
         plt.show()
         plt.ion()
-        
+
         for t in range(10000):
             s = env.state
             print 't: ',('{:4.2f} ').format(env.t),' state: ',('{:9.3f} '*6).format(*s)
@@ -1412,20 +1412,78 @@ class TestsCartDoublePole(unittest.TestCase):
             #except:
             #print pi.max_h
 
-            trj = env.step(pi,2)
+            trj = env.step(pi,5)
 
             nx,nu,l = pp.ds.nx,pp.ds.nu,pp.l
             tmp = np.array(pp.ret_x[1:1+l*(nx+nu)]).reshape(l,-1)
             
             plt.clf()
-            plt.plot(tmp[:,3],tmp[:,4])
+
+            plt.sca(plt.subplot(2,1,1))
 
             plt.xlim([-2*np.pi,2*np.pi])
-            plt.ylim([-2*np.pi,2*np.pi])
+            plt.ylim([-40,40])
+            plt.plot(tmp[:,3],tmp[:,0])
+
+            plt.sca(plt.subplot(2,1,2))
+
+            plt.xlim([-2*np.pi,2*np.pi])
+            plt.ylim([-40,40])
+            plt.plot(tmp[:,4],tmp[:,1])
+
             plt.draw()
+
+
 
             if not trj is None:
                 model.update(trj)
+
+
+    def test_pp_iter(self):
+
+        seed = 45 # 11,15,22
+        np.random.seed(seed)
+
+        p,k = 11, 11*8
+
+        env = CartDoublePole(noise = 0)
+        end = np.zeros(6)
+
+        #pp = CollocationPlanner(env,35,hotstart=True)
+        pp = SqpPlanner(env,35)
+        plt.show()
+        plt.ion()
+
+        for t in range(10000):
+            s = env.state
+            print 't: ',('{:4.2f} ').format(env.t),' state: ',('{:9.3f} '*6).format(*s)
+            pi = pp.solve(env.state,end)
+            #try:
+            #    pi.ll_slack
+            #print pi.max_h, pi.ll_slack
+            #except:
+            #print pi.max_h
+
+            trj = env.step(pi,10)
+
+            nx,nu,l = pp.ds.nx,pp.ds.nu,pp.l
+            tmp = np.array(pp.ret_x[1:1+l*(nx+nu)]).reshape(l,-1)
+            
+            plt.clf()
+
+            plt.sca(plt.subplot(2,1,1))
+
+            plt.xlim([-2*np.pi,2*np.pi])
+            plt.ylim([-40,40])
+            plt.plot(tmp[:,3],tmp[:,0])
+
+            plt.sca(plt.subplot(2,1,2))
+
+            plt.xlim([-2*np.pi,2*np.pi])
+            plt.ylim([-40,40])
+            plt.plot(tmp[:,4],tmp[:,1])
+
+            plt.draw()
 
 
     def test_pp(self):
@@ -1436,8 +1494,27 @@ class TestsCartDoublePole(unittest.TestCase):
         env = CartDoublePole()
         end = np.zeros(6)
         pp = SqpPlanner(env,15)
+        #pp = CollocationPlanner(env,15)
         
         pp.solve(env.state, end)
+
+        nx,nu,l = pp.ds.nx,pp.ds.nu,pp.l
+        tmp = np.array(pp.ret_x[1:1+l*(nx+nu)]).reshape(l,-1)
+        
+        plt.sca(plt.subplot(2,1,1))
+
+        plt.xlim([-2*np.pi,2*np.pi])
+        plt.ylim([-40,40])
+        plt.plot(tmp[:,3],tmp[:,0])
+
+        plt.sca(plt.subplot(2,1,2))
+
+        plt.xlim([-2*np.pi,2*np.pi])
+        plt.ylim([-40,40])
+        plt.plot(tmp[:,4],tmp[:,1])
+
+        plt.show()
+
 
 
 class TestsHeli(unittest.TestCase):
@@ -1698,8 +1775,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_iter'
-    tests = TestsCartpole
+    single_test = 'test_pp_iter'
+    tests = TestsCartDoublePole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))

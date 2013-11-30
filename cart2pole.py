@@ -7,7 +7,7 @@ class CartDoublePole(DynamicalSystem, Environment):
     def __init__(self, noise = 0):
 
         DynamicalSystem.__init__(self,6,1)
-        Environment.__init__(self, [0,0,0,np.pi,0,0], .01, noise=noise)
+        Environment.__init__(self, [0,0,0,np.pi,np.pi,0], .01, noise=noise)
 
         s = self.codegen()        
 
@@ -48,9 +48,9 @@ class CartDoublePole(DynamicalSystem, Environment):
         A = [[2*(m1+m2+m3), -(m2+2*m3)*l2*cos(z(5)), -m3*l3*cos(z(6))],
              [  -(3*m2+6*m3)*cos(z(5)), (2*m2+6*m3)*l2, 3*m3*l3*cos(z(5)-z(6))],
              [  -3*cos(z(6)), 3*l2*cos(z(5)-z(6)), 2*l3]];
-        b = [2*f(t)-2*b*z(2)-(m2+2*m3)*l2*z(3)**2*sin(z(5))-m3*l3*z(4)**2*sin(z(6)),
-               (3*m2+6*m3)*g*sin(z(5))-3*m3*l3*z(4)**2*sin(z(5)-z(6)),
-               3*l2*z(3)**2*sin(z(5)-z(6))+3*g*sin(z(6))];
+        b = [2*f(t)-2*b*z(2)-(m2+2*m3)*l2*z(3)*z(3)*sin(z(5))-m3*l3*z(4)*z(4)*sin(z(6)),
+               (3*m2+6*m3)*g*sin(z(5))-3*m3*l3*z(4)*z(4)*sin(z(5)-z(6)),
+               3*l2*z(3)*z(3)*sin(z(5)-z(6))+3*g*sin(z(6))];
 
         A = sympy.Matrix(A)
         b = sympy.Matrix(3,1,b)
@@ -75,6 +75,13 @@ class CartDoublePole(DynamicalSystem, Environment):
         self.state[4] =  np.mod(self.state[4] + 2*np.pi,4*np.pi)-2*np.pi
         return rt
 
+    def initializations(self,ws,we):
+        w =  self.waypoint_spline((ws,we))
+        yield -1.0, w
+        while True:
+            h = np.random.normal()
+            yield h,w
+
 class OptimisticCartDoublePole(OptimisticDynamicalSystem):
     def __init__(self,predictor,**kwargs):
 
@@ -92,8 +99,8 @@ class OptimisticCartDoublePole(OptimisticDynamicalSystem):
             // p1 : state
             // p2 : controls
             // p3 : input state to predictor
-            o[0 ] = s[0]*s[0];
-            o[1 ] = s[1]*s[1];
+            o[0 ] = s[0];
+            o[1 ] = s[1];
             o[2 ] = s[2];
             o[3 ] = cos(s[3]);
             o[4 ] = sin(s[3]);
@@ -146,8 +153,8 @@ class OptimisticCartDoublePole(OptimisticDynamicalSystem):
             o[0 ] = ds[0];
             o[1 ] = ds[1];
             o[2 ] = ds[2];
-            o[3 ] = s[0]*s[0];
-            o[4 ] = s[1]*s[1];
+            o[3 ] = s[0];
+            o[4 ] = s[1];
             o[5 ] = s[2];
             o[6 ] = cos(s[3]);
             o[7 ] = sin(s[3]);
@@ -162,7 +169,9 @@ class OptimisticCartDoublePole(OptimisticDynamicalSystem):
         self.k_update  = rowwise(fn,'opt_cartpole_update')
 
     def initializations(self,ws,we):
-        h = 2.0
-        x = self.waypoint_spline((ws,we))
-        yield h, x
+        w =  self.waypoint_spline((ws,we))
+        yield -1.0, w
+        while True:
+            h = np.random.normal()
+            yield h,w
 
