@@ -1751,7 +1751,7 @@ class TestsPP(unittest.TestCase):
         l,nx,nu = pp.l, pp.ds.nx, pp.ds.nu
         eps = 1e-8
         
-        np.random.seed(1)
+        np.random.seed(20)
         z  = np.random.normal(size = 1+ l*(nu+nx))
         dz = eps*np.random.normal(size = 1+ l*(nu+nx))
         
@@ -1775,7 +1775,7 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_iter'
+    single_test = 'test_pp_iter'
     tests = TestsCartDoublePole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()

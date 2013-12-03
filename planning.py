@@ -745,19 +745,20 @@ class SqpPlanner():
         self.line_search_collocator = LGL(nls)
 
         self.prep_solver()
-        self.setup_slacks(100.0)
+        self.setup_slack(100)
 
     def prep_solver(self):
         l,nx,nu = self.l, self.ds.nx, self.ds.nu
 
-        nv, nc = 1+l*(nx+nu)+2*l*nx, l*nx
+        nv, nc = 1+l*(nx+nu)+2*nx, l*nx + nx
         self.nv = nv
         self.nc = nc
         
         self.iv_hxu = np.arange(1+l*(nx+nu))
         self.ic_dyn = np.arange(l*nx)
-        self.iv_slack_neg = np.arange(1+l*(nx+nu),1+l*(nx+nu)+l*nx)
-        self.iv_slack_pos = np.arange(1+l*(nx+nu)+l*nx,1+l*(nx+nu)+2*l*nx)
+        self.iv_slack_neg = np.arange(1+l*(nx+nu),1+l*(nx+nu)+nx)
+        self.iv_slack_pos = np.arange(1+l*(nx+nu)+nx,1+l*(nx+nu)+2*nx)
+        self.ic_slack = np.arange(l*nx, l*nx+nx)
 
         task = mosek_env.Task()
         task.append( mosek.accmode.var, nv)
@@ -775,29 +776,21 @@ class SqpPlanner():
         
         self.task = task
 
-    def setup_slacks(self,c):
-        
-        task = self.task
-        
-        w = self.collocator.int_w[:,np.newaxis]+np.zeros(self.ds.nx)
-        w = w.reshape(-1)
-        self.slack_costs= c*w
-
-        l,nx,nu = self.l, self.ds.nx, self.ds.nu
-
-        nv = l*nx
+    def setup_slack(self,lbd):
         bdk = mosek.boundkey
-        b = [0]*nv
-        task.putboundlist(mosek.accmode.var,self.iv_slack_pos, [bdk.lo]*nv,b,b)
-        task.putboundlist(mosek.accmode.var,self.iv_slack_neg, [bdk.lo]*nv,b,b)
+        nx = self.ds.nx
+        zs,os = np.zeros(nx), np.ones(nx)
 
-        task.putaijlist(self.ic_dyn, 
-                self.iv_slack_pos,  np.ones(self.ic_dyn.size))
-        task.putaijlist(self.ic_dyn, 
-                self.iv_slack_neg, -np.ones(self.ic_dyn.size))
+        i = self.ic_slack
+        j = self.iv_slack_pos
+        self.task.putaijlist(i,j,  os)
+        self.task.putclist(j, lbd*os)
+        self.task.putboundlist(mosek.accmode.var, j, [bdk.lo]*nx,zs,zs )
 
-        task.putclist(self.iv_slack_pos, self.slack_costs) 
-        task.putclist(self.iv_slack_neg, self.slack_costs) 
+        j = self.iv_slack_neg
+        self.task.putaijlist(i,j, -os)  
+        self.task.putclist(j, lbd*os)
+        self.task.putboundlist(mosek.accmode.var, j, [bdk.lo]*nx,zs,zs )
 
     def bind_state(self,i,state):
 
@@ -808,6 +801,20 @@ class SqpPlanner():
         i = 1 + i*(nx+nu) + np.arange(nx)
         c_bdk = [mosek.boundkey.fx]*nx
         self.task.putboundlist(mosek.accmode.var,i,c_bdk,state,state )
+        
+    def bind_state_with_slack(self,i,state):
+
+        l,nx,nu = self.l, self.ds.nx, self.ds.nu
+        if i<0:
+            i = l+i
+
+        j = 1 + i*(nx+nu) + np.arange(nx)
+        i = self.ic_slack
+        
+        self.task.putaijlist(i,j,np.ones(i.size))
+
+        c_bdk = [mosek.boundkey.fx]*nx
+        self.task.putboundlist(mosek.accmode.con, i, c_bdk,state,state )
         
     def bound_controls(self,u=None,li=float('inf')):
         l,nx,nu = self.l, self.ds.nx, self.ds.nu
@@ -1032,6 +1039,10 @@ class SqpPlanner():
         nc = l*nx 
         bdk = mosek.boundkey
         self.task.putboundlist(mosek.accmode.con,range(nc),[bdk.fx]*nc,f,f )
+
+        zr = np.zeros(nx/2)
+        self.task.putboundlist(mosek.accmode.con,range(nx/2),[bdk.fr]*nx,zr,zr )
+        self.task.putboundlist(mosek.accmode.con,(l-1)*nx+np.arange(nx/2),[bdk.fr]*nx,zr,zr )
         
     def qp_solve(self):
 
@@ -1045,7 +1056,7 @@ class SqpPlanner():
         if (solsta!=mosek.solsta.optimal 
                 and solsta!=mosek.solsta.near_optimal):
             # mosek bug fix 
-            #print str(solsta)+", "+str(prosta)
+            print str(solsta)+", "+str(prosta)
             raise TypeError
 
            
@@ -1072,8 +1083,9 @@ class SqpPlanner():
          
         xu = z[1:].reshape(l,-1) 
 
-        self.bound_delta_states(li)
-        self.bind_state( 0, np.array(start) - xu[0,:nx])
+        #self.bound_delta_states(li)
+
+        self.bind_state_with_slack( 0, np.array(start) - xu[0,:nx])
         self.bind_state(-1, np.array(end) - xu[-1,:nx])
 
         self.bound_controls(u=-xu[:,-nu:],li=li)
@@ -1086,15 +1098,12 @@ class SqpPlanner():
         
         xx,yy = self.qp_solve()
         
-        slacks = xx[np.concatenate((self.iv_slack_pos,self.iv_slack_neg))].reshape(2,l,nx)
-
-        sc = np.sum(slacks.reshape(2,-1) * self.slack_costs[np.newaxis,:])
+        z_ = z+ xx[self.iv_hxu]
         
-        print z[0], sc
+        print z_[0],
+        print np.sum(xx[self.iv_slack_pos] + xx[self.iv_slack_neg])
         #print u
         
-        self.slack_cost = sc
-
         return xx[self.iv_hxu]
 
     def solve(self,start,end):
@@ -1106,12 +1115,13 @@ class SqpPlanner():
             x = spline((self.collocator.nodes+1.0)/2.0)
             z = np.concatenate((np.array([h]),x.reshape(-1)))
             
-            for i in range(200):
+            for i in range(50):
                 try:
                     dz = self.linearize_task(z,start,end)
                 except:
+                    #raise
                     break
-                al = 1.0/(i+2.0)
+                al = 1.0/np.sqrt(i+2.0)
                 z = z+ al*dz
             break
 
@@ -1122,7 +1132,7 @@ class SqpPlanner():
         x = z[1:].reshape(l,-1)[:,:nx]  
         
         h = np.exp(z[0])
-        print h,self.slack_cost
+        print h
 
         rt = CollocationPolicy(self.collocator,u.copy(),h)
         return rt
