@@ -1493,7 +1493,7 @@ class TestsCartDoublePole(unittest.TestCase):
 
         env = CartDoublePole()
         end = np.zeros(6)
-        pp = SqpPlanner(env,15)
+        pp = SqpPlanner(env,35)
         #pp = CollocationPlanner(env,15)
         
         pp.solve(env.state, end)
@@ -1775,8 +1775,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_pp'
-    tests = TestsCartpole
+    single_test = 'test_iter'
+    tests = TestsCartDoublePole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))

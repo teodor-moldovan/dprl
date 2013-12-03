@@ -735,685 +735,14 @@ class CollocationPlanner():
         return rt
 
 
-class CollocationPlanner_bck():
-    def __init__(self, ds,l, hotstart=False):
-        """ initialize planner for dynamical system"""
-        self.ds = ds
-        self.l=l
-        self.ll_slack_cost = 100.0
-        self.hotstart=hotstart
-        self.is_first = True
-
-        self.differentiator = NumDiff()
-        self.collocator = LGL(l)
-        self.kc = self.prep_solver() 
-
-        #self.end_index = 0
-
-    def __del__(self):
-        KTR_free(self.kc)
-
-
-
-    def prep_solver(self):
-        nx,nu,l = self.ds.nx,self.ds.nu,self.l
-        n = l* (nx+nu) + 1 + 1
-        m = l*nx + l
-        
-        self.ret_x = [0,]*n
-        self.ret_lambda = [0,]*(n+m)
-        self.ret_obj = [0,]
-
-        objGoal = KTR_OBJGOAL_MINIMIZE
-        #objType = KTR_OBJTYPE_QUADRATIC;
-        objType = KTR_OBJTYPE_LINEAR;
-
-        slc = self.ds.slc_linf2
-
-        mi =  [ -KTR_INFBOUND,]
-        sb = mi*(nx+nu)
-        sb[slc] = [-1.0]*(slc.stop-slc.start)
-        bndsLo = mi + sb*l + [0,]
-
-        mi =  [ KTR_INFBOUND,]
-        sb = mi*(nx+nu)
-        sb[slc] = [1.0]*(slc.stop-slc.start)
-        #bndsUp = [1.0] + sb*l + mi
-        bndsUp = [1.0] + sb*l + [0,]
-        
-
-        self.bndsLo = bndsLo
-        self.bndsUp = bndsUp
-
-        cType   = [ KTR_CONTYPE_GENERAL ]*l*nx + [KTR_CONTYPE_QUADRATIC]*l
-        cBndsLo = [ 0.0 ]*l*nx + [ -KTR_INFBOUND,]*l
-        cBndsUp = [ 0.0 ]*l*nx + [ 1.0]*l
-
-        jacIxVar, jacIxConstr = self.jac_ij()
-
-        #todo: move to different function. consider memoize 
-        D,nodes = self.collocator.diff, self.collocator.nodes 
-        self.dnodiag_list = D.reshape(-1)[np.logical_not(np.eye(nodes.size)).reshape(-1)].tolist()
-        self.ddiag = np.diag(D)
-        self.D = D
-
-
-        #jacIxVar,jacIxConstr= zip(*[(i,j) for i in range(n) for j in range(m)])
-        
-
-        #---- CREATE A NEW KNITRO SOLVER INSTANCE.
-        kc = KTR_new()
-        if kc == None:
-            raise RuntimeError ("Failed to find a Ziena license.")
-
-        #---- DEMONSTRATE HOW TO SET KNITRO PARAMETERS.
-
-        if KTR_set_int_param(kc, KTR_PARAM_ALGORITHM, 1):
-            raise RuntimeError ("Error setting parameter 'algorithm'")
-
-        if KTR_set_int_param_by_name(kc, "hessopt", 3):
-            raise RuntimeError ("Error setting parameter 'hessopt'")
-
-        #if KTR_set_int_param(kc, KTR_PARAM_BAR_MURULE, 6):
-        #    raise RuntimeError ("Error setting parameter 'outlev'")
-
-        if KTR_set_int_param(kc, KTR_PARAM_BAR_MAXCROSSIT, 10):
-            raise RuntimeError ("Error setting parameter 'outlev'")
-
-        if KTR_set_int_param_by_name(kc, "gradopt", KTR_GRADOPT_EXACT):
-            raise RuntimeError ("Error setting parameter 'gradopt'")
-
-        if KTR_set_double_param_by_name(kc, "feastol", 1.0E-5):
-            raise RuntimeError ("Error setting parameter 'feastol'")
-
-        if KTR_set_double_param_by_name(kc, "opttol", 1.0E-3):
-            raise RuntimeError ("Error setting parameter 'opttol'")
-
-        if KTR_set_int_param(kc, KTR_PARAM_OUTLEV, 0):
-            raise RuntimeError ("Error setting parameter 'outlev'")
-
-        ###
-
-        #if KTR_set_double_param(kc, KTR_PARAM_DELTA, 1e-4):
-        #    raise RuntimeError ("Error setting parameter 'outlev'")
-
-        #if KTR_set_int_param(kc, KTR_PARAM_SOC, 0):
-        #    raise RuntimeError ("Error setting parameter 'outlev'")
-
-        #if KTR_set_int_param(kc, KTR_PARAM_HONORBNDS, 1):
-        #    raise RuntimeError ("Error setting parameter 'outlev'")
-
-        #if KTR_set_int_param(kc, KTR_PARAM_BAR_INITPT, 2):
-        #    raise RuntimeError ("Error setting parameter 'outlev'")
-
-        #if KTR_set_int_param(kc, KTR_PARAM_BAR_FEASIBLE, 3):
-        #    raise RuntimeError ("Error setting parameter 'outlev'")
-
-        ##
-
-
-        if KTR_set_int_param(kc, KTR_PARAM_PAR_CONCURRENT_EVALS, 0):
-            raise RuntimeError ("Error setting parameter")
-
-        if KTR_set_double_param(kc, KTR_PARAM_INFEASTOL, 1e-5):
-            raise RuntimeError ("Error setting parameter")
-
-
-        #if KTR_set_int_param(kc, KTR_PARAM_LINSOLVER, 3):
-        #    raise RuntimeError ("Error setting parameter 'linsolver'")
-
-        if KTR_set_int_param(kc,KTR_PARAM_MAXIT,2000):
-            raise RuntimeError ("Error setting parameter 'maxit'")
-
-        #---- INITIALIZE KNITRO WITH THE PROBLEM DEFINITION.
-        ret = KTR_init_problem (kc, n, objGoal, objType, bndsLo, bndsUp,
-                                        cType, cBndsLo, cBndsUp,
-                                        jacIxVar, jacIxConstr,
-                                        None, None,
-                                        None, None)
-        if ret:
-            raise RuntimeError ("Error initializing the problem, KNITRO status = %d" % ret)
-        
-
-        # define callbacks: 
-        
-        
-        def callbackEvalFC(*args):
-            return self.callbackEvalFC(*args)
-        if KTR_set_func_callback(kc, callbackEvalFC):
-            raise RuntimeError ("Error registering function callback.")
-        def callbackEvalGA(*args):
-            return self.callbackEvalGA(*args)
-
-        if KTR_set_grad_callback(kc, callbackEvalGA):
-            raise RuntimeError ("Error registering gradient callback.")
-                
-        return kc
-
-    def jac_ij(self):
-        
-        nx,nu,l = self.ds.nx,self.ds.nu,self.l
-
-        ji1 = [(v,c) 
-                    for t in range(l)
-                    for v in [0,]+range(1+t*(nx+nu),1+ (t+1)*(nx+nu))
-                    for c in range(t*nx, (t+1)*nx)
-              ]
-
-        ji2 = [(1 + tv*(nx+nu)+i , i + tc*nx ) 
-                    for i in range(nx)
-                    for tc in range(l)
-                    for tv in range(l)
-                    if tc != tv
-              ]
-
-        ji3 = [(1+t*(nx+nu)+i, l*nx + t) 
-                    for t in range(l)
-                    for i in range(nx+nu)[self.ds.slc_linfquad]
-              ]
-
-        ji4 = [(l* (nx+nu) + 1, l*nx + t) 
-                    for t in range(l)
-              ]
-
-
-        return zip(*(ji1+ji2+ji3+ji4))
-
-
-    @staticmethod
-    @memoize
-    def __buff(l,n):
-        return array((l,n))
-
-    def callbackEvalFC(self,evalRequestCode, n, m, nnzJ, nnzH, x, lambda_, 
-                obj, c, objGrad, jac, hessian, hessVector, userParams):
-
-        if not evalRequestCode == KTR_RC_EVALFC:
-            return KTR_RC_CALLBACK_ERR
-
-        nx,nu,l = self.ds.nx,self.ds.nu,self.l
-        buff = self.__buff(l,nx+nu)
-        
-        tmp = np.array(x[1:1+l*(nx+nu)]).reshape(l,-1)
-        
-
-        obj[0] = x[0] + self.ll_slack_cost*x[l* (nx+nu) + 1]
-
-        #h = x[0]
-        h = np.exp(x[0])
-
-        buff.set(tmp)
-
-        mv = np.array(x[1+l*(nx+nu):1+l*(2*nx+nu)]).reshape(l,-1)
-        
-        f = (.5*h) * self.ds.f_sp(buff).get() 
-        
-        ze = -np.array(np.matrix(self.D)*np.matrix(tmp[:,:nx])).copy()
-        df = f-ze
-        #df[:,2:] = 0
-
-
-        slc = self.ds.slc_linfquad
-        rs =np.sum(tmp[:,slc]*tmp[:,slc],1) - x[1+l*(nx+nu)]
-
-        c[:]= df.copy().reshape(-1).tolist() + rs.copy().reshape(-1).tolist() 
-
-        return 0
-
-
-
-    def callbackEvalGA(self,evalRequestCode, n, m, nnzJ, nnzH, x, lambda_, 
-                obj, c, objGrad, jac, hessian, hessVector, userParams):
-        if not evalRequestCode == KTR_RC_EVALGA:
-            return KTR_RC_CALLBACK_ERR
-
-        nx,nu,l = self.ds.nx,self.ds.nu,self.l
-        buff = self.__buff(l,nx+nu)
-
-
-        tmp = np.array(x[1:l*(nx+nu)+1]).reshape(l,-1)
-
-        objGrad[:] = [1.0,]+ [0.0,]* l*(nx+nu) + [self.ll_slack_cost,]
-
-        #dh,h = 1.0, x[0]
-        dh,h = np.exp(x[0]),np.exp(x[0])
-
-        buff.set(tmp)
-
-        df = self.differentiator.diff(lambda x_: self.ds.f_sp(x_), buff)   
-        f = self.ds.f_sp(buff) 
-        f,df = f.get(), df.get()
-
-        x,u = tmp[:,:nx], tmp[:,nx:]
-
-        slc = self.ds.slc_linfquad
-        ll_cost_g = 2.0*tmp[:,slc].copy()
-
-        d1 = (.5*dh) * f 
-        d2 = (.5*h) * df
-
-        wx = np.newaxis
-        tmp = np.hstack((d1[:,wx,:],d2)).copy()
-        tmp[:,1:1+nx,:] += self.ddiag[:,wx,wx]*np.eye(nx)[wx,:,:]
-        
-
-
-        jac[:] = (tmp.reshape(-1).tolist() + self.dnodiag_list*nx
-                + ll_cost_g.copy().reshape(-1).tolist() + [-1.0,]*l
-                )
-
-        #return KTR_RC_CALLBACK_ERR
-
-        return 0
-
-
-    def bind_state(self,i,state):
-        nx,nu,l = self.ds.nx,self.ds.nu,self.l
-        
-        if i<0:
-            i = l+i
-        tl, tu = 1+ (i+1)*(nx+nu)-(nx+nu), 1+(i+1)*(nx+nu) - nu
-        
-        self.bndsLo[tl: tu] = [-KTR_INFBOUND if i is None else i for i in state]
-        self.bndsUp[tl: tu] = [ KTR_INFBOUND if i is None else i for i in state]
-        
-
-
-    def hotstart_init(self,start,end):
-        if self.hotstart and not self.is_first:
-            yield start,end,self.ret_x, self.ret_lambda
-
-        ws = self.ds.state2waypoint(start)
-        we = self.ds.state2waypoint(end)
-        for h,spline in self.ds.initializations(ws,we):
-            x = spline((self.collocator.nodes+1.0)/2.0)
-            l = [0.0,]*len(self.ret_lambda)
-            s = (x[0][:self.ds.nx]).reshape(-1).tolist()
-            e = (x[-1][:self.ds.nx]).reshape(-1).tolist()
-            yield s,e,[h,] + x.reshape(-1).tolist() + [0,] , l 
-
-    def solve(self, start, end):
-        
-        for s,e,x,l in self.hotstart_init(start,end):
-            stdout.write('.')
-            stdout.flush()
-
-            self.bind_state(0,s)
-            self.bind_state(-1,e)
-
-            KTR_chgvarbnds(self.kc, self.bndsLo, self.bndsUp)
-            KTR_restart(self.kc, x, l)
-
-            #KTR_solve
-            if False:
-                pt = np.random.normal(size=len(self.ret_x))
-                nStatus = KTR_check_first_ders (self.kc, pt.tolist(), 
-                       2, 1e-6, 1e-6, 0, 0.0, None,None,None,None);
-                break
-            else:
-
-                #nStatus = KTR_check_first_ders (self.kc, self.ret_x, 
-                #       2, 1e-6, 1e-6, 0, 0.0, None,None,None,None);
-
-                nStatus = KTR_solve (self.kc, self.ret_x, self.ret_lambda, 0, 
-                        self.ret_obj, None, None, None, None, None, None)
-
-            
-            if nStatus == 0:
-                break
-
-        if nStatus != 0:
-            raise RuntimeError()
-
-        
-        nx,nu,l = self.ds.nx,self.ds.nu,self.l
-        x = self.ret_x
-        tmp = np.array(x[1:1+l*(nx+nu)]).reshape(l,-1)
-
-        #print tmp[:,-nu:]
-        #print np.sqrt(np.sum(tmp[:,-2:]*tmp[:,-2:],1))
-
-        #uc = self.ds.u_costs
-        #rs =np.sum(uc[np.newaxis,:] * tmp[:,nx:]*tmp[:,nx:],1) - x[1+l*(nx+nu)]
-
-        self.ll_slack = x[1+l*(nx+nu)] 
-        self.is_first = False
-        
-        rt = CollocationPolicy(self.collocator,tmp[:,-nu:].copy(),np.exp(x[0]))
-        return rt
-
-
-class SqpPlanner_bck():
-    def __init__(self, ds,l):
-        """ initialize planner for dynamical system"""
-        self.ds = ds
-        self.l=l
-        self.differentiator = NumDiff()
-        self.collocator = LGL(l)
-
-        self.prep_solver()
-        self.setup_slacks(1000.0)
-
-    def prep_solver(self):
-        l,nx,nu = self.l, self.ds.nx, self.ds.nu
-
-        nv, nc = 1+l*(nx+nu)+l*nx, l*nx
-        self.nv = nv
-        self.nc = nc
-        
-        self.iv_hxu = np.arange(1+l*(nx+nu))
-        self.ic_dyn = np.arange(l*nx)
-        self.iv_slack = np.arange(1+l*(nx+nu),1+l*(nx+nu)+l*nx)
-
-        task = mosek_env.Task()
-        task.append( mosek.accmode.var, nv)
-        task.append( mosek.accmode.con, nc)
-        
-        bdk = mosek.boundkey
-        b = [0]*nv
-        task.putboundlist(mosek.accmode.var, range(nv), [bdk.fr]*nv,b,b )
-
-        b = [0]*nc
-        task.putboundlist(mosek.accmode.con, range(nc), [bdk.fx]*nc,b,b )
-        
-        #hack
-        task.putbound(mosek.accmode.var,0, bdk.lo, -4.0,0 )
-
-        task.putcj(0,1.0)
-        task.putobjsense(mosek.objsense.minimize)
-        
-        self.task = task
-
-    def setup_slacks(self,c):
-        
-        task = self.task
-        
-        w = self.collocator.int_w[:,np.newaxis]+np.zeros(self.ds.nx)
-        w = w.reshape(-1)
-        
-        task.putaijlist(self.ic_dyn, self.iv_slack, np.ones(self.iv_slack.size))
-        task.putqobj(self.iv_slack, self.iv_slack, c*w) 
-
-    def bind_state(self,i,state):
-
-        l,nx,nu = self.l, self.ds.nx, self.ds.nu
-        if i<0:
-            i = l+i
-
-        i = 1 + i*(nx+nu) + np.arange(nx)
-        c_bdk = [mosek.boundkey.fx]*nx
-        self.task.putboundlist(mosek.accmode.var,i,c_bdk,state,state )
-        
-    def bound_controls(self,u=None):
-        l,nx,nu = self.l, self.ds.nx, self.ds.nu
-        if u is None:
-            u = np.zeros(l*nu)
-        else:
-            u = u.reshape(-1)
-
-        bdk,wx = mosek.boundkey, np.newaxis
-        i = 1 + nx + (nx+nu)*np.arange(l)[:,wx] + np.arange(nu)[wx,:]
-        i = i.reshape(-1)
-        v_bdk = [bdk.ra]*(nu*l)
-
-        self.task.putboundlist(  mosek.accmode.var,i,v_bdk,-1.0+u,1.0+u )
-
-
-    @staticmethod
-    @memoize
-    def __linearize_inds(l,nx,nu):
-        wx  = np.newaxis
-        rl  = np.arange(l)
-        rxu = np.arange(nx+nu)
-        rx  = np.arange(nx)
-
-        dd_c = (rl*nx)[wx,:,wx] + np.zeros(l)[wx,wx,:] + rx[:,wx,wx] 
-        dd_v = 1 +(rl*(nx+nu))[wx,wx,:] + np.zeros(l)[wx,:,wx] + rx[:,wx,wx] 
-
-        gh_c = (rl*nx)[:,wx] + np.arange(nx)[wx,:]
-        gh_v = np.zeros(gh_c.size)
-
-        gxu_c = (rl*nx)[:,wx,wx] + np.zeros(nx+nu)[wx,:,wx] + rx[wx,wx,:]
-        gxu_v = 1+(rl*(nx+nu))[:,wx,wx] + rxu[wx,:,wx] + np.zeros(nx)[wx,wx,:]
-
-        c = np.concatenate((dd_c.reshape(-1),
-                    gh_c.reshape(-1), gxu_c.reshape(-1)))
-        v = np.concatenate((dd_v.reshape(-1),
-                    gh_v.reshape(-1), gxu_v.reshape(-1)))
-        
-        return (c,v)
-
-    def linearize_dyn_logh(self,z):
-        # return function value and jacobian for g(x,u,h) = .5*h*f(x,u) - D*x
-        
-        l,nx,nu = self.l,self.ds.nx,self.ds.nu
-        h,dh = np.exp(z[0]), np.exp(z[0])
-        
-        xu = z[1:].reshape(l,-1)
-        x = xu[:,:nx]
-        u = xu[:,-nu:]
-
-
-        buff = array((l,nx+nu))
-        buff.set(xu)
-
-        df = self.differentiator.diff(lambda x_: self.ds.f_sp(x_), buff)   
-        f = self.ds.f_sp(buff) 
-
-        f,df = f.get(), df.get()
-        
-        wx  = np.newaxis
-        d    =  np.array(np.matrix(self.collocator.diff)*np.matrix(x))
-        dd   =  self.collocator.diff[wx,:,:] + np.zeros(nx)[:,wx,wx]
-
-        gh   = .5*dh*f
-        gxu   = .5*h*df
-        
-        inds = self.__linearize_inds(l,nx,nu)
-        jd = np.concatenate((dd.reshape(-1), gh.reshape(-1), gxu.reshape(-1)))
-        
-        #jd[np.abs(jd)<1e-5]=0
-        jac = coo_matrix((jd,inds)).tocsr().tocoo()
-
-        diff  = (.5*h*f +   d).reshape(-1)
-
-        return diff, jac
-        
-    def linearize_dyn_h(self,z):
-        # return function value and jacobian for g(x,u,h) = .5*h*f(x,u) - D*x
-        
-        l,nx,nu = self.l,self.ds.nx,self.ds.nu
-        #h,dh = np.exp(z[0]), np.exp(z[0])
-        h,dh = z[0], 1.0
-        
-        xu = z[1:].reshape(l,-1)
-        x = xu[:,:nx]
-        u = xu[:,-nu:]
-
-
-        buff = array((l,nx+nu))
-        buff.set(xu)
-
-        df = self.differentiator.diff(lambda x_: self.ds.f_sp(x_), buff)   
-        f = self.ds.f_sp(buff) 
-
-        f,df = f.get(), df.get()
-        
-        wx  = np.newaxis
-        d    = - np.array(np.matrix(self.collocator.diff)*np.matrix(x))
-        dd   = - self.collocator.diff[wx,:,:] + np.zeros(nx)[:,wx,wx]
-
-        gh   = .5*dh*f
-        gxu   = .5*h*df
-        
-        
-        inds = self.__linearize_inds(l,nx,nu)
-        jd = np.concatenate((dd.reshape(-1), gh.reshape(-1), gxu.reshape(-1)))
-        
-        #jd[np.abs(jd)<1e-5]=0
-        jac = coo_matrix((jd,inds)).tocsr().tocoo()
-
-        diff  = (.5*h*f +   d).reshape(-1)
-
-        return diff, jac
-        
-    def linearize_dyn_loghi(self,z):
-        # return function value and jacobian for g(x,u,h) = .5*h*f(x,u) - D*x
-        
-        l,nx,nu = self.l,self.ds.nx,self.ds.nu
-        #h,dh = np.exp(z[0]), np.exp(z[0])
-        hi,dhi = np.exp(-z[0]), -np.exp(-z[0])
-        
-        xu = z[1:].reshape(l,-1)
-        x = xu[:,:nx]
-        u = xu[:,-nu:]
-
-
-        buff = array((l,nx+nu))
-        buff.set(xu)
-
-        df = self.differentiator.diff(lambda x_: self.ds.f_sp(x_), buff)   
-        f = self.ds.f_sp(buff) 
-
-        f,df = f.get(), df.get()
-        
-        wx  = np.newaxis
-        d    = np.array(np.matrix(self.collocator.diff)*np.matrix(x))
-        dd   = hi*self.collocator.diff[wx,:,:] + np.zeros(nx)[:,wx,wx]
-
-        gh   =  dhi*d
-        gxu   = .5*df
-        
-        inds = self.__linearize_inds(l,nx,nu)
-        jd = np.concatenate((dd.reshape(-1), gh.reshape(-1), gxu.reshape(-1)))
-        
-        #jd[np.abs(jd)<1e-5]=0
-        jac = coo_matrix((jd,inds)).tocsr().tocoo()
-
-        diff  = (.5*f +   hi*d).reshape(-1)
-
-        return diff, jac
-        
-    linearize_dyn = linearize_dyn_logh
-    def set_dynamics_delta(self,z):
-        
-        l,nx,nu = self.l, self.ds.nx, self.ds.nu
-        f,df = self.linearize_dyn(z)
-        
-        self.task.putaijlist( df.row, df.col, df.data  )
-        
-        f = -f
-        nc = l*nx 
-        bdk = mosek.boundkey
-        self.task.putboundlist(mosek.accmode.con,range(nc),[bdk.fx]*nc,f,f )
-        
-    def qp_solve(self):
-
-        task = self.task
-
-        task.optimize()
-        [prosta, solsta] = task.getsolutionstatus(mosek.soltype.itr)
-
-        task._Task__progress_cb=None
-        task._Task__stream_cb=None
-        if (solsta!=mosek.solsta.optimal 
-                and solsta!=mosek.solsta.near_optimal):
-            # mosek bug fix 
-            #print str(solsta)+", "+str(prosta)
-            raise TypeError
-
-           
-        nv = self.nv
-        xx = np.zeros(self.nv)
-
-        warnings.simplefilter("ignore", RuntimeWarning)
-        task.getsolutionslice(mosek.soltype.itr,
-                            mosek.solitem.xx,
-                            0,nv, xx)
-
-        warnings.simplefilter("default", RuntimeWarning)
-        return xx
-
-        
-    def linearize_task(self,z,start,end):
-        
-        l,nx,nu = self.l, self.ds.nx, self.ds.nu
-         
-        xu = z[1:].reshape(l,-1) 
-
-        self.bind_state( 0, np.array(start) - xu[0,:nx])
-        self.bind_state(-1, np.array(end) - xu[-1,:nx])
-        self.bound_controls(-xu[:,-nu:])
-        self.set_dynamics_delta(z)
-
-        bdk = mosek.boundkey
-        task = self.task
-        task.putbound(mosek.accmode.var,0, bdk.ra, -4.0-z[0],2.0-z[0] )
-        
-        zs = np.zeros(self.iv_slack.size)
-        tm = self.iv_slack.size
-        try:
-            task.putboundlist(mosek.accmode.var,self.iv_slack,[bdk.fx]*tm,zs,zs)
-            xx = self.qp_solve()
-        except TypeError:
-            task.putboundlist(mosek.accmode.var,self.iv_slack,[bdk.fr]*tm,zs,zs)
-            xx = self.qp_solve()
-        
-        
-        slacks = xx[self.iv_slack].reshape(l,nx)
-        x = z[1:].reshape(l,-1)[:,:nx]
-        u = z[1:].reshape(l,-1)[:,-nu:] + xx[1:1+l*(nx+nu)].reshape(l,-1)[:,-nu:] 
-        sc = np.sum(slacks*slacks* self.collocator.int_w[:,np.newaxis])
-
-        print z[0], sc
-        #print u
-        
-        #plt.ion()
-        #plt.clf()
-        #plt.plot(x[:,2],x[:,0])
-        #plt.draw()
-
-        self.slack_cost = sc
-
-        return xx[self.iv_hxu]
-
-    def solve(self,start,end):
-        
-        ws = self.ds.state2waypoint(start)
-        we = self.ds.state2waypoint(end)
-
-        for h,spline in self.ds.initializations(ws,we):
-            x = spline((self.collocator.nodes+1.0)/2.0)
-            z = np.concatenate((np.array([h]),x.reshape(-1)))
-            
-            for i in range(200):
-                try:
-                    dz = self.linearize_task(z,start,end)
-                except TypeError:
-                    break
-                z = z+ dz/np.sqrt(i+2.0)
-                #z = z+ dz/(i+2.0)
-                #z = z+ dz/np.sqrt(i+2.0)
-            break
-
-        
-        self.ret_x = z
-        l,nx,nu = self.l, self.ds.nx, self.ds.nu
-        u = z[1:].reshape(l,-1)[:,-nu:]  
-        x = z[1:].reshape(l,-1)[:,:nx]  
-        
-        h = np.exp(z[0])
-        print h,self.slack_cost
-
-        rt = CollocationPolicy(self.collocator,u.copy(),h)
-        return rt
 class SqpPlanner():
-    def __init__(self, ds,l):
+    def __init__(self, ds,l,nls=100):
         """ initialize planner for dynamical system"""
         self.ds = ds
         self.l=l
         self.differentiator = NumDiff()
         self.collocator = LGL(l)
+        self.line_search_collocator = LGL(nls)
 
         self.prep_solver()
         self.setup_slacks(100.0)
@@ -1452,6 +781,7 @@ class SqpPlanner():
         
         w = self.collocator.int_w[:,np.newaxis]+np.zeros(self.ds.nx)
         w = w.reshape(-1)
+        self.slack_costs= c*w
 
         l,nx,nu = self.l, self.ds.nx, self.ds.nu
 
@@ -1466,8 +796,8 @@ class SqpPlanner():
         task.putaijlist(self.ic_dyn, 
                 self.iv_slack_neg, -np.ones(self.ic_dyn.size))
 
-        task.putclist(self.iv_slack_pos, c*w) 
-        task.putclist(self.iv_slack_neg, c*w) 
+        task.putclist(self.iv_slack_pos, self.slack_costs) 
+        task.putclist(self.iv_slack_neg, self.slack_costs) 
 
     def bind_state(self,i,state):
 
@@ -1479,7 +809,7 @@ class SqpPlanner():
         c_bdk = [mosek.boundkey.fx]*nx
         self.task.putboundlist(mosek.accmode.var,i,c_bdk,state,state )
         
-    def bound_controls(self,u=None):
+    def bound_controls(self,u=None,li=float('inf')):
         l,nx,nu = self.l, self.ds.nx, self.ds.nu
         if u is None:
             u = np.zeros(l*nu)
@@ -1490,8 +820,24 @@ class SqpPlanner():
         i = 1 + nx + (nx+nu)*np.arange(l)[:,wx] + np.arange(nu)[wx,:]
         i = i.reshape(-1)
         v_bdk = [bdk.ra]*(nu*l)
+        bl = np.maximum(-1.0+u,-li)
+        bu = np.minimum( 1.0+u, li)
 
-        self.task.putboundlist(  mosek.accmode.var,i,v_bdk,-1.0+u,1.0+u )
+        self.task.putboundlist(  mosek.accmode.var,i,v_bdk,bl,bu )
+
+
+    def bound_delta_states(self,li=float('inf')):
+        if li == float('inf'):
+            return
+        l,nx,nu = self.l, self.ds.nx, self.ds.nu
+
+        bdk,wx = mosek.boundkey, np.newaxis
+        i = self.iv_hxu
+        v_bdk = [bdk.ra]*(i.size)
+        bl = [-li]*i.size
+        bu = [+li]*i.size
+
+        self.task.putboundlist(  mosek.accmode.var,i,v_bdk,bl,bu )
 
 
     @staticmethod
@@ -1630,10 +976,55 @@ class SqpPlanner():
         return diff, jac
         
     linearize_dyn = linearize_dyn_loghi
+    def line_eval(self,z0,dz,al):
+        
+        diff_lin = self.nlcon[np.newaxis,:] + (self.nlcon_jac*dz)[np.newaxis,:]*al[:,np.newaxis]
+
+        z = z0[np.newaxis,:] + al[:,np.newaxis]*dz[np.newaxis,:]
+
+        l,nx,nu = self.l,self.ds.nx,self.ds.nu
+
+        xu = (z[:,1:].reshape(al.size*l,-1).copy())
+
+        buff = array((l*al.size,nx+nu))
+        buff.set(xu)
+        f = self.ds.f_sp(buff).get()
+
+        f = f.reshape(al.size,-1)
+
+        d = np.einsum('ij,ljk->lik',self.collocator.diff,
+                     xu[:,:nx].reshape((al.size,l,nx))).reshape(al.size,-1)
+
+        hi = np.exp(-z[:,0])[:,np.newaxis]
+        diff  = (.5*f +   hi*d)
+       
+        df  = self.slack_costs[np.newaxis,:]*(np.abs(diff)) 
+        df_ = self.slack_costs[np.newaxis,:]*(np.abs(diff_lin)) 
+        
+        return df,df_
+        
+    def line_search(self,z,dz,thrs = 10.0):
+        
+        alphas = (self.line_search_collocator.nodes + 1.0)/2.0
+        ws =  self.line_search_collocator.int_w
+        
+        df,df_ = self.line_eval(z,dz,alphas)
+        fs = np.abs(np.sum(df,1)-np.sum(df_,1))
+        rs =  np.cumsum(fs*ws)
+        
+        i_max = np.max(np.where(rs<thrs))
+        costs = np.sum(df,1) + (z[0]+ alphas*dz[0])
+        i_cost = np.argmin(costs[:i_max])
+        
+        return alphas[i_max], alphas[i_cost]
+
+        
     def set_dynamics_delta(self,z):
         
         l,nx,nu = self.l, self.ds.nx, self.ds.nu
         f,df = self.linearize_dyn(z)
+        
+        self.nlcon, self.nlcon_jac = f,df
         
         self.task.putaijlist( df.row, df.col, df.data  )
         
@@ -1658,50 +1049,50 @@ class SqpPlanner():
             raise TypeError
 
            
-        nv = self.nv
+        nv,nc = self.nv,self.nc
         xx = np.zeros(self.nv)
+        y = np.zeros(self.nc)
 
         warnings.simplefilter("ignore", RuntimeWarning)
         task.getsolutionslice(mosek.soltype.itr,
                             mosek.solitem.xx,
                             0,nv, xx)
 
+        task.getsolutionslice(mosek.soltype.itr,
+                            mosek.solitem.y,
+                            0,nc, y)
+
         warnings.simplefilter("default", RuntimeWarning)
-        return xx
+        return xx,y
 
         
-    def linearize_task(self,z,start,end):
+    def linearize_task(self,z,start,end,li=float('inf')):
         
         l,nx,nu = self.l, self.ds.nx, self.ds.nu
          
         xu = z[1:].reshape(l,-1) 
 
+        self.bound_delta_states(li)
         self.bind_state( 0, np.array(start) - xu[0,:nx])
         self.bind_state(-1, np.array(end) - xu[-1,:nx])
-        self.bound_controls(-xu[:,-nu:])
+
+        self.bound_controls(u=-xu[:,-nu:],li=li)
+
         self.set_dynamics_delta(z)
 
         bdk = mosek.boundkey
         task = self.task
-        task.putbound(mosek.accmode.var,0, bdk.ra, -4.0-z[0],2.0-z[0] )
+        task.putbound(mosek.accmode.var,0, bdk.ra, max(-4.0-z[0],-li),min(8.0-z[0],li) )
         
-        xx = self.qp_solve()
+        xx,yy = self.qp_solve()
         
         slacks = xx[np.concatenate((self.iv_slack_pos,self.iv_slack_neg))].reshape(2,l,nx)
 
-        x = z[1:].reshape(l,-1)[:,:nx]
-        u = z[1:].reshape(l,-1)[:,-nu:] + xx[1:1+l*(nx+nu)].reshape(l,-1)[:,-nu:] 
+        sc = np.sum(slacks.reshape(2,-1) * self.slack_costs[np.newaxis,:])
         
-        sc = np.sum(slacks* self.collocator.int_w[np.newaxis,:,np.newaxis])
-
         print z[0], sc
         #print u
         
-        #plt.ion()
-        #plt.clf()
-        #plt.plot(x[:,2],x[:,0])
-        #plt.draw()
-
         self.slack_cost = sc
 
         return xx[self.iv_hxu]
@@ -1718,11 +1109,10 @@ class SqpPlanner():
             for i in range(200):
                 try:
                     dz = self.linearize_task(z,start,end)
-                except TypeError:
+                except:
                     break
-                #z = z+ dz/np.sqrt(i+20.0)
-                z = z+ dz/(i+2.0)
-                #z = z+ dz/np.sqrt(i+2.0)
+                al = 1.0/(i+2.0)
+                z = z+ al*dz
             break
 
         
