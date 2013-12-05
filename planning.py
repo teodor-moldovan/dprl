@@ -258,6 +258,8 @@ class DynamicalSystem(object):
         self.slc_linf2 = slice(nx,nu+nx)
         self.slc_linfquad = slice(0,0)
         self.slc_quad2 = slice(0,0)
+
+        self.differentiator = NumDiff()
         
     @staticmethod
     @memoize
@@ -294,6 +296,11 @@ class DynamicalSystem(object):
         return self.f(y_,u_)
 
 
+    def f_sp_diff(self,x):
+        df = self.differentiator.diff(lambda x_: self.f_sp(x_), x)   
+        # hack
+        ufunc('x = abs(x) < 1e-8 ? 0 : x')(df)
+        return df
 
     def state2waypoint(self,state):
         try:
@@ -304,7 +311,9 @@ class DynamicalSystem(object):
         state = [0 if s is None else s for s in state] + [0,]*self.nu
         return np.array(state)
 
-    def initializations(self,ws,we):
+    def initializations(self):
+        ws = self.state2waypoint(self.state)
+        we = self.state2waypoint(self.target)
         w =  self.waypoint_spline((ws,we))
         yield 0.0, w
         while True:
@@ -368,56 +377,183 @@ class OptimisticDynamicalSystem(DynamicalSystem):
 
         self.predictor.update(w)
 
-class LGL():
-    def __init__(self,l):
+class LPM():
+    """ Legendre Pseudospectral Method
+     http://vdol.mae.ufl.edu/ConferencePublications/comparison_paper_GNC.pdf """
+    def __init__(self, ds, l):
+        self.ds = ds
         self.l = l
+        
+        nx,nu = self.ds.nx, self.ds.nu
+        self.nv = 1 + (nx + nu)*l
+        self.nc = nx*l 
+        
+        self.iv_xu = 1 + np.arange(l*(nx+nu)).reshape(l,-1)
+        self.iv_x = self.iv_xu[:,:nx].copy()
+        self.iv_u = self.iv_xu[:,nx:].copy()
+        
+        #i,c = self.ccol_jac_inds(self.l, self.ds.nx, self.ds.nu)
 
-        n = self.l-1
-        L = legendre.Legendre.basis(n)
+    @classmethod
+    @memoize
+    def __quadrature(cls,N):
+
+        L = legendre.Legendre.basis(N-1)
         tau= np.hstack(([-1.0],L.deriv().roots(), [1.0]))
 
         vs = L(tau)
         dn = ( tau[:,np.newaxis] - tau[np.newaxis,:] )
         dn[dn ==0 ] = float('inf')
 
-        D = -vs[:,np.newaxis] / vs[np.newaxis,:] / dn
-        D[0,0] = n*(n+1)/4.0
-        D[-1,-1] = -n*(n+1)/4.0
+        D = vs[:,np.newaxis] / vs[np.newaxis,:] / dn
+        D[0,0] = -N*(N-1)/4.0
+        D[-1,-1] = N*(N-1)/4.0
+        
+        int_w = 2.0/N/(N-1.0)/(vs*vs)
 
-        self.diff = D
-        self.nodes = tau
-        self.int_w = 2.0/n/(n+1.0)/(vs*vs)
+        return tau, D, int_w
+    @classmethod
+    @memoize
+    def __quad_extras(cls,N):
+        nodes, D,__ = cls.__quadrature(N)
+        dnodiag = D.reshape(-1)[np.logical_not(np.eye(nodes.size)).reshape(-1)]
+        ddiag = np.diag(D)
+
+        return ddiag, dnodiag
+
+    @classmethod
+    @memoize
+    def __lagrange_poly_u_cache(cls,l):
+        tau, _, __ = cls.__quadrature(l)
 
         rcp = 1.0/(tau[:,np.newaxis] - tau[np.newaxis,:]+np.eye(tau.size)) - np.eye(tau.size)
-        self.rcp_nodes_diff = rcp
 
+        return rcp,tau
 
-    def interp_coefficients(self,r):
+    def lagrange_poly_u(self,r):
+        rcp,nds = self.__lagrange_poly_u_cache(self.l)
 
         if r < -1 or r > 1:
             raise TypeError
 
-        nds = self.nodes
-        df = ((r - nds)[np.newaxis,:]*self.rcp_nodes_diff) + np.eye(nds.size)
+        df = ((r - nds)[np.newaxis,:]*rcp) + np.eye(nds.size)
         w = df.prod(axis=1)
 
         return w
 
+    interp_coefficients = lagrange_poly_u
+    @staticmethod
+    @memoize
+    def __ccol_jac_inds(l,nx,nu):
+
+        ji1 = [(v,c) 
+                    for t in range(l)
+                    for v in [0,]+range(1+t*(nx+nu),1+ (t+1)*(nx+nu))
+                    for c in range(t*nx, (t+1)*nx)
+              ]
+
+        ji2 = [(1 + tv*(nx+nu)+i , i + tc*nx ) 
+                    for i in range(nx)
+                    for tc in range(l)
+                    for tv in range(l)
+                    if tc != tv
+              ]
+
+        ic, iv = zip(*(ji1+ji2))
+        return np.array(ic), np.array(iv)
+
+    @staticmethod
+    @memoize
+    def __buff(l,n):
+        return array((l,n))
+
+    def obj(self,z):
+        return z[0]
+
+    @staticmethod
+    @memoize
+    def __grad_cache(n):
+        tmp = np.zeros(n)
+        tmp[0] = 1.0
+        return tmp
+
+    def obj_grad(self,z):
+        return self.__grad_cache(z.size) 
         
+    def ccol(self,x):
+        """ collocation constraint violations """
+
+        nx,nu,l = self.ds.nx,self.ds.nu,self.l
+        
+        _, D, __ = self.__quadrature(self.l)
+        buff = self.__buff(l,nx+nu)
+        
+        tmp = np.array(x[1:1+l*(nx+nu)]).reshape(l,-1)
+        h = np.exp(x[0])
+
+        buff.set(tmp)
+        df = np.dot(D,tmp[:,:nx]) - (.5*h)* self.ds.f_sp(buff).get() 
+        return  df.reshape(-1)
+
+    def ccol_jacobian_inds(self):
+        return self.__ccol_jac_inds(self.l,self.ds.nx,self.ds.nu)
+    def ccol_jacobian(self,x):
+
+        nx,nu,l = self.ds.nx,self.ds.nu,self.l
+        ddiag, dnodiag = self.__quad_extras(self.l)
+
+        tmp = np.array(x[1:l*(nx+nu)+1]).reshape(l,-1)
+        dh,h = np.exp(x[0]),np.exp(x[0])
+
+        buff = self.__buff(l,nx+nu)
+        buff.set(tmp)
+
+        d1 = -(.5*dh) *  self.ds.f_sp(buff).get() 
+        d2 = -(.5*h) * self.ds.f_sp_diff(buff).get()
+
+        x,u = tmp[:,:nx], tmp[:,nx:]
+
+        wx = np.newaxis
+        tmp = np.hstack((d1[:,wx,:],d2)).copy()
+        tmp[:,1:1+nx,:] += ddiag[:,wx,wx]*np.eye(nx)[wx,:,:]
+        
+        jac = np.concatenate((tmp.reshape(-1),np.tile(dnodiag,nx)))
+        
+        return jac
+
+    def bounds(self):
+        l,nx,nu = self.l, self.ds.nx, self.ds.nu
+        
+        b = float('inf')*np.ones(self.nv)
+        b[self.iv_u] = 1.0
+        
+        bl = -b
+        bu = b
+        
+        bl[self.iv_x[0]] = self.ds.state
+        bu[self.iv_x[0]] = self.ds.state
+        
+        bl[self.iv_x[-1]] = self.ds.target
+        bu[self.iv_x[-1]] = self.ds.target
+
+        return bl, bu
+
+    # hack (not elegant, bug prone)
+    def initialization(self):
+        for h,w in self.ds.initializations():
+            xu =  w((self.__quadrature(self.l)[0]+1.0)/2.0)
+            return np.concatenate((np.array([h,]), xu.reshape(-1)))
+
+    def get_policy(self,x):
+        return CollocationPolicy(self,x[self.iv_u],np.exp(x[0]))
 
 class CollocationPlanner():
-    def __init__(self, ds,l, hotstart=False):
+    def __init__(self, prob):
         """ initialize planner for dynamical system"""
-        self.ds = ds
-        self.l=l
-        self.hotstart=hotstart
+        self.prob = prob
         self.is_first = True
-
-        self.differentiator = NumDiff()
-        self.collocator = LGL(l)
         self.kc = self.prep_solver() 
 
-        #self.end_index = 0
 
     def __del__(self):
         KTR_free(self.kc)
@@ -425,9 +561,8 @@ class CollocationPlanner():
 
 
     def prep_solver(self):
-        nx,nu,l = self.ds.nx,self.ds.nu,self.l
-        n = l* (nx+nu) + 1 
-        m = l*nx 
+        prob = self.prob
+        n,m = prob.nv, prob.nc
         
         self.ret_x = [0,]*n
         self.ret_lambda = [0,]*(n+m)
@@ -436,39 +571,17 @@ class CollocationPlanner():
         objGoal = KTR_OBJGOAL_MINIMIZE
         #objType = KTR_OBJTYPE_QUADRATIC;
         objType = KTR_OBJTYPE_LINEAR;
-
-        slc = self.ds.slc_linf2
-
-        mi =  [ -KTR_INFBOUND,]
-        sb = mi*(nx+nu)
-        sb[slc] = [-1.0]*(slc.stop-slc.start)
-        bndsLo = mi + sb*l
-
-        mi =  [ KTR_INFBOUND,]
-        sb = mi*(nx+nu)
-        sb[slc] = [1.0]*(slc.stop-slc.start)
-        #bndsUp = [1.0] + sb*l + mi
-        bndsUp = [1.0] + sb*l
         
+        bndsLo =  [ -KTR_INFBOUND,]*prob.nv
+        bndsUp =  [ +KTR_INFBOUND,]*prob.nv
 
-        self.bndsLo = bndsLo
-        self.bndsUp = bndsUp
+        cType   = [ KTR_CONTYPE_GENERAL ]*prob.nc
+        cBndsLo = [ 0.0 ]*prob.nc 
+        cBndsUp = [ 0.0 ]*prob.nc
 
-        cType   = [ KTR_CONTYPE_GENERAL ]*l*nx 
-        cBndsLo = [ 0.0 ]*l*nx 
-        cBndsUp = [ 0.0 ]*l*nx 
+        ic,iv = self.prob.ccol_jacobian_inds()
+        jacIxVar, jacIxConstr = ic.tolist(),iv.tolist()
 
-        jacIxVar, jacIxConstr = self.jac_ij()
-
-        #todo: move to different function. consider memoize 
-        D,nodes = self.collocator.diff, self.collocator.nodes 
-        self.dnodiag_list = D.reshape(-1)[np.logical_not(np.eye(nodes.size)).reshape(-1)].tolist()
-        self.ddiag = np.diag(D)
-        self.D = D
-
-
-        #jacIxVar,jacIxConstr= zip(*[(i,j) for i in range(n) for j in range(m)])
-        
 
         #---- CREATE A NEW KNITRO SOLVER INSTANCE.
         kc = KTR_new()
@@ -547,192 +660,52 @@ class CollocationPlanner():
         # define callbacks: 
         
         
-        def callbackEvalFC(*args):
-            return self.callbackEvalFC(*args)
+        def callbackEvalFC(evalRequestCode, n, m, nnzJ, nnzH, x, lambda_, 
+                obj, c, objGrad, jac, hessian, hessVector, userParams):
+            if not evalRequestCode == KTR_RC_EVALFC:
+                return KTR_RC_CALLBACK_ERR
+        
+            x = np.array(x)
+            obj[0] = self.prob.obj(x) 
+            c[:] = self.prob.ccol(x).tolist() 
+            return 0
+
         if KTR_set_func_callback(kc, callbackEvalFC):
             raise RuntimeError ("Error registering function callback.")
-        def callbackEvalGA(*args):
-            return self.callbackEvalGA(*args)
+
+        def callbackEvalGA(evalRequestCode, n, m, nnzJ, nnzH, x, lambda_, 
+                obj, c, objGrad, jac, hessian, hessVector, userParams):
+            if not evalRequestCode == KTR_RC_EVALGA:
+                return KTR_RC_CALLBACK_ERR
+
+            x = np.array(x)
+            objGrad[:] = self.prob.obj_grad(x)
+            jac[:] = self.prob.ccol_jacobian(x)
+            return 0
 
         if KTR_set_grad_callback(kc, callbackEvalGA):
             raise RuntimeError ("Error registering gradient callback.")
                 
         return kc
 
-    def jac_ij(self):
+    def solve(self):
         
-        nx,nu,l = self.ds.nx,self.ds.nu,self.l
-
-        ji1 = [(v,c) 
-                    for t in range(l)
-                    for v in [0,]+range(1+t*(nx+nu),1+ (t+1)*(nx+nu))
-                    for c in range(t*nx, (t+1)*nx)
-              ]
-
-        ji2 = [(1 + tv*(nx+nu)+i , i + tc*nx ) 
-                    for i in range(nx)
-                    for tc in range(l)
-                    for tv in range(l)
-                    if tc != tv
-              ]
-
-
-        return zip(*(ji1+ji2))
-
-
-    @staticmethod
-    @memoize
-    def __buff(l,n):
-        return array((l,n))
-
-    def callbackEvalFC(self,evalRequestCode, n, m, nnzJ, nnzH, x, lambda_, 
-                obj, c, objGrad, jac, hessian, hessVector, userParams):
-
-        if not evalRequestCode == KTR_RC_EVALFC:
-            return KTR_RC_CALLBACK_ERR
-
-        nx,nu,l = self.ds.nx,self.ds.nu,self.l
-        buff = self.__buff(l,nx+nu)
+        bl,bu = self.prob.bounds()
+        x = self.prob.initialization()
         
-        tmp = np.array(x[1:1+l*(nx+nu)]).reshape(l,-1)
-        
+        bl[np.isinf(bl)] = -KTR_INFBOUND
+        bu[np.isinf(bu)] =  KTR_INFBOUND
 
-        obj[0] = x[0] 
+        KTR_chgvarbnds(self.kc, bl.tolist(), bu.tolist())
+        KTR_restart(self.kc, x.tolist(), None)
 
-        #h = x[0]
-        h = np.exp(x[0])
-
-        buff.set(tmp)
-
-        f = (.5*h) * self.ds.f_sp(buff).get() 
-        
-        ze = -np.array(np.matrix(self.D)*np.matrix(tmp[:,:nx])).copy()
-        df = f-ze
-
-
-        c[:]= df.copy().reshape(-1).tolist()  
-
-        return 0
-
-
-
-    def callbackEvalGA(self,evalRequestCode, n, m, nnzJ, nnzH, x, lambda_, 
-                obj, c, objGrad, jac, hessian, hessVector, userParams):
-        if not evalRequestCode == KTR_RC_EVALGA:
-            return KTR_RC_CALLBACK_ERR
-
-        nx,nu,l = self.ds.nx,self.ds.nu,self.l
-        buff = self.__buff(l,nx+nu)
-
-
-        tmp = np.array(x[1:l*(nx+nu)+1]).reshape(l,-1)
-
-        objGrad[:] = [1.0,]+ [0.0,]* l*(nx+nu) 
-
-        #dh,h = 1.0, x[0]
-        dh,h = np.exp(x[0]),np.exp(x[0])
-
-        buff.set(tmp)
-
-        df = self.differentiator.diff(lambda x_: self.ds.f_sp(x_), buff)   
-        f = self.ds.f_sp(buff) 
-        f,df = f.get(), df.get()
-        #df[np.abs(df)<1e-8]=0
-
-        x,u = tmp[:,:nx], tmp[:,nx:]
-
-        d1 = (.5*dh) * f 
-        d2 = (.5*h) * df
-
-        wx = np.newaxis
-        tmp = np.hstack((d1[:,wx,:],d2)).copy()
-        tmp[:,1:1+nx,:] += self.ddiag[:,wx,wx]*np.eye(nx)[wx,:,:]
-        
-
-
-        jac[:] = (tmp.reshape(-1).tolist() + self.dnodiag_list*nx
-                )
-
-        #return KTR_RC_CALLBACK_ERR
-
-        return 0
-
-
-    def bind_state(self,i,state):
-        nx,nu,l = self.ds.nx,self.ds.nu,self.l
-        
-        if i<0:
-            i = l+i
-        tl, tu = 1+ (i+1)*(nx+nu)-(nx+nu), 1+(i+1)*(nx+nu) - nu
-        
-        self.bndsLo[tl: tu] = [-KTR_INFBOUND if i is None else i for i in state]
-        self.bndsUp[tl: tu] = [ KTR_INFBOUND if i is None else i for i in state]
-        
-
-
-    def hotstart_init(self,start,end):
-        if self.hotstart and not self.is_first:
-            yield start,end,self.ret_x, self.ret_lambda
-
-        ws = self.ds.state2waypoint(start)
-        we = self.ds.state2waypoint(end)
-        for h,spline in self.ds.initializations(ws,we):
-            x = spline((self.collocator.nodes+1.0)/2.0)
-            l = [0.0,]*len(self.ret_lambda)
-            s = (x[0][:self.ds.nx]).reshape(-1).tolist()
-            e = (x[-1][:self.ds.nx]).reshape(-1).tolist()
-            yield s,e,[h,] + x.reshape(-1).tolist() + [0,] , l 
-
-    def solve(self, start, end):
-        
-        for s,e,x,l in self.hotstart_init(start,end):
-            stdout.write('.')
-            stdout.flush()
-
-            self.bind_state(0,s)
-            self.bind_state(-1,e)
-
-            KTR_chgvarbnds(self.kc, self.bndsLo, self.bndsUp)
-            KTR_restart(self.kc, x, l)
-
-            #KTR_solve
-            if False:
-                pt = np.random.normal(size=len(self.ret_x))
-                nStatus = KTR_check_first_ders (self.kc, pt.tolist(), 
-                       2, 1e-6, 1e-6, 0, 0.0, None,None,None,None);
-                break
-            else:
-
-                #nStatus = KTR_check_first_ders (self.kc, self.ret_x, 
-                #       2, 1e-6, 1e-6, 0, 0.0, None,None,None,None);
-
-                nStatus = KTR_solve (self.kc, self.ret_x, self.ret_lambda, 0, 
+        nStatus = KTR_solve (self.kc, self.ret_x, self.ret_lambda, 0, 
                         self.ret_obj, None, None, None, None, None, None)
             
-            if nStatus == 0:
-                break
-
         if nStatus != 0:
             raise RuntimeError()
 
-        
-        nx,nu,l = self.ds.nx,self.ds.nu,self.l
-        x = self.ret_x
-        tmp = np.array(x[1:1+l*(nx+nu)]).reshape(l,-1)
-
-        #print nx,nu,l
-        #print tmp[:,:nx]
-
-        #print np.sqrt(np.sum(tmp[:,-2:]*tmp[:,-2:],1))
-
-        #uc = self.ds.u_costs
-        #rs =np.sum(uc[np.newaxis,:] * tmp[:,nx:]*tmp[:,nx:],1) - x[1+l*(nx+nu)]
-
-        #self.ll_slack = x[1+l*(nx+nu)] 
-        self.is_first = False
-        
-        rt = CollocationPolicy(self.collocator,tmp[:,-nu:].copy(),np.exp(x[0]))
-        return rt
+        return self.prob.get_policy(np.array(self.ret_x))
 
 
 class SqpPlanner():
@@ -740,7 +713,6 @@ class SqpPlanner():
         """ initialize planner for dynamical system"""
         self.ds = ds
         self.l=l
-        self.differentiator = NumDiff()
         self.collocator = LGL(l)
         self.line_search_collocator = LGL(nls)
 
@@ -885,7 +857,7 @@ class SqpPlanner():
         buff = array((l,nx+nu))
         buff.set(xu)
 
-        df = self.differentiator.diff(lambda x_: self.ds.f_sp(x_), buff)   
+        df = self.ds.f_sp_diff(buff)
         f = self.ds.f_sp(buff) 
 
         f,df = f.get(), df.get()
@@ -922,7 +894,7 @@ class SqpPlanner():
         buff = array((l,nx+nu))
         buff.set(xu)
 
-        df = self.differentiator.diff(lambda x_: self.ds.f_sp(x_), buff)   
+        df = self.ds.f_sp_diff(buff)
         f = self.ds.f_sp(buff) 
 
         f,df = f.get(), df.get()
@@ -960,7 +932,7 @@ class SqpPlanner():
         buff = array((l,nx+nu))
         buff.set(xu)
 
-        df = self.differentiator.diff(lambda x_: self.ds.f_sp(x_), buff)   
+        df = self.ds.f_sp_diff(buff)
         f = self.ds.f_sp(buff) 
 
         f,df = f.get(), df.get()

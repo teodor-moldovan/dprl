@@ -1736,9 +1736,26 @@ class TestsPP(unittest.TestCase):
         
         
 
+    def test_time_discretize(self):
+        td = LPM(Cartpole(),15)
+        
+        td.interp_coefficients(.3)
+        
+        np.random.seed(2)
+        z = np.random.normal(size=1+15*(td.ds.nx+td.ds.nu))
+        td.ccol(z)
+        td.ccol_jacobian(z)
+        
     def test_col(self):
+        td = LPM(Cartpole(state=(0,0,np.pi,0)),15)
+        pp = CollocationPlanner(td)
+        pi = pp.solve()
+        print pi.u(.2,(0,1,2,3))
+        
 
-        pp = CollocationPlanner(Cartpole(),15)
+    def test_col_old(self):
+
+        pp = CollocationPlanner_old(Cartpole(),15)
         start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
         pi = pp.solve(start,end)
         
@@ -1775,8 +1792,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_pp_iter'
-    tests = TestsCartDoublePole
+    single_test = 'test_col'
+    tests = TestsPP
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))

@@ -2,12 +2,13 @@ from planning import *
 import re
 
 class Cartpole(DynamicalSystem, Environment):
-    def __init__(self, noise = 0):
+    def __init__(self, state = (0,0,np.pi,0) , noise = 0):
 
         DynamicalSystem.__init__(self,4,1)
 
-        Environment.__init__(self, [0,0,np.pi,0], .01, noise=noise)
+        Environment.__init__(self, state, .01, noise=noise)
 
+        self.target = [0,0,0,0]
 
         self.l = .1    # pole length
         self.mc = .7    # cart mass
@@ -223,7 +224,7 @@ class OptimisticCartpole(OptimisticDynamicalSystem):
 class OptimisticCartpoleSC(OptimisticDynamicalSystem):
     def __init__(self,predictor,**kwargs):
 
-        OptimisticDynamicalSystem.__init__(self,4,1,2, predictor, **kwargs)
+        OptimisticDynamicalSystem.__init__(self,4,1,2, predictor, **kwargs) 
 
         tpl = Template(
             """
