@@ -61,6 +61,7 @@ class CartpolePilco(DynamicalSystem, Environment):
         DynamicalSystem.__init__(self,4,1)
         Environment.__init__(self, [0,0,np.pi,0], .01, noise=noise)
 
+        self.target = [0,0,0,0]
 
         tpl = Template(
         """

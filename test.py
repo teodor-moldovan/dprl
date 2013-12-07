@@ -1312,15 +1312,15 @@ class TestsCartpole(unittest.TestCase):
         #pp.solve(np.array([0,0,-np.pi*.01,0]), np.array([0,0,0,0]))
         
 
-    def test_iter(self):
+    def test_pp_iter(self):
 
         seed = 45 # 11,15,22
         #seed = 29 # 11,15,22
         np.random.seed(seed)
 
         p,k = 7, 11*8
-        learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
-        model = OptimisticCartpoleSC(learner)
+        #learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
+        #model = OptimisticCartpoleSC(learner)
 
 
         env = CartpolePilco(noise = .01)
@@ -1329,29 +1329,20 @@ class TestsCartpole(unittest.TestCase):
 
         #env = Cartpole(noise = .01)
 
-        model.update(trj)
-
         end = np.zeros(4)
 
-        pp = CollocationPlanner(model,15,hotstart=False)
-        pp = SqpPlanner(model,15)
+        pp = CollocationPlanner(GPM(env,25))
         plt.show()
         plt.ion()
         
         for t in range(10000):
             s = env.state
             print 'time: ',env.t,'state: ',('{:9.3f} '*4).format(*s)
-            pi = pp.solve(env.state,end)
-            try:
-                pi.ll_slack
-                print pi.max_h, pi.ll_slack
-            except:
-                print pi.max_h
+            pi = pp.solve()
 
             trj = env.step(pi,2)
 
-            nx,nu,l = pp.ds.nx,pp.ds.nu,pp.l
-            tmp = np.array(pp.ret_x[1:1+l*(nx+nu)]).reshape(l,-1)
+            tmp = pi.x
             
             plt.clf()
             plt.plot(tmp[:,2],tmp[:,0])
@@ -1359,11 +1350,6 @@ class TestsCartpole(unittest.TestCase):
             plt.xlim([-2*np.pi,2*np.pi])
             plt.ylim([-30,30])
             plt.draw()
-
-            if not trj is None:
-                model.update(trj)
-
-
 
     def test_compare_pred(self):
         
@@ -1449,25 +1435,18 @@ class TestsCartDoublePole(unittest.TestCase):
         env = CartDoublePole(noise = 0)
         end = np.zeros(6)
 
-        #pp = CollocationPlanner(env,35,hotstart=True)
-        pp = SqpPlanner(env,35)
+        pp = CollocationPlanner(GPM(env,15))
         plt.show()
         plt.ion()
 
         for t in range(10000):
             s = env.state
             print 't: ',('{:4.2f} ').format(env.t),' state: ',('{:9.3f} '*6).format(*s)
-            pi = pp.solve(env.state,end)
-            #try:
-            #    pi.ll_slack
-            #print pi.max_h, pi.ll_slack
-            #except:
-            #print pi.max_h
+            pi = pp.solve()
 
             trj = env.step(pi,10)
 
-            nx,nu,l = pp.ds.nx,pp.ds.nu,pp.l
-            tmp = np.array(pp.ret_x[1:1+l*(nx+nu)]).reshape(l,-1)
+            tmp = pi.x
             
             plt.clf()
 
@@ -1492,14 +1471,15 @@ class TestsCartDoublePole(unittest.TestCase):
         np.random.seed(seed)
 
         env = CartDoublePole()
-        end = np.zeros(6)
-        pp = SqpPlanner(env,35)
-        #pp = CollocationPlanner(env,15)
-        
-        pp.solve(env.state, end)
 
-        nx,nu,l = pp.ds.nx,pp.ds.nu,pp.l
-        tmp = np.array(pp.ret_x[1:1+l*(nx+nu)]).reshape(l,-1)
+        pp = CollocationPlanner(
+            GPM(env,15)
+            )
+
+        
+        pi = pp.solve()
+
+        tmp = pi.x
         
         plt.sca(plt.subplot(2,1,1))
 
@@ -1736,7 +1716,7 @@ class TestsPP(unittest.TestCase):
         
         
 
-    def test_time_discretize(self):
+    def test_lpm(self):
         td = LPM(Cartpole(),15)
         
         td.interp_coefficients(.3)
@@ -1746,20 +1726,40 @@ class TestsPP(unittest.TestCase):
         td.ccol(z)
         td.ccol_jacobian(z)
         
+    def test_gpm(self):
+        N = 15
+        td = GPM(Cartpole(),N)
+        _,D,_ = td.quadrature(td.l)
+
+        np.testing.assert_almost_equal(-np.linalg.solve(D[:,1:],D[:,0]),
+                    np.ones(N))
+        
+        #td.interp_coefficients(.3)
+        
+        np.random.seed(2)
+        eps = 1e-8
+        z = np.random.normal(size=td.nv)
+        dz = eps*np.random.normal(size = td.nv)
+        
+        z_ = z+ dz
+        
+        f  = td.ccol(z) 
+        j  = td.ccol_jacobian(z) 
+        f_ = td.ccol(z+dz) 
+        
+        r  = (f_- f)/eps
+        r_ =  np.dot(j.reshape(f.size,-1),dz)/eps
+
+        np.testing.assert_almost_equal(r,r_,4)
+
     def test_col(self):
-        td = LPM(Cartpole(state=(0,0,np.pi,0)),15)
-        pp = CollocationPlanner(td)
+
+        pp = CollocationPlanner(
+            GPM(
+                Cartpole(state=(0,0,np.pi,0))
+                ,15)
+            )
         pi = pp.solve()
-        print pi.u(.2,(0,1,2,3))
-        
-
-    def test_col_old(self):
-
-        pp = CollocationPlanner_old(Cartpole(),15)
-        start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
-        pi = pp.solve(start,end)
-        
-        
         
 
     def test_sqp_linearization(self):

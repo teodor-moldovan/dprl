@@ -8,6 +8,8 @@ class CartDoublePole(DynamicalSystem, Environment):
 
         DynamicalSystem.__init__(self,6,1)
         Environment.__init__(self, [0,0,0,np.pi,np.pi,0], .01, noise=noise)
+        
+        self.target = [0,0,0,0,0,0]
 
         s = self.codegen()        
 
@@ -74,13 +76,6 @@ class CartDoublePole(DynamicalSystem, Environment):
         self.state[3] =  np.mod(self.state[3] + 2*np.pi,4*np.pi)-2*np.pi
         self.state[4] =  np.mod(self.state[4] + 2*np.pi,4*np.pi)-2*np.pi
         return rt
-
-    def initializations(self,ws,we):
-        w =  self.waypoint_spline((ws,we))
-        yield -1.0, w
-        while True:
-            h = np.random.normal()
-            yield h,w
 
 class OptimisticCartDoublePole(OptimisticDynamicalSystem):
     def __init__(self,predictor,**kwargs):
@@ -167,11 +162,4 @@ class OptimisticCartDoublePole(OptimisticDynamicalSystem):
 
         fn = tpl.render(dtype = cuda_dtype)
         self.k_update  = rowwise(fn,'opt_cartpole_update')
-
-    def initializations(self,ws,we):
-        w =  self.waypoint_spline((ws,we))
-        yield -1.0, w
-        while True:
-            h = np.random.normal()
-            yield h,w
 

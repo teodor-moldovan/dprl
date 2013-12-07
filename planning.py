@@ -158,6 +158,8 @@ class NumDiff(object):
         y.shape = orig_shape
         df.shape = (l,n,m)
         
+        #hack
+        ufunc('x = abs(x) < 1e-8 ? 0 : x')(df)
         
         return df
 
@@ -298,10 +300,9 @@ class DynamicalSystem(object):
 
     def f_sp_diff(self,x):
         df = self.differentiator.diff(lambda x_: self.f_sp(x_), x)   
-        # hack
-        ufunc('x = abs(x) < 1e-8 ? 0 : x')(df)
         return df
 
+    # todo: move out
     def state2waypoint(self,state):
         try:
             state = state.tolist()
@@ -311,6 +312,7 @@ class DynamicalSystem(object):
         state = [0 if s is None else s for s in state] + [0,]*self.nu
         return np.array(state)
 
+    # todo: move out
     def initializations(self):
         ws = self.state2waypoint(self.state)
         we = self.state2waypoint(self.target)
@@ -320,6 +322,7 @@ class DynamicalSystem(object):
             h = np.random.normal()
             yield h,w
 
+    # todo: move out
     def waypoint_spline(self,ws):
         ws = np.array(ws)
         tw = np.arange(len(ws))*(1.0/(len(ws)-1))
@@ -377,7 +380,54 @@ class OptimisticDynamicalSystem(DynamicalSystem):
 
         self.predictor.update(w)
 
-class LPM():
+class PseudospectralMethod():
+    def bounds(self):
+        l,nx,nu = self.l, self.ds.nx, self.ds.nu
+        
+        b = float('inf')*np.ones(self.nv)
+        b[self.iv_u] = 1.0
+        
+        bl = -b
+        bu = b
+        
+        bl[self.iv_x[0]] = self.ds.state
+        bu[self.iv_x[0]] = self.ds.state
+        
+        bl[self.iv_x[-1]] = self.ds.target
+        bu[self.iv_x[-1]] = self.ds.target
+
+        return bl, bu
+
+    def obj(self,z):
+        return z[0]
+
+    @staticmethod
+    @memoize
+    def __grad_cache(n):
+        tmp = np.zeros(n)
+        tmp[0] = 1.0
+        return tmp
+
+    def obj_grad(self,z):
+        return self.__grad_cache(z.size) 
+        
+    @staticmethod
+    @memoize
+    def __ccol_jac_inds(n,m):
+        i, j = zip(*[(v,c) for c in range(m) 
+                for v in range(n) ])
+        return np.array(i), np.array(j)
+
+    def ccol_jacobian_inds(self):
+        return self.__ccol_jac_inds(self.nv,self.nc)
+
+
+    def get_policy(self,z):
+        pi =  CollocationPolicy(self,z[self.iv_u],np.exp(z[self.iv_h]))
+        pi.x = z[self.iv_x]
+        return pi
+
+class LPM(PseudospectralMethod):
     """ Legendre Pseudospectral Method
      http://vdol.mae.ufl.edu/ConferencePublications/comparison_paper_GNC.pdf """
     def __init__(self, ds, l):
@@ -396,7 +446,7 @@ class LPM():
 
     @classmethod
     @memoize
-    def __quadrature(cls,N):
+    def quadrature(cls,N):
 
         L = legendre.Legendre.basis(N-1)
         tau= np.hstack(([-1.0],L.deriv().roots(), [1.0]))
@@ -415,7 +465,7 @@ class LPM():
     @classmethod
     @memoize
     def __quad_extras(cls,N):
-        nodes, D,__ = cls.__quadrature(N)
+        nodes, D,__ = cls.quadrature(N)
         dnodiag = D.reshape(-1)[np.logical_not(np.eye(nodes.size)).reshape(-1)]
         ddiag = np.diag(D)
 
@@ -424,7 +474,7 @@ class LPM():
     @classmethod
     @memoize
     def __lagrange_poly_u_cache(cls,l):
-        tau, _, __ = cls.__quadrature(l)
+        tau, _, __ = cls.quadrature(l)
 
         rcp = 1.0/(tau[:,np.newaxis] - tau[np.newaxis,:]+np.eye(tau.size)) - np.eye(tau.size)
 
@@ -467,25 +517,12 @@ class LPM():
     def __buff(l,n):
         return array((l,n))
 
-    def obj(self,z):
-        return z[0]
-
-    @staticmethod
-    @memoize
-    def __grad_cache(n):
-        tmp = np.zeros(n)
-        tmp[0] = 1.0
-        return tmp
-
-    def obj_grad(self,z):
-        return self.__grad_cache(z.size) 
-        
     def ccol(self,x):
         """ collocation constraint violations """
 
         nx,nu,l = self.ds.nx,self.ds.nu,self.l
         
-        _, D, __ = self.__quadrature(self.l)
+        _, D, __ = self.quadrature(self.l)
         buff = self.__buff(l,nx+nu)
         
         tmp = np.array(x[1:1+l*(nx+nu)]).reshape(l,-1)
@@ -521,31 +558,162 @@ class LPM():
         
         return jac
 
-    def bounds(self):
-        l,nx,nu = self.l, self.ds.nx, self.ds.nu
-        
-        b = float('inf')*np.ones(self.nv)
-        b[self.iv_u] = 1.0
-        
-        bl = -b
-        bu = b
-        
-        bl[self.iv_x[0]] = self.ds.state
-        bu[self.iv_x[0]] = self.ds.state
-        
-        bl[self.iv_x[-1]] = self.ds.target
-        bu[self.iv_x[-1]] = self.ds.target
+    # hack (not elegant, bug prone)
+    def initialization(self):
+        for h,w in self.ds.initializations():
+            xu =  w((self.quadrature(self.l)[0]+1.0)/2.0)
+            return np.concatenate((np.array([h,]), xu.reshape(-1)))
 
-        return bl, bu
+class GPM(PseudospectralMethod):
+    def __init__(self, ds, l):
+        """ Gauss Pseudospectral Method
+         http://vdol.mae.ufl.edu/SubmittedJournalPublications/Integral-Costate-August-2013.pdf
+        http://vdol.mae.ufl.edu/JournalPublications/AIAA-20478.pdf
+        """
+
+        self.ds = ds
+        self.l = l
+        
+        nx,nu = self.ds.nx, self.ds.nu
+        self.nv = 1 + (l+ 2)*nx + l*nu 
+        self.nc = nx*(l+1) 
+        
+        self.iv_h = 0
+
+        self.iv_xi = 1 + np.arange(nx)
+        self.iv_xf = 1 + nx + np.arange(nx)
+
+        self.iv_xuc = 1 + 2*nx + np.arange(l*(nx+nu)).reshape(l,nx+nu)
+        self.iv_x = np.vstack((self.iv_xi, self.iv_xuc[:,:nx], self.iv_xf))
+        self.iv_u = self.iv_xuc[:,nx:]
+        
+
+        self.ic = np.arange(nx*l+nx).reshape(-1,nx) 
+        
+    @classmethod
+    @memoize
+    def quadrature(cls,N):
+
+        P = legendre.Legendre.basis
+        tauk = P(N).roots()
+
+        vs = P(N).deriv()(tauk)
+        int_w = 2.0/(vs*vs)/(1.0- tauk*tauk)
+
+        taui = np.hstack(([-1.0],tauk))
+        
+        wx = np.newaxis
+        
+        dn = taui[:,wx] - taui[wx,:]
+        dd = tauk[:,wx] - taui[wx,:]
+        dn[dn==0] = float('inf')
+
+        dd = dd[wx,:,:] + np.zeros(taui.size)[:,wx,wx]
+        dd[np.arange(taui.size),:,np.arange(taui.size)] = 1.0
+        
+        l = dd[:,:,wx,:]/dn[wx,wx,:,:]
+        l[:,:,np.arange(taui.size),np.arange(taui.size)] = 1.0
+        
+        l = np.prod(l,axis=3)
+        l[np.arange(taui.size),:,np.arange(taui.size)] = 0.0
+        D = np.sum(l,axis=0)
+
+        return tauk, D, int_w
+
+    @classmethod
+    @memoize
+    def __lagrange_poly_u_cache(cls,l):
+        tau,_ , __ = cls.quadrature(l)
+
+        rcp = 1.0/(tau[:,np.newaxis] - tau[np.newaxis,:]+np.eye(tau.size)) - np.eye(tau.size)
+
+        return rcp,tau
+
+    def lagrange_poly_u(self,r):
+        rcp,nds = self.__lagrange_poly_u_cache(self.l)
+
+        if r < -1 or r > 1:
+            raise TypeError
+
+        df = ((r - nds)[np.newaxis,:]*rcp) + np.eye(nds.size)
+        w = df.prod(axis=1)
+
+        return w
+
+    interp_coefficients = lagrange_poly_u
+    @staticmethod
+    @memoize
+    def __buff(l,n):
+        return array((l,n))
+
+    @classmethod
+    @memoize
+    def int_formulation(cls,N):
+        _, D, w = cls.quadrature(N)
+        A = np.linalg.inv(D[:,1:])
+        
+        return np.vstack((A,w))
+        
+    def ccol(self,z):
+        """ collocation constraint violations """
+
+        self.last_z = z.copy()
+        nx,nu,l = self.ds.nx,self.ds.nu,self.l
+        
+        A = self.int_formulation(self.l)
+        buff = self.__buff(l,nx+nu)
+        
+        h = np.exp(z[self.iv_h])
+        hi = np.exp(-z[self.iv_h])
+
+        tmp = z[self.iv_xuc]
+        buff.set(tmp)
+        accs =  self.ds.f_sp(buff).get()
+        
+        df = np.zeros(self.nc)
+        df[self.ic] = ( z[self.iv_x][1:] - z[self.iv_x[0]] - .5 * h* np.dot(A,accs) )
+
+
+        return  df
+
+    def ccol_jacobian(self,z):
+
+        nx,nu,l = self.ds.nx,self.ds.nu,self.l
+        
+        A = self.int_formulation(self.l)
+        buff = self.__buff(l,nx+nu)
+        
+        h = np.exp(z[self.iv_h])
+        hi = np.exp(-z[self.iv_h])
+
+        buff.set(z[self.iv_xuc])
+        f  =  self.ds.f_sp(buff).get()
+        df =  self.ds.f_sp_diff(buff).get()
+        
+        jac = np.zeros((self.nc, self.nv))  
+        
+        tmp = df[:,:,np.newaxis,:]*A.T[:,np.newaxis,:,np.newaxis]
+        jac[:,self.iv_xuc.reshape(-1)] =  (-.5* h*tmp).reshape(-1,self.nc).T
+
+        jac[:,0] = (-.5*h*np.dot(A,f)).reshape(-1)
+        
+        jac[self.ic.reshape(-1), self.iv_x[1:].reshape(-1)] += 1.0 
+        jac[self.ic.reshape(-1), np.tile(self.iv_x[0],l+1) ] -= 1.0 
+
+        return jac.reshape(-1)
 
     # hack (not elegant, bug prone)
     def initialization(self):
         for h,w in self.ds.initializations():
-            xu =  w((self.__quadrature(self.l)[0]+1.0)/2.0)
-            return np.concatenate((np.array([h,]), xu.reshape(-1)))
+            tau = np.concatenate(([-1.0],self.quadrature(self.l)[0],[1.0])) 
+            xu =  w((tau+1.0)/2.0)
+            z = np.zeros(self.nv)
 
-    def get_policy(self,x):
-        return CollocationPolicy(self,x[self.iv_u],np.exp(x[0]))
+            z[self.iv_x] = xu[:,:self.ds.nx]
+            z[self.iv_u] = xu[1:-1,self.ds.nx:]
+            z[self.iv_h] = h
+        
+            return z 
 
 class CollocationPlanner():
     def __init__(self, prob):
@@ -611,7 +779,7 @@ class CollocationPlanner():
         if KTR_set_double_param_by_name(kc, "opttol", 1.0E-3):
             raise RuntimeError ("Error setting parameter 'opttol'")
 
-        if KTR_set_int_param(kc, KTR_PARAM_OUTLEV, 3):
+        if KTR_set_int_param(kc, KTR_PARAM_OUTLEV, 0):
             raise RuntimeError ("Error setting parameter 'outlev'")
 
         ###
@@ -625,8 +793,8 @@ class CollocationPlanner():
         #if KTR_set_int_param(kc, KTR_PARAM_HONORBNDS, 1):
         #    raise RuntimeError ("Error setting parameter 'outlev'")
 
-        #if KTR_set_int_param(kc, KTR_PARAM_BAR_INITPT, 2):
-        #    raise RuntimeError ("Error setting parameter 'outlev'")
+        if KTR_set_int_param(kc, KTR_PARAM_BAR_INITPT, 2):
+            raise RuntimeError ("Error setting parameter 'outlev'")
 
         #if KTR_set_int_param(kc, KTR_PARAM_BAR_FEASIBLE, 3):
         #    raise RuntimeError ("Error setting parameter 'outlev'")
@@ -637,8 +805,8 @@ class CollocationPlanner():
         if KTR_set_int_param(kc, KTR_PARAM_PAR_CONCURRENT_EVALS, 0):
             raise RuntimeError ("Error setting parameter")
 
-        if KTR_set_double_param(kc, KTR_PARAM_INFEASTOL, 1e-4):
-            raise RuntimeError ("Error setting parameter")
+        #if KTR_set_double_param(kc, KTR_PARAM_INFEASTOL, 1e-4):
+        #    raise RuntimeError ("Error setting parameter")
 
 
         #if KTR_set_int_param(kc, KTR_PARAM_LINSOLVER, 3):
@@ -664,10 +832,9 @@ class CollocationPlanner():
                 obj, c, objGrad, jac, hessian, hessVector, userParams):
             if not evalRequestCode == KTR_RC_EVALFC:
                 return KTR_RC_CALLBACK_ERR
-        
             x = np.array(x)
             obj[0] = self.prob.obj(x) 
-            c[:] = self.prob.ccol(x).tolist() 
+            c[:] = self.prob.ccol(x)
             return 0
 
         if KTR_set_func_callback(kc, callbackEvalFC):
@@ -677,7 +844,6 @@ class CollocationPlanner():
                 obj, c, objGrad, jac, hessian, hessVector, userParams):
             if not evalRequestCode == KTR_RC_EVALGA:
                 return KTR_RC_CALLBACK_ERR
-
             x = np.array(x)
             objGrad[:] = self.prob.obj_grad(x)
             jac[:] = self.prob.ccol_jacobian(x)
@@ -698,16 +864,19 @@ class CollocationPlanner():
 
         KTR_chgvarbnds(self.kc, bl.tolist(), bu.tolist())
         KTR_restart(self.kc, x.tolist(), None)
-
+        
         nStatus = KTR_solve (self.kc, self.ret_x, self.ret_lambda, 0, 
                         self.ret_obj, None, None, None, None, None, None)
             
-        if nStatus != 0:
-            raise RuntimeError()
+
+        if nStatus !=0:
+            print 'Infeas'
+            return self.prob.get_policy(self.prob.last_z)
 
         return self.prob.get_policy(np.array(self.ret_x))
 
 
+# older version here
 class SqpPlanner():
     def __init__(self, ds,l,nls=100):
         """ initialize planner for dynamical system"""
