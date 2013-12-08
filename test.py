@@ -1430,8 +1430,8 @@ class TestsCartDoublePole(unittest.TestCase):
         env = CartDoublePole(noise = 0)
 
         pp = KnitroNlp(GPM(env,35))
-        #plt.show()
-        #plt.ion()
+        plt.show()
+        plt.ion()
 
         for t in range(10000):
             s = env.state
@@ -1442,21 +1442,21 @@ class TestsCartDoublePole(unittest.TestCase):
 
             tmp = pi.x
             
-            #plt.clf()
+            plt.clf()
 
-            #plt.sca(plt.subplot(2,1,1))
+            plt.sca(plt.subplot(2,1,1))
 
-            #plt.xlim([-2*np.pi,2*np.pi])
-            #plt.ylim([-40,40])
-            #plt.plot(tmp[:,3],tmp[:,0])
+            plt.xlim([-2*np.pi,2*np.pi])
+            plt.ylim([-40,40])
+            plt.plot(tmp[:,3],tmp[:,0])
 
-            #plt.sca(plt.subplot(2,1,2))
+            plt.sca(plt.subplot(2,1,2))
 
-            #plt.xlim([-2*np.pi,2*np.pi])
-            #plt.ylim([-40,40])
-            #plt.plot(tmp[:,4],tmp[:,1])
+            plt.xlim([-2*np.pi,2*np.pi])
+            plt.ylim([-40,40])
+            plt.plot(tmp[:,4],tmp[:,1])
 
-            #plt.draw()
+            plt.draw()
 
 
     def test_pp(self):
@@ -1767,8 +1767,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_gpm'
-    tests = TestsPP
+    single_test = 'test_pp_iter'
+    tests = TestsCartDoublePole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))

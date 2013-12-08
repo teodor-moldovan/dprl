@@ -319,7 +319,7 @@ class DynamicalSystem(object):
         ws = self.state2waypoint(self.state)
         we = self.state2waypoint(self.target)
         w =  self.waypoint_spline((ws,we))
-        yield 0.0, w
+        yield -1.0, w
         while True:
             h = np.random.normal()
             yield h,w
@@ -578,7 +578,7 @@ class GPM(PseudospectralMethod):
         self.l = l
         
         self.invert_h = invert_h
-        self.slack_cost = 1.0
+        self.slack_cost = 10.0
         
         nx,nu = self.ds.nx, self.ds.nu
         self.nv = 1 + (l+ 2)*nx + l*nu  + 2*(l)*nu
@@ -624,9 +624,9 @@ class GPM(PseudospectralMethod):
         
         bl[self.iv_x[-1]] = self.ds.target
         bu[self.iv_x[-1]] = self.ds.target
-        
+
         bl[self.iv_slack] = 0.0
-        #bu[self.iv_slack] = 0.0
+        bu[self.iv_slack] = 0.0
 
         return bl, bu
 
@@ -839,7 +839,7 @@ class KnitroNlp():
 
         ###
 
-        #if KTR_set_double_param(kc, KTR_PARAM_DELTA, 1e2):
+        #if KTR_set_double_param(kc, KTR_PARAM_DELTA, 1e-8):
         #    raise RuntimeError ("Error setting parameter 'outlev'")
 
         #if KTR_set_int_param(kc, KTR_PARAM_SOC, 1):
@@ -895,7 +895,7 @@ class KnitroNlp():
                 return KTR_RC_CALLBACK_ERR
             x = np.array(x)
             obj[0] = self.prob.obj(x) 
-            c[:] = self.prob.ccol(x)
+            c[:] = self.prob.ccol(x).tolist()
             return 0
 
         if KTR_set_func_callback(kc, callbackEvalFC):
@@ -909,8 +909,8 @@ class KnitroNlp():
             x = np.array(x)
             tmp = np.zeros(len(objGrad))
             tmp[self.prob.obj_grad_inds()] = self.prob.obj_grad(x)
-            objGrad[:] = tmp
-            jac[:] = self.prob.ccol_jacobian(x)
+            objGrad[:] = tmp.tolist()
+            jac[:] = self.prob.ccol_jacobian(x).tolist()
             return 0
 
         if KTR_set_grad_callback(kc, callbackEvalGA):
@@ -1064,10 +1064,10 @@ class SlpNlp():
         for i in range(100):
             #z[self.nlp.iv_slack]=0
              
-            self.nlp.slack_cost = 100
-            if not self.solve_task(z):
-                self.nlp.slack_cost = 10000
-                self.solve_task(z)
+            for sl in [100,1000]:
+                self.nlp.slack_cost = sl
+                if self.solve_task(z):
+                    break
 
             z += 1.0/np.sqrt(i+2)* self.ret_x
 
