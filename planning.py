@@ -158,8 +158,6 @@ class NumDiff(object):
         y.shape = orig_shape
         df.shape = (l,n,m)
         
-        #hack
-        ufunc('x = abs(x) < 1e-8 ? 0 : x')(df)
         
         return df
 
@@ -300,6 +298,10 @@ class DynamicalSystem(object):
 
     def f_sp_diff(self,x):
         df = self.differentiator.diff(lambda x_: self.f_sp(x_), x)   
+
+        #hack
+        ufunc('x = abs(x) < 1e-8 ? 0 : x')(df)
+
         return df
 
     # todo: move out
@@ -381,6 +383,7 @@ class OptimisticDynamicalSystem(DynamicalSystem):
         self.predictor.update(w)
 
 class PseudospectralMethod():
+    """ instance of Nonlinear program """
     def bounds(self):
         l,nx,nu = self.l, self.ds.nx, self.ds.nu
         
@@ -401,22 +404,18 @@ class PseudospectralMethod():
     def obj(self,z):
         return z[0]
 
-    @staticmethod
-    @memoize
-    def __grad_cache(n):
-        tmp = np.zeros(n)
-        tmp[0] = 1.0
-        return tmp
+    def obj_grad_inds(self):
+        return np.array([0])
 
     def obj_grad(self,z):
-        return self.__grad_cache(z.size) 
+        return np.array([1]) 
         
     @staticmethod
     @memoize
     def __ccol_jac_inds(n,m):
         i, j = zip(*[(v,c) for c in range(m) 
                 for v in range(n) ])
-        return np.array(i), np.array(j)
+        return np.array(j), np.array(i)
 
     def ccol_jacobian_inds(self):
         return self.__ccol_jac_inds(self.nv,self.nc)
@@ -425,6 +424,7 @@ class PseudospectralMethod():
     def get_policy(self,z):
         pi =  CollocationPolicy(self,z[self.iv_u],np.exp(z[self.iv_h]))
         pi.x = z[self.iv_x]
+        print z[self.iv_h], np.sum(z[self.iv_slack].reshape(-1))
         return pi
 
 class LPM(PseudospectralMethod):
@@ -438,6 +438,9 @@ class LPM(PseudospectralMethod):
         self.nv = 1 + (nx + nu)*l
         self.nc = nx*l 
         
+        self.iv = np.arange(self.nv)
+        self.ic = np.arange(self.nc)
+
         self.iv_xu = 1 + np.arange(l*(nx+nu)).reshape(l,-1)
         self.iv_x = self.iv_xu[:,:nx].copy()
         self.iv_u = self.iv_xu[:,nx:].copy()
@@ -565,20 +568,25 @@ class LPM(PseudospectralMethod):
             return np.concatenate((np.array([h,]), xu.reshape(-1)))
 
 class GPM(PseudospectralMethod):
-    def __init__(self, ds, l):
-        """ Gauss Pseudospectral Method
-         http://vdol.mae.ufl.edu/SubmittedJournalPublications/Integral-Costate-August-2013.pdf
-        http://vdol.mae.ufl.edu/JournalPublications/AIAA-20478.pdf
-        """
+    """ Gauss Pseudospectral Method
+    http://vdol.mae.ufl.edu/SubmittedJournalPublications/Integral-Costate-August-2013.pdf
+    http://vdol.mae.ufl.edu/JournalPublications/AIAA-20478.pdf
+    """
+    def __init__(self, ds, l,invert_h= False):
 
         self.ds = ds
         self.l = l
         
+        self.invert_h = invert_h
+        self.slack_cost = 1.0
+        
         nx,nu = self.ds.nx, self.ds.nu
-        self.nv = 1 + (l+ 2)*nx + l*nu 
+        self.nv = 1 + (l+ 2)*nx + l*nu  + 2*(l)*nu
         self.nc = nx*(l+1) 
         
         self.iv_h = 0
+
+        self.iv = np.arange(self.nv)
 
         self.iv_xi = 1 + np.arange(nx)
         self.iv_xf = 1 + nx + np.arange(nx)
@@ -586,10 +594,42 @@ class GPM(PseudospectralMethod):
         self.iv_xuc = 1 + 2*nx + np.arange(l*(nx+nu)).reshape(l,nx+nu)
         self.iv_x = np.vstack((self.iv_xi, self.iv_xuc[:,:nx], self.iv_xf))
         self.iv_u = self.iv_xuc[:,nx:]
-        
+
+        self.iv_slack = 1 + (l+ 2)*nx + l*nu + np.arange(2*l*nu) 
+        self.iv_slack = self.iv_slack.reshape(2,l,nu)
 
         self.ic = np.arange(nx*l+nx).reshape(-1,nx) 
+
+
+    def obj(self,z):
+        return z[self.iv_h]+ self.slack_cost*np.sum(z[self.iv_slack].reshape(-1))
+
+    def obj_grad_inds(self):
+        return np.concatenate(([self.iv_h,], self.iv_slack.reshape(-1)))
+
+    def obj_grad(self,z):
+        return np.concatenate(([1,], self.slack_cost*np.ones(self.iv_slack.size)))
         
+    def bounds(self):
+        l,nx,nu = self.l, self.ds.nx, self.ds.nu
+        
+        b = float('inf')*np.ones(self.nv)
+        b[self.iv_u] = 1.0
+        
+        bl = -b
+        bu = b
+        
+        bl[self.iv_x[0]] = self.ds.state
+        bu[self.iv_x[0]] = self.ds.state
+        
+        bl[self.iv_x[-1]] = self.ds.target
+        bu[self.iv_x[-1]] = self.ds.target
+        
+        bl[self.iv_slack] = 0.0
+        #bu[self.iv_slack] = 0.0
+
+        return bl, bu
+
     @classmethod
     @memoize
     def quadrature(cls,N):
@@ -663,16 +703,16 @@ class GPM(PseudospectralMethod):
         A = self.int_formulation(self.l)
         buff = self.__buff(l,nx+nu)
         
-        h = np.exp(z[self.iv_h])
-        hi = np.exp(-z[self.iv_h])
-
+        h = np.exp(self.invert_h * z[self.iv_h])
+        hi = np.exp(- (not self.invert_h)*z[self.iv_h])
+        
         tmp = z[self.iv_xuc]
+        tmp[:,-nu:] += z[self.iv_slack[0]] - z[self.iv_slack[1]]
         buff.set(tmp)
         accs =  self.ds.f_sp(buff).get()
         
         df = np.zeros(self.nc)
-        df[self.ic] = ( z[self.iv_x][1:] - z[self.iv_x[0]] - .5 * h* np.dot(A,accs) )
-
+        df[self.ic] = ( hi*z[self.iv_x][1:] - hi*z[self.iv_x[0]] - .5 *h* np.dot(A,accs) )
 
         return  df
 
@@ -683,22 +723,37 @@ class GPM(PseudospectralMethod):
         A = self.int_formulation(self.l)
         buff = self.__buff(l,nx+nu)
         
-        h = np.exp(z[self.iv_h])
-        hi = np.exp(-z[self.iv_h])
+        h = np.exp(self.invert_h * z[self.iv_h])
+        hi = np.exp(- (not self.invert_h)*z[self.iv_h])
 
-        buff.set(z[self.iv_xuc])
+
+        tmp = z[self.iv_xuc]
+        tmp[:,-nu:] += z[self.iv_slack[0]] - z[self.iv_slack[1]]
+        buff.set(tmp)
         f  =  self.ds.f_sp(buff).get()
         df =  self.ds.f_sp_diff(buff).get()
         
         jac = np.zeros((self.nc, self.nv))  
         
         tmp = df[:,:,np.newaxis,:]*A.T[:,np.newaxis,:,np.newaxis]
-        jac[:,self.iv_xuc.reshape(-1)] =  (-.5* h*tmp).reshape(-1,self.nc).T
+        tmp = (-.5*h*tmp)
+        jac[:,self.iv_xuc.reshape(-1)] = tmp.reshape(-1,self.nc).T 
+        tu = tmp[:,-nu:,:,:].reshape(-1,self.nc).T
 
-        jac[:,0] = (-.5*h*np.dot(A,f)).reshape(-1)
+        jac[:,self.iv_slack[0].reshape(-1)] =  tu
+        jac[:,self.iv_slack[1].reshape(-1)] = -tu
+
+        #jac[self.ic[:].reshape(-1), self.iv_slack[0].reshape(-1)] =  1.0
+        #jac[self.ic[:].reshape(-1), self.iv_slack[1].reshape(-1)] = -1.0
+
+        if not self.invert_h:
+            jac[:,0] = (-hi*z[self.iv_x][1:] + hi*z[self.iv_x[0]]).reshape(-1)
+        else:
+            jac[:,0] = (- .5 *h* np.dot(A,f) ).reshape(-1)
+            
         
-        jac[self.ic.reshape(-1), self.iv_x[1:].reshape(-1)] += 1.0 
-        jac[self.ic.reshape(-1), np.tile(self.iv_x[0],l+1) ] -= 1.0 
+        jac[self.ic.reshape(-1), self.iv_x[1:].reshape(-1)] += hi 
+        jac[self.ic.reshape(-1), np.tile(self.iv_x[0],l+1) ] -= hi
 
         return jac.reshape(-1)
 
@@ -712,14 +767,14 @@ class GPM(PseudospectralMethod):
             z[self.iv_x] = xu[:,:self.ds.nx]
             z[self.iv_u] = xu[1:-1,self.ds.nx:]
             z[self.iv_h] = h
+            z[self.iv_slack] = 0.0
         
             return z 
 
-class CollocationPlanner():
+class KnitroNlp():
     def __init__(self, prob):
         """ initialize planner for dynamical system"""
         self.prob = prob
-        self.is_first = True
         self.kc = self.prep_solver() 
 
 
@@ -748,7 +803,7 @@ class CollocationPlanner():
         cBndsUp = [ 0.0 ]*prob.nc
 
         ic,iv = self.prob.ccol_jacobian_inds()
-        jacIxVar, jacIxConstr = ic.tolist(),iv.tolist()
+        jacIxVar, jacIxConstr = iv.tolist(),ic.tolist()
 
 
         #---- CREATE A NEW KNITRO SOLVER INSTANCE.
@@ -767,36 +822,42 @@ class CollocationPlanner():
         #if KTR_set_int_param(kc, KTR_PARAM_BAR_MURULE, 6):
         #    raise RuntimeError ("Error setting parameter 'outlev'")
 
-        if KTR_set_int_param(kc, KTR_PARAM_BAR_MAXCROSSIT, 10):
-            raise RuntimeError ("Error setting parameter 'outlev'")
+        #if KTR_set_int_param(kc, KTR_PARAM_BAR_MAXCROSSIT, 10):
+        #    raise RuntimeError ("Error setting parameter 'outlev'")
 
         if KTR_set_int_param_by_name(kc, "gradopt", KTR_GRADOPT_EXACT):
             raise RuntimeError ("Error setting parameter 'gradopt'")
 
-        if KTR_set_double_param_by_name(kc, "feastol", 1.0E-5):
-            raise RuntimeError ("Error setting parameter 'feastol'")
+        #if KTR_set_double_param_by_name(kc, "feastol", 1.0E-5):
+        #    raise RuntimeError ("Error setting parameter 'feastol'")
 
-        if KTR_set_double_param_by_name(kc, "opttol", 1.0E-3):
-            raise RuntimeError ("Error setting parameter 'opttol'")
+        #if KTR_set_double_param_by_name(kc, "opttol", 1.0E-3):
+        #    raise RuntimeError ("Error setting parameter 'opttol'")
 
-        if KTR_set_int_param(kc, KTR_PARAM_OUTLEV, 0):
+        if KTR_set_int_param(kc, KTR_PARAM_OUTLEV, 2):
             raise RuntimeError ("Error setting parameter 'outlev'")
 
         ###
 
-        #if KTR_set_double_param(kc, KTR_PARAM_DELTA, 1e-4):
+        #if KTR_set_double_param(kc, KTR_PARAM_DELTA, 1e2):
         #    raise RuntimeError ("Error setting parameter 'outlev'")
 
-        #if KTR_set_int_param(kc, KTR_PARAM_SOC, 0):
+        #if KTR_set_int_param(kc, KTR_PARAM_SOC, 1):
         #    raise RuntimeError ("Error setting parameter 'outlev'")
 
         #if KTR_set_int_param(kc, KTR_PARAM_HONORBNDS, 1):
         #    raise RuntimeError ("Error setting parameter 'outlev'")
 
-        if KTR_set_int_param(kc, KTR_PARAM_BAR_INITPT, 2):
-            raise RuntimeError ("Error setting parameter 'outlev'")
+        #if KTR_set_int_param(kc, KTR_PARAM_BAR_INITPT, 2):
+        #    raise RuntimeError ("Error setting parameter 'outlev'")
 
-        #if KTR_set_int_param(kc, KTR_PARAM_BAR_FEASIBLE, 3):
+        #if KTR_set_int_param(kc, KTR_PARAM_BAR_PENCONS, 2):
+        #    raise RuntimeError ("Error setting parameter 'outlev'")
+
+        #if KTR_set_int_param(kc, KTR_PARAM_BAR_PENRULE, 2):
+        #    raise RuntimeError ("Error setting parameter 'outlev'")
+
+        #if KTR_set_int_param(kc, KTR_PARAM_BAR_FEASIBLE, 1):
         #    raise RuntimeError ("Error setting parameter 'outlev'")
 
         ##
@@ -809,8 +870,8 @@ class CollocationPlanner():
         #    raise RuntimeError ("Error setting parameter")
 
 
-        #if KTR_set_int_param(kc, KTR_PARAM_LINSOLVER, 3):
-        #    raise RuntimeError ("Error setting parameter 'linsolver'")
+        if KTR_set_int_param(kc, KTR_PARAM_LPSOLVER, 3):
+            raise RuntimeError ("Error setting parameter 'linsolver'")
 
         if KTR_set_int_param(kc,KTR_PARAM_MAXIT,2000):
             raise RuntimeError ("Error setting parameter 'maxit'")
@@ -844,8 +905,11 @@ class CollocationPlanner():
                 obj, c, objGrad, jac, hessian, hessVector, userParams):
             if not evalRequestCode == KTR_RC_EVALGA:
                 return KTR_RC_CALLBACK_ERR
+
             x = np.array(x)
-            objGrad[:] = self.prob.obj_grad(x)
+            tmp = np.zeros(len(objGrad))
+            tmp[self.prob.obj_grad_inds()] = self.prob.obj_grad(x)
+            objGrad[:] = tmp
             jac[:] = self.prob.ccol_jacobian(x)
             return 0
 
@@ -875,6 +939,144 @@ class CollocationPlanner():
 
         return self.prob.get_policy(np.array(self.ret_x))
 
+
+class Linearizer():
+    """ NPL first order approximation """
+    def __init__(self,nlp):
+        self.nlp = nlp 
+        self.nv,self.nc = nlp.nv, nlp.nc
+
+    def bounds(self,z):
+        bl,bu = self.nlp.bounds()
+        
+        rl, ru = bl-z, bu-z
+        #rl[self.nlp.iv_slack] = bl[self.nlp.iv_slack]
+        #ru[self.nlp.iv_slack] = bu[self.nlp.iv_slack] 
+
+        return self.nlp.iv, rl,ru
+
+    def obj(self,z):
+        return self.nlp.obj_grad_inds(),self.nlp.obj_grad(z)
+        
+    def constraints(self,z):
+        
+        c = self.nlp.ccol(z) 
+        i,j = self.nlp.ccol_jacobian_inds()
+        d = self.nlp.ccol_jacobian(z)
+        
+        #tmp = coo_matrix((d,(i,j)),shape=[self.nlp.nc,self.nlp.nv])*np.matrix(z).T
+        #c = c - np.array(tmp).reshape(-1)
+        
+        return self.nlp.ic.reshape(-1), -c, i,j,d
+
+
+class SlpNlp():
+    """Nonlinear program solver based on sequential linear programming """
+    def __init__(self, prob, linearizer = Linearizer):
+        self.nlp = prob
+        self.lp = linearizer(prob)
+        self.prep_solver() 
+
+    def prep_solver(self):
+
+        nv, nc = self.lp.nv, self.lp.nc
+
+        self.nv = nv
+        self.nc = nc
+
+        self.ret_x = np.zeros(nv)
+        self.bm = np.empty(nv, dtype=object)
+        self.ret_y = np.zeros(nc)
+        
+        task = mosek_env.Task()
+        task.append( mosek.accmode.var, nv)
+        task.append( mosek.accmode.con, nc)
+        
+        bdk = mosek.boundkey
+        b = [0]*nv
+        task.putboundlist(mosek.accmode.var, range(nv), [bdk.fr]*nv,b,b )
+
+        b = [0]*nc
+        task.putboundlist(mosek.accmode.con, range(nc), [bdk.fx]*nc,b,b )
+        
+        task.putobjsense(mosek.objsense.minimize)
+        
+        self.task = task
+
+    def solve_task(self,z):
+
+        task = self.task
+
+        j,c = self.lp.obj(z)
+        task.putclist(j,c)
+
+        i,l,u = self.lp.bounds(z)
+        bm = self.bm
+        bm[np.logical_and(np.isinf(l), np.isinf(u))] = mosek.boundkey.fr
+        bm[np.logical_and(np.isinf(l), np.isfinite(u))] = mosek.boundkey.up
+        bm[np.logical_and(np.isfinite(l), np.isinf(u))] = mosek.boundkey.lo
+        bm[np.logical_and(np.isfinite(l), np.isfinite(u))] = mosek.boundkey.ra
+
+        task.putboundlist(mosek.accmode.var,i,bm,l,u )
+         
+        ic, c,i,j,d = self.lp.constraints(z)
+        
+        task.putaijlist(i,j,d)
+        
+        task.putboundlist(mosek.accmode.con,ic, 
+                    [mosek.boundkey.fx]*ic.size ,c,c )
+
+
+        task.optimize()
+        [prosta, solsta] = task.getsolutionstatus(mosek.soltype.itr)
+
+        task._Task__progress_cb=None
+        task._Task__stream_cb=None
+        ret = True
+        if (solsta!=mosek.solsta.optimal 
+                and solsta!=mosek.solsta.near_optimal):
+            # mosek bug fix 
+            print str(solsta)+", "+str(prosta)
+            ret = False
+            #raise TypeError
+
+        nv,nc = self.lp.nv,self.lp.nc
+
+        warnings.simplefilter("ignore", RuntimeWarning)
+        task.getsolutionslice(mosek.soltype.itr,
+                            mosek.solitem.xx,
+                            0,nv, self.ret_x)
+
+        task.getsolutionslice(mosek.soltype.itr,
+                            mosek.solitem.y,
+                            0,nc, self.ret_y)
+
+        warnings.simplefilter("default", RuntimeWarning)
+
+        return ret
+
+           
+        
+        
+    def solve(self):
+        z = self.nlp.initialization()
+
+        for i in range(100):
+            #z[self.nlp.iv_slack]=0
+             
+            self.nlp.slack_cost = 100
+            if not self.solve_task(z):
+                self.nlp.slack_cost = 10000
+                self.solve_task(z)
+
+            z += 1.0/np.sqrt(i+2)* self.ret_x
+
+            print ('{:9.5f} '*2).format(
+                z[self.nlp.iv_h], self.nlp.obj(z)-z[self.nlp.iv_h])
+        
+
+        return self.nlp.get_policy(z)
+        
 
 # older version here
 class SqpPlanner():

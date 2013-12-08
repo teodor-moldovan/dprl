@@ -1249,7 +1249,7 @@ class TestsCartpole(unittest.TestCase):
         # broken after setting control bounds to one
         ds = OptimisticCartpole(Mixture.from_file('../../data/cartpole/batch_vdp.npy'))
         #pp = SqpPlanner(ds,15)
-        #pp = CollocationPlanner(ds,15)
+        #pp = KnitroNlp(ds,15)
         start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
         pp.solve(start,end)
 
@@ -1297,7 +1297,7 @@ class TestsCartpole(unittest.TestCase):
         ds = Cartpole()
         ds = OptimisticCartpole(Mixture.from_file('../../data/cartpole/batch_vdp.npy'))
 
-        pp = CollocationPlanner(ds,15)
+        pp = KnitroNlp(ds,15)
 
         #pp.solve( [0,0,np.pi,0], [0,0,0,0])
         #pp.solve(np.array([0,0,np.pi*1.1,0]), np.array([0,0,0,0]))
@@ -1331,9 +1331,10 @@ class TestsCartpole(unittest.TestCase):
 
         end = np.zeros(4)
 
-        pp = CollocationPlanner(GPM(env,25))
-        plt.show()
-        plt.ion()
+        pp = KnitroNlp(GPM(env,25))
+        #pp = SlpNlp(GPM(env,25))
+        #plt.show()
+        #plt.ion()
         
         for t in range(10000):
             s = env.state
@@ -1344,12 +1345,12 @@ class TestsCartpole(unittest.TestCase):
 
             tmp = pi.x
             
-            plt.clf()
-            plt.plot(tmp[:,2],tmp[:,0])
+            #plt.clf()
+            #plt.plot(tmp[:,2],tmp[:,0])
 
-            plt.xlim([-2*np.pi,2*np.pi])
-            plt.ylim([-30,30])
-            plt.draw()
+            #plt.xlim([-2*np.pi,2*np.pi])
+            #plt.ylim([-30,30])
+            #plt.draw()
 
     def test_compare_pred(self):
         
@@ -1383,25 +1384,19 @@ class TestsCartDoublePole(unittest.TestCase):
 
         end = np.zeros(6)
 
-        #pp = CollocationPlanner(model,15,hotstart=False)
-        pp = SqpPlanner(model,35)
+        pp = KnitroNlp(GPM(model,25))
         plt.show()
         plt.ion()
 
         for t in range(10000):
             s = env.state
             print 't: ',('{:4.2f} ').format(env.t),' state: ',('{:9.3f} '*6).format(*s)
-            pi = pp.solve(env.state,end)
-            #try:
-            #    pi.ll_slack
-            #print pi.max_h, pi.ll_slack
-            #except:
-            #print pi.max_h
+            model.state = env.state
+            pi = pp.solve()
 
             trj = env.step(pi,10)
 
-            nx,nu,l = pp.ds.nx,pp.ds.nu,pp.l
-            tmp = np.array(pp.ret_x[1:1+l*(nx+nu)]).reshape(l,-1)
+            tmp = pi.x
             
             plt.clf()
 
@@ -1433,11 +1428,10 @@ class TestsCartDoublePole(unittest.TestCase):
         p,k = 11, 11*8
 
         env = CartDoublePole(noise = 0)
-        end = np.zeros(6)
 
-        pp = CollocationPlanner(GPM(env,15))
-        plt.show()
-        plt.ion()
+        pp = KnitroNlp(GPM(env,35))
+        #plt.show()
+        #plt.ion()
 
         for t in range(10000):
             s = env.state
@@ -1448,21 +1442,21 @@ class TestsCartDoublePole(unittest.TestCase):
 
             tmp = pi.x
             
-            plt.clf()
+            #plt.clf()
 
-            plt.sca(plt.subplot(2,1,1))
+            #plt.sca(plt.subplot(2,1,1))
 
-            plt.xlim([-2*np.pi,2*np.pi])
-            plt.ylim([-40,40])
-            plt.plot(tmp[:,3],tmp[:,0])
+            #plt.xlim([-2*np.pi,2*np.pi])
+            #plt.ylim([-40,40])
+            #plt.plot(tmp[:,3],tmp[:,0])
 
-            plt.sca(plt.subplot(2,1,2))
+            #plt.sca(plt.subplot(2,1,2))
 
-            plt.xlim([-2*np.pi,2*np.pi])
-            plt.ylim([-40,40])
-            plt.plot(tmp[:,4],tmp[:,1])
+            #plt.xlim([-2*np.pi,2*np.pi])
+            #plt.ylim([-40,40])
+            #plt.plot(tmp[:,4],tmp[:,1])
 
-            plt.draw()
+            #plt.draw()
 
 
     def test_pp(self):
@@ -1472,7 +1466,7 @@ class TestsCartDoublePole(unittest.TestCase):
 
         env = CartDoublePole()
 
-        pp = CollocationPlanner(
+        pp = KnitroNlp(
             GPM(env,15)
             )
 
@@ -1541,7 +1535,7 @@ class TestsHeli(unittest.TestCase):
          
     def test_pp(selff):
 
-        pp = CollocationPlanner(Heli(),15)
+        pp = KnitroNlp(Heli(),15)
         start,end = np.zeros(12), np.zeros(12)
         #start[3:6]  = .1*np.random.normal(size=3)
         #end[6:9] = np.pi*np.array([0,0,1])
@@ -1571,7 +1565,7 @@ class TestsHeli(unittest.TestCase):
         end[9:12] = np.array([0,0,0])
         end[7] = np.pi
 
-        pp = CollocationPlanner(model,15,hotstart=True)
+        pp = KnitroNlp(model,15,hotstart=True)
         
         for t in range(100):
             print env.state
@@ -1754,7 +1748,7 @@ class TestsPP(unittest.TestCase):
 
     def test_col(self):
 
-        pp = CollocationPlanner(
+        pp = KnitroNlp(
             GPM(
                 Cartpole(state=(0,0,np.pi,0))
                 ,15)
@@ -1762,37 +1756,18 @@ class TestsPP(unittest.TestCase):
         pi = pp.solve()
         
 
-    def test_sqp_linearization(self):
-        pp = SqpPlanner(Cartpole(),7)
+    def test_slp(self):
 
-        l,nx,nu = pp.l, pp.ds.nx, pp.ds.nu
-        eps = 1e-8
-        
-        np.random.seed(20)
-        z  = np.random.normal(size = 1+ l*(nu+nx))
-        dz = eps*np.random.normal(size = 1+ l*(nu+nx))
-        
-        z_ = z+ dz
-        
-        f , j = pp.linearize_dyn(z) 
-        f_, j_= pp.linearize_dyn(z+dz) 
-        
-        r  = (f_- f)/eps
-        r_ = np.array((np.matrix(j.todense())*np.matrix(dz).T)).reshape(-1)/eps
-
-        np.testing.assert_almost_equal(r,r_,4)
-
-    def test_sqp(self):
-
-        pp = SqpPlanner(Cartpole(),15)
-        start, end = [0,0,.7*np.pi,0], [0,0,2.0*np.pi,0]
-        pi = pp.solve(start,end)
-        
-        
+        pp = SlpNlp(
+            GPM(
+                Cartpole(state=(0,0,np.pi,0))
+                ,15)
+            )
+        pi = pp.solve()
         
 
 if __name__ == '__main__':
-    single_test = 'test_col'
+    single_test = 'test_gpm'
     tests = TestsPP
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
