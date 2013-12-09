@@ -1225,33 +1225,11 @@ class TestsCartpole(unittest.TestCase):
         
          
     def test_pp(self):
-        pp = SqpPlanner(Cartpole(),15)
-        start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
-        pp.solve(start,end)
-
-    def test_loaded(self):
-
-        l = 10
-        c = OptimisticCartpole(Mixture.from_file('../../data/cartpole/batch_vdp.npy'))
-        np.random.seed(1)
-
-        xn = np.random.random(size=l*(c.nx)).reshape(l,c.nx)
-        x = to_gpu(xn)
-
-        un = np.random.random(size=l*(c.nu)).reshape(l,c.nu)
-        u = to_gpu(un)
         
+        ds = Cartpole(state=(0,0,np.pi,0))
         
-        c.f(x,u)
-
-    def test_loaded_pp(self):
-
-        # broken after setting control bounds to one
-        ds = OptimisticCartpole(Mixture.from_file('../../data/cartpole/batch_vdp.npy'))
-        #pp = SqpPlanner(ds,15)
-        #pp = KnitroNlp(ds,15)
-        start, end = np.array([0,0,np.pi,0]), np.array([0,0,0,0])
-        pp.solve(start,end)
+        pp = KnitroNlp(GPM(ds,15))
+        pi = pp.solve()
 
     def test_model(self):
 
@@ -1710,16 +1688,6 @@ class TestsPP(unittest.TestCase):
         
         
 
-    def test_lpm(self):
-        td = LPM(Cartpole(),15)
-        
-        td.interp_coefficients(.3)
-        
-        np.random.seed(2)
-        z = np.random.normal(size=1+15*(td.ds.nx+td.ds.nu))
-        td.ccol(z)
-        td.ccol_jacobian(z)
-        
     def test_gpm(self):
         N = 15
         td = GPM(Cartpole(),N)
@@ -1743,6 +1711,29 @@ class TestsPP(unittest.TestCase):
         
         r  = (f_- f)/eps
         r_ =  np.dot(j.reshape(f.size,-1),dz)/eps
+
+        np.testing.assert_almost_equal(r,r_,4)
+
+    def test_lpm(self):
+        N = 15
+        td = LPM(Cartpole(),N)
+        #td.interp_coefficients(.3)
+        
+        np.random.seed(2)
+        eps = 1e-8
+        z = np.random.normal(size=td.nv)
+        dz = eps*np.random.normal(size = td.nv)
+        
+        z_ = z+ dz
+        
+        f  = td.ccol(z) 
+        d  = td.ccol_jacobian(z) 
+        i,j = td.ccol_jacobian_inds()
+        j = np.array(coo_matrix((d,(i,j))).todense())
+        f_ = td.ccol(z+dz) 
+        
+        r  = (f_- f)/eps
+        r_ =  np.dot(j,dz)/eps
 
         np.testing.assert_almost_equal(r,r_,4)
 

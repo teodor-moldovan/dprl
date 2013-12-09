@@ -4,7 +4,7 @@ import re
 class Cartpole(DynamicalSystem, Environment):
     def __init__(self, state = (0,0,np.pi,0) , noise = 0):
 
-        DynamicalSystem.__init__(self,4,1)
+        DynamicalSystem.__init__(self,4,1,4)
 
         Environment.__init__(self, state, .01, noise=noise)
 
@@ -55,8 +55,40 @@ class Cartpole(DynamicalSystem, Environment):
 
         self.k_f = rowwise(fn,'cartpole')
 
+
+
+        tpl = Template(
+        """
+        #define l  {{ l }} // [m]      length of pendulum
+        __device__ void f(
+                {{ dtype }} y[],
+                {{ dtype }} w[]){
+
+        {{ dtype }} td = y[0];
+        {{ dtype }} xd = y[1];
+        {{ dtype }} s = sin(y[2]);
+        {{ dtype }} c = cos(y[2]);
+        {{ dtype }} x = y[3];
+
+        
+        w[0] = l*s + x; 
+        w[1] = l*(1-c);
+        w[2] = l*td*c + xd;
+        w[3] = l*td*s;
+
+        }
+        """
+        )
+
+        fn = tpl.render(
+                l=self.l,
+                dtype = cuda_dtype)
+
+        self.k_task_state = rowwise(fn,'cartpole_task_state')
+
+
 class CartpolePilco(DynamicalSystem, Environment):
-    def __init__(self, noise = 0):
+    def __init_f_(self, noise = 0):
 
         DynamicalSystem.__init__(self,4,1)
         Environment.__init__(self, [0,0,np.pi,0], .01, noise=noise)
