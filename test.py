@@ -8,7 +8,7 @@ import scipy.linalg
 import scipy.special
 import pycuda.driver as drv
 import pycuda.scan
-import dpcluster
+#import dpcluster
 import cPickle
 
 class TestsTools(unittest.TestCase):
@@ -1301,7 +1301,7 @@ class TestsCartpole(unittest.TestCase):
         #model = OptimisticCartpoleSC(learner)
 
 
-        env = CartpolePilco(noise = .01)
+        env = Cartpole()
         #env.state[2] = 2*np.pi*np.random.uniform()
         trj = env.step(ZeroPolicy(env.nu), 51, random_control=True) 
 
@@ -1309,10 +1309,10 @@ class TestsCartpole(unittest.TestCase):
 
         end = np.zeros(4)
 
-        pp = KnitroNlp(GPM(env,25))
+        pp = KnitroNlp(MSM(env,35))
         #pp = SlpNlp(GPM(env,25))
-        #plt.show()
-        #plt.ion()
+        plt.show()
+        plt.ion()
         
         for t in range(10000):
             s = env.state
@@ -1323,12 +1323,12 @@ class TestsCartpole(unittest.TestCase):
 
             tmp = pi.x
             
-            #plt.clf()
-            #plt.plot(tmp[:,2],tmp[:,0])
+            plt.clf()
+            plt.plot(tmp[:,2],tmp[:,0])
 
-            #plt.xlim([-2*np.pi,2*np.pi])
-            #plt.ylim([-30,30])
-            #plt.draw()
+            plt.xlim([-2*np.pi,2*np.pi])
+            plt.ylim([-30,30])
+            plt.draw()
 
     def test_compare_pred(self):
         
@@ -1354,15 +1354,19 @@ class TestsCartDoublePole(unittest.TestCase):
         learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
         model = OptimisticCartDoublePole(learner)
 
-        env = CartDoublePole(noise = .1)
+        env = CartDoublePole(noise = 1.0)
         trj = env.step(ZeroPolicy(env.nu), 50, random_control=True) 
 
         model.update(trj)
-        env = CartDoublePole(noise = 0)
+        state = env.state
+        env = CartDoublePole(noise = 0.1)
+        env.state = state
 
         end = np.zeros(6)
 
-        pp = KnitroNlp(GPM(model,25))
+        #pp = KnitroNlp(GPM(model,25))
+
+        pp = SlpNlp(MSMext(model,25))
         plt.show()
         plt.ion()
 
@@ -1372,7 +1376,7 @@ class TestsCartDoublePole(unittest.TestCase):
             model.state = env.state
             pi = pp.solve()
 
-            trj = env.step(pi,10)
+            trj = env.step(pi,5)
 
             tmp = pi.x
             
@@ -1392,8 +1396,6 @@ class TestsCartDoublePole(unittest.TestCase):
 
             plt.draw()
 
-
-
             if not trj is None:
                 model.update(trj)
 
@@ -1407,7 +1409,7 @@ class TestsCartDoublePole(unittest.TestCase):
 
         env = CartDoublePole(noise = 0)
 
-        pp = KnitroNlp(GPM(env,35))
+        pp = SlpNlp(MSMext(env,25))
         plt.show()
         plt.ion()
 
@@ -1444,8 +1446,8 @@ class TestsCartDoublePole(unittest.TestCase):
 
         env = CartDoublePole()
 
-        pp = KnitroNlp(
-            GPM(env,15)
+        pp = SlpNlp(
+            MSMext(env,35)
             )
 
         
@@ -1613,6 +1615,20 @@ class TestsHeli(unittest.TestCase):
         print rs_
         
 class TestsPP(unittest.TestCase):
+    def test_pcw_policy(self):
+
+        l,nu = 10,3
+        us = np.random.random(l*nu).reshape(l,nu)
+        h  = 3.0
+        
+        pi = PiecewiseConstantPolicy(us,h)
+        print us
+        print pi.u(.0, None)
+        print pi.u(.001, None)
+        print pi.u(1.0,None)
+        print pi.u(2.99, None)
+        print pi.u(3.0, None)
+
     def test_sim(self):
 
         env = Cartpole()
@@ -1633,9 +1649,9 @@ class TestsPP(unittest.TestCase):
             return dx
 
 
-        i.integrate(f,
+        rs = i.integrate(f,
                 to_gpu(np.array([[1.0,],[2.0,]])),
-                to_gpu(.1*np.array([[1.0,],[1.0,]]))
+                to_gpu(.001*np.array([[1.0,],[1.0,]]))
             )
 
 
@@ -1688,6 +1704,16 @@ class TestsPP(unittest.TestCase):
         
         
 
+    def test_time_discretize(self):
+        l = 15
+        dt = .1
+
+        ds = Cartpole()
+        np.random.seed(1)
+        xu = to_gpu(np.random.normal(size=l*(ds.nx+ds.nu)).reshape(l,-1))
+        
+        print ds.time_discretize(xu,.1).get()[0]
+
     def test_gpm(self):
         N = 15
         td = GPM(Cartpole(),N)
@@ -1737,12 +1763,83 @@ class TestsPP(unittest.TestCase):
 
         np.testing.assert_almost_equal(r,r_,4)
 
+    def test_msm(self):
+        l = 15
+        td = MSM(Cartpole(),l)
+        zi = td.initialization()
+        
+        np.random.seed(2)
+        eps = 1e-8
+        z = np.random.normal(size=td.nv)
+        dz = eps*np.random.normal(size = td.nv)
+        
+        z_ = z+ dz
+        
+        f  = td.ccol(z) 
+
+        d   = td.ccol_jacobian(z) 
+        i,j = td.ccol_jacobian_inds()
+        j = np.array(coo_matrix((d,(i,j))).todense())
+        f_ = td.ccol(z+dz) 
+        
+        r  = (f_- f)/eps
+        r_ =  np.dot(j,dz)/eps
+
+        np.testing.assert_almost_equal(r,r_,4)
+
+    def test_msm_ext(self):
+        l = 15
+        td = MSMext(Cartpole(),l)
+        zi = td.initialization()
+        
+        np.random.seed(2)
+        eps = 1e-8
+        z = np.random.normal(size=td.nv)
+        dz = eps*np.random.normal(size = td.nv)
+        
+        z_ = z+ dz
+        
+        f  = td.ccol(z) 
+
+        d   = td.ccol_jacobian(z) 
+        i,j = td.ccol_jacobian_inds()
+        j = np.array(coo_matrix((d,(i,j))).todense())
+        f_ = td.ccol(z+dz) 
+        
+        r  = (f_- f)/eps
+        r_ =  np.dot(j,dz)/eps
+
+        np.testing.assert_almost_equal(r,r_,2)
+
+    def test_esm(self):
+        l = 15
+        td = ESM(Cartpole(),l)
+        zi = td.initialization()
+        
+        np.random.seed(2)
+        eps = 1e-8
+        z = np.random.normal(size=td.nv)
+        dz = eps*np.random.normal(size = td.nv)
+        
+        z_ = z+ dz
+        
+        f  = td.ccol(z) 
+
+        d   = td.ccol_jacobian(z) 
+        i,j = td.ccol_jacobian_inds()
+        j = np.array(coo_matrix((d,(i,j))).todense())
+        f_ = td.ccol(z+dz) 
+        
+        r  = (f_- f)/eps
+        r_ =  np.dot(j,dz)/eps
+
+        np.testing.assert_almost_equal(r,r_,4)
+
     def test_col(self):
 
         pp = KnitroNlp(
             GPM(
-                Cartpole(state=(0,0,np.pi,0))
-                ,15)
+                Cartpole(),25)
             )
         pi = pp.solve()
         
@@ -1758,7 +1855,7 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_pp_iter'
+    single_test = 'test_pp'
     tests = TestsCartDoublePole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()

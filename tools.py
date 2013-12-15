@@ -279,7 +279,8 @@ __device__ {{ dtype }} digamma({{ dtype }} x) {
 def grid_block_sizes(mx):
 
     tsz = int(np.prod(mx))
-    for i in range(512,0,-1):
+    # hack. 512 was also good
+    for i in range(256,0,-1):
         if tsz%i ==0:
             break
 

@@ -709,7 +709,7 @@ class StreamingNIW(object):
         
 class BatchVDP(object):
     def __init__(self,mix,buffer_size=11*32*32,
-             w =.1, kl_tol = 1e-4, max_iters = 10000):
+             w =.1, kl_tol = 1e-6, max_iters = 10000):
         
         self.buff = array((buffer_size, mix.clusters.prior.size))
         self.clear() 
@@ -829,6 +829,8 @@ class BatchVDP(object):
          
             # computing responsibilities for next iteration
             phi = self.mix.pseudo_resps(ss)
+
+        print 'Num clusters: ', np.sum(counts.get()>1e-4)
         
     @property
     def p(self):

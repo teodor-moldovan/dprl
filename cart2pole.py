@@ -6,12 +6,13 @@ import re
 class CartDoublePole(DynamicalSystem, Environment):
     def __init__(self, noise = 0):
 
-        DynamicalSystem.__init__(self,6,1,4)
-        Environment.__init__(self, [0,0,0,np.pi,np.pi,0], .01, noise=noise)
+        DynamicalSystem.__init__(self,6,1)
+        Environment.__init__(self, np.array([0,0,0,np.pi,np.pi,0]), .01, noise=noise)
         
-        self.target = [0,0,0,0,0,0]
+        self.target = np.array([0,0,0,0,0,0])
 
         m1,m2,m3,l2,l3,b,g,um = (.5,.5,.5,.6,.6,.1,9.82, 20.0)
+        #m1,m2,m3,l2,l3,b,g,um = (.5,.5,.5,.6,.6,.1,9.82, 20.0)
         s = self.codegen( m1,m2,m3,l2,l3,b,g,um  )        
 
         tpl = Template( s +
@@ -36,45 +37,6 @@ class CartDoublePole(DynamicalSystem, Environment):
         fn = tpl.render(dtype = cuda_dtype)
 
         self.k_f = rowwise(fn,'cartpole')
-
-        tpl = Template(
-        """
-        #define l1  {{ l1 }} // [m]      length of inner pendulum
-        #define l2  {{ l2 }} // [m]      length of outer pendulum
-
-        __device__ void f(
-                {{ dtype }} y[],
-                {{ dtype }} w[]){
-
-        {{ dtype }} dt1 = y[0];
-        //{{ dtype }} t1 = y[3];
-        {{ dtype }} s1 = sin(y[3]);
-        {{ dtype }} c1 = cos(y[3]);
-
-        {{ dtype }} dt2 = y[1];
-        //{{ dtype }} t2 = y[4];
-        {{ dtype }} s2 = sin(y[4]);
-        {{ dtype }} c2 = cos(y[4]);
-
-        {{ dtype }} dx = y[2];
-        {{ dtype }} x = y[5];
-        
-        w[0] = x + l1*s1 + l2*s2;  
-        w[1] = l1*(1.0-c1) + l2*(1.0-c2);  
-        w[2] = dx + dt1*l1*c1 + dt2*l2*c2;
-        w[3] = dt1*l1*s1 + dt2*l2*s2;
-        
-        }
-        """
-        )
-
-        fn = tpl.render(
-                    l1 = l2,
-                    l2 = l3,
-                    dtype = cuda_dtype)
-
-        self.k_task_state = rowwise(fn,'cartpole')
-
 
     @staticmethod
     def codegen(*args):
@@ -120,7 +82,9 @@ class CartDoublePole(DynamicalSystem, Environment):
 class OptimisticCartDoublePole(OptimisticDynamicalSystem):
     def __init__(self,predictor,**kwargs):
 
-        OptimisticDynamicalSystem.__init__(self,6,1,3, predictor,xi_scale=1.0, **kwargs)
+        OptimisticDynamicalSystem.__init__(self,6,1,3, 
+                 np.array([0,0,0,np.pi,np.pi,0]),
+                 predictor,xi_scale=4.0, **kwargs)
 
         self.target = [0,0,0,0,0,0]
 
@@ -143,7 +107,7 @@ class OptimisticCartDoublePole(OptimisticDynamicalSystem):
             o[4 ] = sin(s[3]);
             o[5 ] = cos(s[4]);
             o[6 ] = sin(s[4]);
-            o[7] = u[0];
+            o[7 ] = u[0];
             }
             
             """

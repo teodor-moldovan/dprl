@@ -4,13 +4,14 @@ import numpy.polynomial.legendre as legendre
 import scipy.integrate 
 from  scipy.sparse import coo_matrix
 from sys import stdout
+import math
 
 import pylab as plt
 
 import mosek
 import warnings
 mosek_env = mosek.Env()
-mosek_env.init()
+#mosek_env.init()
 
 class ExplicitRK(object):    
     def __init__(self,st='lw6'):
@@ -159,7 +160,7 @@ class NumDiff(object):
         df.shape = (l,n,m) 
 
         #hack
-        ufunc('x = abs(x) < 1e-8 ? 0 : x')(df)
+        #ufunc('x = abs(x) < 1e-10 ? 0 : x')(df)
         return df
 
 
@@ -184,6 +185,21 @@ class CollocationPolicy:
         us = np.maximum(-1.0, np.minimum(1.0,us) )
 
         return us
+
+class PiecewiseConstantPolicy:
+    def __init__(self,us,max_h):
+        self.us = us
+        self.max_h = max_h
+
+    def u(self,t,x):
+        l = self.us.shape[0]
+        r = np.minimum(np.floor((t/self.max_h)*(l)),l-1)
+        u = self.us[np.int_(r)]
+         
+        #hack
+        u = np.maximum(-1.0, np.minimum(1.0,u) )
+
+        return u
 
 class Environment:
     def __init__(self, state, dt = .01, noise = 0.0):
@@ -211,7 +227,8 @@ class Environment:
 
             nz = self.noise*np.random.normal(size=self.nx/2)
             # changed
-            dx[:self.nx/2] += nz
+            # hack
+            #dx[:self.nx/2] += nz
 
             return dx,u #.get().reshape(-1)
 
@@ -242,6 +259,7 @@ class Environment:
 
 
         nz = self.noise*np.random.normal(size=dx.shape[0]*self.nx/2)
+        # hack
         dx[:,:self.nx/2] += nz.reshape(dx.shape[0],self.nx/2)
         #dx += self.noise*np.random.normal(size=dx.size).reshape(dx.shape)
         #u  += self.noise*np.random.normal(size= u.size).reshape( u.shape)
@@ -251,54 +269,29 @@ class Environment:
 
 class DynamicalSystem(object):
     """ Controls are assumed to be bounded between -1 and 1 """
-    def __init__(self,nx,nu,nk):
+    def __init__(self,nx,nu):
         self.nx = nx
         self.nu = nu
-        self.nk = nk
 
         self.differentiator = NumDiff()
+        self.integrator = ExplicitRK()
         
-    @staticmethod
-    @memoize
-    def __f_ws(l,n):
-        return array((l,n))    
-
     def f(self,x,u):
         
         l = x.shape[0]
-        y = self.__f_ws(l,self.nx)
+        y = array((l,self.nx))
         
         self.k_f(x,u,y)
         
         return y
 
-    @staticmethod
-    @memoize
-    def __task_state_ws(l,n):
-        return array((l,n))    
-
-    def task_state(self,x):
-        
-        l = x.shape[0]
-        y = self.__task_state_ws(l,self.nk)
-        
-        self.k_task_state(x,y)
-        
-        return y
-
-    @staticmethod
-    def __f_sp_ws(l,nx,nu):
-        return array((l,nx)), array((l,nu))
-
-    @staticmethod
-    def __f_sp_wsx(x,nx,nu):
-        return x[:,:nx], x[:,nx:nx+nu]
-
     def f_sp(self,x):
         
-        y,u = self.__f_sp_wsx(x,self.nx,self.nu)
-        y_,u_ = self.__f_sp_ws(x.shape[0],self.nx,self.nu)
-        
+        l,nx,nu = x.shape[0],self.nx,self.nu
+        y_,u_ = array((l,nx)), array((l,nu))
+
+        y,u = x[:,:nx], x[:,nx:nx+nu]
+
         ufunc('a=b')(y_,y)
         ufunc('a=b')(u_,u)
         
@@ -308,15 +301,27 @@ class DynamicalSystem(object):
     def f_sp_diff(self,x):
         df = self.differentiator.diff(lambda x_: self.f_sp(x_), x)   
 
-
         return df
 
 
-    def task_state_diff(self,x):
-        df = self.differentiator.diff(lambda x_: self.task_state(x_), x)   
+    def integrate_sp(self,hxu):
+        
+        l,nx,nu = hxu.shape[0], self.nx,self.nu
 
+        x,u,h = array((l,nx)), array((l,nu)), array((l,1))
+        ufunc('a=b')(h,hxu[:,:1])
+        ufunc('a=b')(x,hxu[:,1:1+nx])
+        ufunc('a=b')(u,hxu[:,1+nx:1+nx+nu])
+        
+        f = lambda x_,t : self.f(x_,u)
+        df = self.integrator.integrate(f,x,h)
+        ufunc('a/=b')(df,h)
         return df
 
+    def integrate_sp_diff(self,hxu):
+        df = self.differentiator.diff(lambda x_: self.integrate_sp(x_), hxu)
+        return df 
+        
     # todo: move out
     def state2waypoint(self,state):
         try:
@@ -346,9 +351,11 @@ class DynamicalSystem(object):
 
         
 class OptimisticDynamicalSystem(DynamicalSystem):
-    def __init__(self,nx,nu, nxi, pred, xi_scale = 4.0, **kwargs):
+    def __init__(self,nx,nu, nxi,start, pred, xi_scale = 4.0, **kwargs):
 
-        DynamicalSystem.__init__(self,nx,nu+nxi,**kwargs)
+        DynamicalSystem.__init__(self,nx,nu+nxi, **kwargs)
+        
+        self.state = start
 
         self.xi_scale = xi_scale
         self.nxi = nxi
@@ -395,35 +402,16 @@ class OptimisticDynamicalSystem(DynamicalSystem):
 
         self.predictor.update(w)
 
-class PseudospectralMethod():
-    """ instance of Nonlinear program """
-    @staticmethod
-    @memoize
-    def __ccol_jac_inds(n,m):
-        i, j = zip(*[(v,c) for c in range(m) 
-                for v in range(n) ])
-        return np.array(j), np.array(i)
-
-    def ccol_jacobian_inds(self):
-        return self.__ccol_jac_inds(self.nv,self.nc)
-
-
-    def get_policy(self,z):
-        pi =  CollocationPolicy(self,z[self.iv_u],np.exp(z[self.iv_h]))
-        pi.x = z[self.iv_x]
-        print z[self.iv_h], np.sum(z[self.iv_slack].reshape(-1))
-        return pi
-
-class LPM(PseudospectralMethod):
+class LPM():
     """ Legendre Pseudospectral Method
      http://vdol.mae.ufl.edu/ConferencePublications/comparison_paper_GNC.pdf """
     def __init__(self, ds, l):
         self.ds = ds
         self.l = l
         
-        nx,nu,nk = self.ds.nx, self.ds.nu, self.ds.nk
+        nx,nu = self.ds.nx, self.ds.nu
         self.nv = 1 + (nx + nu)*l
-        self.nc = nx*l + nk 
+        self.nc = nx*l 
         
         self.iv = np.arange(self.nv)
         self.ic = np.arange(self.nc)
@@ -436,7 +424,6 @@ class LPM(PseudospectralMethod):
         
 
         self.ic_col = np.arange(l*nx).reshape(l,nx)
-        self.ic_target = nx*l + np.arange(nk)
 
         #i,c = self.ccol_jac_inds(self.l, self.ds.nx, self.ds.nu)
 
@@ -517,7 +504,7 @@ class LPM(PseudospectralMethod):
     interp_coefficients = lagrange_poly_u
     @staticmethod
     @memoize
-    def __ccol_jac_inds(l,nx,nu,nk):
+    def __ccol_jac_inds(l,nx,nu):
 
         ji1 = [(v,c) 
                     for t in range(l)
@@ -532,12 +519,8 @@ class LPM(PseudospectralMethod):
                     if tc != tv
               ]
 
-        ji3 = [(1 + (l-1)*(nx+nu)+i,  nx*l+ c) 
-                    for i in range(nx)
-                    for c in range(nk)
-              ]
 
-        iv, ic = zip(*(ji1+ji2+ji3))
+        iv, ic = zip(*(ji1+ji2))
         return np.array(ic), np.array(iv)
 
     @staticmethod
@@ -550,8 +533,6 @@ class LPM(PseudospectralMethod):
 
         nx,nu,l = self.ds.nx,self.ds.nu,self.l
 
-        self.last_z = x.copy()
-        
         _, D, __ = self.quadrature(self.l)
         buff = self.__buff(l,nx+nu)
         
@@ -559,17 +540,13 @@ class LPM(PseudospectralMethod):
         h = np.exp(x[0])
 
         buff.set(tmp)
-        target = self.ds.task_state(to_gpu(x[self.iv_x][-1:])).get()
-
         df = np.zeros(self.nc)
         df[self.ic_col] = np.dot(D,tmp[:,:nx]) - (.5*h)* self.ds.f_sp(buff).get() 
-        df[self.ic_target] = target 
-        
         
         return  df.reshape(-1)
 
     def ccol_jacobian_inds(self):
-        return self.__ccol_jac_inds(self.l,self.ds.nx,self.ds.nu,self.ds.nk)
+        return self.__ccol_jac_inds(self.l,self.ds.nx,self.ds.nu)
     def ccol_jacobian(self,x):
 
         nx,nu,l = self.ds.nx,self.ds.nu,self.l
@@ -588,12 +565,15 @@ class LPM(PseudospectralMethod):
         tmp = np.hstack((d1[:,wx,:],d2)).copy()
         tmp[:,1:1+nx,:] += ddiag[:,wx,wx]*np.eye(nx)[wx,:,:]
 
-        dk =  self.ds.task_state_diff(to_gpu(x[self.iv_x[-1:]])).get()
-        
-        jac = np.concatenate((tmp.reshape(-1),np.tile(dnodiag,nx),
-                dk.reshape(-1)))
+        jac = np.concatenate((tmp.reshape(-1),np.tile(dnodiag,nx)))
         
         return jac
+
+    def get_policy(self,z):
+        pi =  CollocationPolicy(self,z[self.iv_u],np.exp(z[self.iv_h]))
+        pi.x = z[self.iv_x]
+        print z[self.iv_h], np.sum(z[self.iv_slack].reshape(-1))
+        return pi
 
     # hack (not elegant, bug prone)
     def initialization(self):
@@ -611,7 +591,7 @@ class LPM(PseudospectralMethod):
             return z 
 
 
-class GPM(PseudospectralMethod):
+class GPM():
     """ Gauss Pseudospectral Method
     http://vdol.mae.ufl.edu/SubmittedJournalPublications/Integral-Costate-August-2013.pdf
     http://vdol.mae.ufl.edu/JournalPublications/AIAA-20478.pdf
@@ -626,7 +606,7 @@ class GPM(PseudospectralMethod):
         
         nx,nu,nk = self.ds.nx, self.ds.nu, self.ds.nk
         self.nv = 1 + (l+ 2)*nx + l*nu  + 2*(l+1)*nx
-        self.nc = nx*(l+1) + nk 
+        self.nc = nx*(l+1) 
         
         self.iv_h = 0
 
@@ -644,8 +624,6 @@ class GPM(PseudospectralMethod):
         self.iv_slack = self.iv_slack.reshape(2,l+1,nx)
 
         self.ic_col = np.arange(nx*l+nx).reshape(-1,nx) 
-        self.ic_target = nx*(l+1) + np.arange(nk)
-
 
     def obj(self,z):
         return z[self.iv_h]+ self.slack_cost*np.sum(z[self.iv_slack].reshape(-1))
@@ -668,11 +646,11 @@ class GPM(PseudospectralMethod):
         bl[self.iv_x[0]] = self.ds.state
         bu[self.iv_x[0]] = self.ds.state
 
-        #bl[self.iv_x[-1]] = self.ds.target
-        #bu[self.iv_x[-1]] = self.ds.target
+        bl[self.iv_x[-1]] = self.ds.target
+        bu[self.iv_x[-1]] = self.ds.target
 
         bl[self.iv_slack] = 0.0
-        #bu[self.iv_slack] = 0.0
+        bu[self.iv_slack] = 0.0
 
         return bl, bu
 
@@ -743,8 +721,7 @@ class GPM(PseudospectralMethod):
     def ccol(self,z):
         """ collocation constraint violations """
 
-        self.last_z = z.copy()
-        nx,nu,nk,l = self.ds.nx,self.ds.nu,self.ds.nk,self.l
+        nx,nu,l = self.ds.nx,self.ds.nu,self.l
         
         A = self.int_formulation(self.l)
         buff = self.__buff(l,nx+nu)
@@ -762,14 +739,11 @@ class GPM(PseudospectralMethod):
         df[self.ic_col] = ( hi*z[self.iv_x][1:] - hi*z[self.iv_x[0]] - .5 *h* np.dot(A,accs) )
         df[self.ic_col] += z[self.iv_slack[0]] - z[self.iv_slack[1]] 
         
-        target = self.ds.task_state(to_gpu(z[self.iv_x][-1:])).get()
-        df[self.ic_target] = target
-
         return  df
 
     def ccol_jacobian(self,z):
 
-        nx,nu,nk,l = self.ds.nx,self.ds.nu,self.ds.nk,self.l
+        nx,nu,l = self.ds.nx,self.ds.nu,self.l
         
         A = self.int_formulation(self.l)
         buff = self.__buff(l,nx+nu)
@@ -806,14 +780,27 @@ class GPM(PseudospectralMethod):
         
         jt = np.zeros((self.ic_target.size,self.nv))
 
-        dk =  self.ds.task_state_diff(to_gpu(z[self.iv_x[-1:]])).get()
+        return jt.reshape(-1)
 
-        jt[:, self.iv_x[-1]] = dk.reshape((self.iv_x[-1].size,-1)).T
-        jf =  np.vstack((jac,jt))
 
-        return jf.reshape(-1)
+    @staticmethod
+    @memoize
+    def __ccol_jac_inds(n,m):
+        i, j = zip(*[(v,c) for c in range(m) 
+                for v in range(n) ])
+        return np.array(j), np.array(i)
+
+    def ccol_jacobian_inds(self):
+        return self.__ccol_jac_inds(self.nv,self.nc)
+
 
     # hack (not elegant, bug prone)
+    def get_policy(self,z):
+        pi =  CollocationPolicy(self,z[self.iv_u],np.exp(z[self.iv_h]))
+        pi.x = z[self.iv_x]
+        print z[self.iv_h], np.sum(z[self.iv_slack].reshape(-1))
+        return pi
+
     def initialization(self):
         for h,w in self.ds.initializations():
             tau = np.concatenate(([-1.0],self.quadrature(self.l)[0],[1.0])) 
@@ -828,11 +815,427 @@ class GPM(PseudospectralMethod):
         
             return z 
 
+class MSM():
+    def __init__(self, ds, l):
+        self.ds = ds
+        self.l = l
+
+        self.lbd = 100.0
+        
+        nx,nu = self.ds.nx, self.ds.nu
+        self.nv = 1 + (l+ 1)*nx + l*nu + 2*l*nx
+        self.nc = nx*l
+        
+        self.iv_h = 0
+
+        self.iv = np.arange(self.nv)
+        self.ic = np.arange(self.nc)
+        
+        tmp = 1+ np.arange((l+1)*(nx+nu)).reshape(l+1,-1)
+        self.iv_xuc = tmp[:-1,:] 
+        self.iv_x = tmp[:,:nx] 
+        self.iv_u = tmp[:-1,nx:] 
+        
+        self.ic_col = np.arange(l*nx).reshape(l,nx)
+
+        self.iv_slack = 1 + (l+1)*nx + l*nu + np.arange(2*l*nx).reshape(2,l,nx)
+        
+
+    # hack (not elegant, bug prone)
+
+    def bounds(self):
+        b = float('inf')*np.ones(self.nv)
+        b[self.iv_u] = 1.0
+        
+        bl = -b
+        bu = b
+        
+        bl[self.iv_slack] = 0
+
+        #bl[self.iv_h] = -2
+        #bu[self.iv_h] = 3
+
+        bl[self.iv_x[0]] = self.ds.state
+        bu[self.iv_x[0]] = self.ds.state
+        
+        bl[self.iv_x[-1]] = self.ds.target
+        bu[self.iv_x[-1]] = self.ds.target
+
+        return bl, bu
+
+    def obj(self,z):
+        return z[0] + self.lbd*np.sum(z[self.iv_slack].reshape(-1))
+
+    def obj_grad_inds(self):
+        return np.concatenate((np.array([0]), self.iv_slack.reshape(-1) ))
+
+    def obj_grad(self,z):
+        return np.concatenate((np.array([1]), self.lbd *np.ones(2*self.l*self.ds.nx) ))
+
+
+    def ccol(self,z):
+        
+        l,nx,nu = self.l,self.ds.nx,self.ds.nu
+
+        h   = np.exp(z[self.iv_h])
+        dt  = h/self.l
+
+        hxu = array((l,nx+nu+1))
+        ufunc('a=b')(hxu[:,:1], to_gpu(np.array([[dt]]))  )
+        ufunc('a=b')(hxu[:,1:1+nx+nu], to_gpu(z[self.iv_xuc])  )
+        accs = self.ds.integrate_sp(hxu).get()
+
+        c = np.zeros(self.nc) 
+        c[self.ic_col] = (1.0/dt)*(z[self.iv_x[1:]] - z[self.iv_x[:-1]]) - accs + z[self.iv_slack[0]] - z[self.iv_slack[1]]
+
+        return c.reshape(-1)
+
+    def ccol_jacobian(self,z):
+        l,nx,nu = self.l,self.ds.nx,self.ds.nu
+
+        dt   = np.exp(z[self.iv_h])/self.l
+
+        hxu = array((l,nx+nu+1))
+        ufunc('a=b')(hxu[:,:1], to_gpu(np.array([[dt]]))  )
+        ufunc('a=b')(hxu[:,1:1+nx+nu], to_gpu(z[self.iv_xuc])  )
+        da = self.ds.integrate_sp_diff(hxu).get()
+
+        j1 = -da[:,1:,:] - 1.0/dt * np.eye(nx+nu,nx)[np.newaxis,:,:]
+        
+        j2 = (1.0/dt)*np.ones(l*nx)
+
+        j3 = -(1.0/dt)*(z[self.iv_x[1:]] - z[self.iv_x[:-1]]) - dt*da[:,0,:]
+        
+        j4 =  np.ones(l*nx)
+        j5 = -np.ones(l*nx)
+
+        return np.concatenate((
+                j1.reshape(-1),j2.reshape(-1),j3.reshape(-1),j4,j5))
+
+
+    @staticmethod
+    @memoize
+    def __ccol_jac_inds(l,nx,nu):
+
+        ji1 = [(t*nx + i, 1 + t*(nx+nu) + j ) 
+                    for t in range(l)
+                    for j in range(nx+nu)
+                    for i in range(nx)
+              ]
+
+        ji2 = [(t*nx + i, 1 + (t+1)*(nx+nu) + i ) 
+                    for t in range(l)
+                    for i in range(nx)
+              ]
+
+        ji3 = [(t*nx + i, 0 ) 
+                    for t in range(l)
+                    for i in range(nx)
+              ]
+
+        ji4 = [(i,  1 + (l+1)*nx + l*nu +i ) 
+                    for i in range(l*nx)
+              ]
+
+        ji5 = [(i,  1 + (l+1)*nx + l*nu + l*nx +i ) 
+                    for i in range(l*nx)
+              ]
+
+
+        ic, iv = zip(*(ji1+ji2+ji3+ji4+ji5))
+        return np.array(ic), np.array(iv)
+
+
+    def ccol_jacobian_inds(self):
+        return self.__ccol_jac_inds(self.l,self.ds.nx,self.ds.nu)
+    def get_policy(self,z):
+
+        pi = PiecewiseConstantPolicy(z[self.iv_u],np.exp(z[self.iv_h]))
+        pi.x = z[self.iv_x]
+        return pi
+
+    def initialization(self):
+        for h,w in self.ds.initializations():
+            xu = w(np.linspace(0,1.0,self.l+1))
+            z = np.zeros(self.nv)
+
+            z[self.iv_slack] = 0
+            z[self.iv_x] = xu[:,:self.ds.nx]
+            z[self.iv_u] = xu[:-1,self.ds.nx:]
+            z[self.iv_h] = h
+        
+            return z 
+
+
+
+
+class MSMext():
+    def __init__(self, ds, l):
+        self.ds = ds
+        self.l = l
+        self.lbd = 100.0
+        
+        nx,nu = self.ds.nx, self.ds.nu
+        self.nv = 1 + (l+ 1)*nx + l*nu + 2*l*nx
+        self.nc = nx*l + 2*nx
+        
+        self.iv_h = 0
+
+        self.iv = np.arange(self.nv)
+        self.ic = np.arange(self.nc)
+        
+        tmp = 1+ np.arange((l+1)*(nx+nu)).reshape(l+1,-1)
+        self.iv_xuc = tmp[:-1,:] 
+        self.iv_x = tmp[:,:nx] 
+        self.iv_u = tmp[:-1,nx:] 
+        self.iv_slack = 1 + (l+1)*nx + l*nu + np.arange(2*l*nx).reshape(2,l,nx)
+        
+        self.ic_col = np.arange(l*nx).reshape(l,nx)
+        self.ic_o = l*nx+ np.arange(nx)
+        self.ic_f = l*nx+ nx+ np.arange(nx)
+
+        self.no_slack = False
+        
+
+    # hack (not elegant, bug prone)
+
+    def bounds(self):
+        b = float('inf')*np.ones(self.nv)
+        b[self.iv_u] = 1.0
+        
+        bl = -b
+        bu = b
+
+        bl[self.iv_h] = .1
+        bu[self.iv_h] = 100.0
+        
+        bl[self.iv_slack] = 0
+        if self.no_slack:
+            bu[self.iv_slack] = 0
+
+
+        return bl, bu
+
+    def obj(self,z):
+        return -z[0] + self.lbd*np.sum(z[self.iv_slack].reshape(-1))
+
+    def obj_grad_inds(self):
+        return np.concatenate((np.array([0]), self.iv_slack.reshape(-1) ))
+
+    def obj_grad(self,z):
+        return np.concatenate((np.array([-1]), self.lbd *np.ones(2*self.l*self.ds.nx) ))
+
+    def ccol(self,z):
+        
+        l,nx,nu = self.l,self.ds.nx,self.ds.nu
+
+        hi  = z[self.iv_h]
+        dti  = self.l*hi
+        dt = 1.0/dti
+
+        hxu = array((l,nx+nu+1))
+        ufunc('a=b')(hxu[:,:1], to_gpu(np.array([[dt]]))  )
+        ufunc('a=b')(hxu[:,1:1+nx+nu], to_gpu(z[self.iv_xuc])  )
+        ufunc('a/=b')(hxu[:,1:1+nx], to_gpu(np.array([[hi]]))  )
+        accs = self.ds.integrate_sp(hxu).get()
+
+        c = np.zeros(self.nc) 
+        c[self.ic_col] = l*(z[self.iv_x[1:]] - z[self.iv_x[:-1]]) - accs + z[self.iv_slack[0]] - z[self.iv_slack[1]]
+        
+        c[self.ic_o] = z[self.iv_x[ 0]] - np.array(self.ds.state) * hi
+        c[self.ic_f] = z[self.iv_x[-1]] - np.array(self.ds.target) * hi
+
+        return c.reshape(-1)
+
+    def ccol_jacobian(self,z):
+        l,nx,nu = self.l,self.ds.nx,self.ds.nu
+
+        hi  = z[self.iv_h]
+        dti  = self.l*hi
+        dt = 1.0/dti
+
+        hxu = array((l,nx+nu+1))
+        ufunc('a=b')(hxu[:,:1], to_gpu(np.array([[dt]]))  )
+        ufunc('a=b')(hxu[:,1:1+nx+nu], to_gpu(z[self.iv_xuc])  )
+        ufunc('a/=b')(hxu[:,1:1+nx], to_gpu(np.array([[hi]]))  )
+
+        da = self.ds.integrate_sp_diff(hxu).get()
+        da[:,0:1+nx,:] /= hi
+
+        j1 = -da[:,1:,:] - l * np.eye(nx+nu,nx)[np.newaxis,:,:]
+        
+        j2 = l* np.ones(l*nx)
+        
+        da[:,0:1+nx,:] /= hi
+        j3 = np.sum(da[:,1:1+nx,:]*z[self.iv_x[:-1]][:,:,np.newaxis],axis=1)+ (1.0/l)*da[:,0,:]
+        
+        j4 = np.ones(2*nx) 
+        j5 = -np.concatenate((self.ds.state, self.ds.target))
+        j6 = np.ones(l*nx)
+        j7 = -np.ones(l*nx)
+        
+
+        return np.concatenate((
+                j1.reshape(-1),j2.reshape(-1),j3.reshape(-1),
+                j4,j5,j6,j7))
+
+
+    @staticmethod
+    @memoize
+    def __ccol_jac_inds(l,nx,nu):
+
+        ji1 = [(t*nx + i, 1 + t*(nx+nu) + j ) 
+                    for t in range(l)
+                    for j in range(nx+nu)
+                    for i in range(nx)
+              ]
+
+        ji2 = [(t*nx + i, 1 + (t+1)*(nx+nu) + i ) 
+                    for t in range(l)
+                    for i in range(nx)
+              ]
+
+        ji3 = [(t*nx + i, 0 ) 
+                    for t in range(l)
+                    for i in range(nx)
+              ]
+
+        ji4 = [(l*nx + i, 1 + i ) 
+                    for i in range(nx)
+              ]
+
+        ji5 = [(l*nx + nx + i, 1 + l*(nx+nu) + i )  
+                    for i in range(nx)
+              ]
+
+
+        ji6 = [(l*nx + i, 0)  
+                    for i in range(2*nx)
+              ]
+
+        ji7 = [(i,  1 + (l+1)*nx + l*nu +i ) 
+                    for i in range(l*nx)
+              ]
+
+        ji8 = [(i,  1 + (l+1)*nx + l*nu + l*nx +i ) 
+                    for i in range(l*nx)
+              ]
+
+
+        ic, iv = zip(*(ji1+ji2+ji3+ji4+ji5+ji6+ji7+ji8))
+        return np.array(ic), np.array(iv)
+
+
+    def ccol_jacobian_inds(self):
+        return self.__ccol_jac_inds(self.l,self.ds.nx,self.ds.nu)
+    def get_policy(self,z):
+
+        hi = z[self.iv_h]
+        pi = PiecewiseConstantPolicy(z[self.iv_u],1.0/hi)
+        pi.x = z[self.iv_x]/hi
+        return pi
+
+    def initialization(self):
+        for h,w in self.ds.initializations():
+            xu = w(np.linspace(0,1.0,self.l+1))
+            z = np.zeros(self.nv)
+
+            z[self.iv_x] = xu[:,:self.ds.nx]*np.exp(-h)
+            z[self.iv_u] = xu[:-1,self.ds.nx:]
+            z[self.iv_h] = np.exp(-h)
+        
+            return z 
+
+
+
+
+class ESM(MSM):
+    def ccol(self,z):
+        
+        l,nx,nu = self.l,self.ds.nx,self.ds.nu
+
+        h   = np.exp(z[self.iv_h])
+        dt  = h/self.l
+
+        accs = self.ds.f_sp(to_gpu(z[self.iv_xuc])).get()
+
+        c = np.zeros(self.nc) 
+        c[self.ic_col] = (1.0/dt)*(z[self.iv_x[1:]] - z[self.iv_x[:-1]]) - accs
+
+
+        target = self.ds.task_state(to_gpu(z[self.iv_x][-1:])).get()
+        c[self.ic_target] =  target
+
+        return c.reshape(-1)
+
+    def ccol_jacobian(self,z):
+        l,nx,nu,nk = self.l,self.ds.nx,self.ds.nu,self.ds.nk
+
+        dt   = np.exp(z[self.iv_h])/self.l
+
+        da_ = self.ds.f_sp_diff(to_gpu(z[self.iv_xuc])).get()
+
+        dts = self.ds.task_state_diff(to_gpu(z[self.iv_x][-1:])).get()
+
+        j1 = -da_ - 1.0/dt * np.eye(nx+nu,nx)[np.newaxis,:,:]
+        
+        j2 = (1.0/dt)*np.ones(l*nx)
+
+        j3 = -(1.0/dt)*(z[self.iv_x[1:]] - z[self.iv_x[:-1]]) 
+        
+        j4 = dts
+        
+
+        return np.concatenate((
+                j1.reshape(-1),j2.reshape(-1),j3.reshape(-1), j4.reshape(-1)))
+
+
+
+class ESMh(MSM):
+    def ccol(self,z):
+        
+        l,nx,nu = self.l,self.ds.nx,self.ds.nu
+
+        h   = np.exp(z[self.iv_h])
+        dt  = h/self.l
+
+        accs = self.ds.f_sp(to_gpu(z[self.iv_xuc])).get()
+
+        c = np.zeros(self.nc) 
+        c[self.ic_col] = (z[self.iv_x[1:]] - z[self.iv_x[:-1]]) - dt*accs
+
+
+        target = self.ds.task_state(to_gpu(z[self.iv_x][-1:])).get()
+        c[self.ic_target] =  target
+
+        return c.reshape(-1)
+
+    def ccol_jacobian(self,z):
+        l,nx,nu = self.l,self.ds.nx,self.ds.nu
+
+        dt   = np.exp(z[self.iv_h])/self.l
+
+        da_ = self.ds.f_sp_diff(to_gpu(z[self.iv_xuc])).get()
+        accs = self.ds.f_sp(to_gpu(z[self.iv_xuc])).get()
+        dts = self.ds.task_state_diff(to_gpu(z[self.iv_x][-1:])).get()
+
+        j1 = - dt* da_ - np.eye(nx+nu,nx)[np.newaxis,:,:]
+        
+        j2 = np.ones(l*nx)
+
+        j3 = -dt*(accs) 
+        
+        return np.concatenate((
+                j1.reshape(-1),j2.reshape(-1),j3.reshape(-1)))
+
+
+
 class KnitroNlp():
     def __init__(self, prob):
         """ initialize planner for dynamical system"""
         self.prob = prob
         self.kc = self.prep_solver() 
+        self.is_first = True
 
 
     def __del__(self):
@@ -870,7 +1273,7 @@ class KnitroNlp():
 
         #---- DEMONSTRATE HOW TO SET KNITRO PARAMETERS.
 
-        if KTR_set_int_param(kc, KTR_PARAM_ALGORITHM, 1):
+        if KTR_set_int_param(kc, KTR_PARAM_ALGORITHM, 2):
             raise RuntimeError ("Error setting parameter 'algorithm'")
 
         if KTR_set_int_param_by_name(kc, "hessopt", 3):
@@ -902,8 +1305,8 @@ class KnitroNlp():
         #if KTR_set_int_param(kc, KTR_PARAM_SOC, 1):
         #    raise RuntimeError ("Error setting parameter 'outlev'")
 
-        #if KTR_set_int_param(kc, KTR_PARAM_HONORBNDS, 1):
-        #    raise RuntimeError ("Error setting parameter 'outlev'")
+        if KTR_set_int_param(kc, KTR_PARAM_HONORBNDS, 1):
+            raise RuntimeError ("Error setting parameter 'outlev'")
 
         #if KTR_set_int_param(kc, KTR_PARAM_BAR_INITPT, 2):
         #    raise RuntimeError ("Error setting parameter 'outlev'")
@@ -927,10 +1330,10 @@ class KnitroNlp():
         #    raise RuntimeError ("Error setting parameter")
 
 
-        if KTR_set_int_param(kc, KTR_PARAM_LPSOLVER, 3):
-            raise RuntimeError ("Error setting parameter 'linsolver'")
+        #if KTR_set_int_param(kc, KTR_PARAM_LPSOLVER, 3):
+        #    raise RuntimeError ("Error setting parameter 'linsolver'")
 
-        if KTR_set_int_param(kc,KTR_PARAM_MAXIT,2000):
+        if KTR_set_int_param(kc,KTR_PARAM_MAXIT,1000):
             raise RuntimeError ("Error setting parameter 'maxit'")
 
         #---- INITIALIZE KNITRO WITH THE PROBLEM DEFINITION.
@@ -950,6 +1353,7 @@ class KnitroNlp():
                 obj, c, objGrad, jac, hessian, hessVector, userParams):
             if not evalRequestCode == KTR_RC_EVALFC:
                 return KTR_RC_CALLBACK_ERR
+
             x = np.array(x)
             obj[0] = self.prob.obj(x) 
             c[:] = self.prob.ccol(x).tolist()
@@ -978,21 +1382,27 @@ class KnitroNlp():
     def solve(self):
         
         bl,bu = self.prob.bounds()
-        x = self.prob.initialization()
+        if not self.is_first:
+            x = self.ret_x
+            #l = self.ret_lambda
+        else:
+            self.is_first= False
+            x = self.prob.initialization().tolist()
+        l = None
         
         bl[np.isinf(bl)] = -KTR_INFBOUND
         bu[np.isinf(bu)] =  KTR_INFBOUND
 
         KTR_chgvarbnds(self.kc, bl.tolist(), bu.tolist())
-        KTR_restart(self.kc, x.tolist(), None)
+        KTR_restart(self.kc, x, l)
         
         nStatus = KTR_solve (self.kc, self.ret_x, self.ret_lambda, 0, 
                         self.ret_obj, None, None, None, None, None, None)
-            
-
+        status = [0,]
+        KTR_get_solution(self.kc, 
+                    status, self.ret_obj, self.ret_x, self.ret_lambda)
         if nStatus !=0:
             print 'Infeas'
-            return self.prob.get_policy(self.prob.last_z)
 
         return self.prob.get_policy(np.array(self.ret_x))
 
@@ -1007,9 +1417,9 @@ class Linearizer():
         bl,bu = self.nlp.bounds()
         
         rl, ru = bl-z, bu-z
-        #rl[self.nlp.iv_slack] = bl[self.nlp.iv_slack]
-        #ru[self.nlp.iv_slack] = bu[self.nlp.iv_slack] 
-
+        rl[self.nlp.iv_slack] = bl[self.nlp.iv_slack]
+        ru[self.nlp.iv_slack] = bu[self.nlp.iv_slack] 
+        
         return self.nlp.iv, rl,ru
 
     def obj(self,z):
@@ -1046,8 +1456,8 @@ class SlpNlp():
         self.ret_y = np.zeros(nc)
         
         task = mosek_env.Task()
-        task.append( mosek.accmode.var, nv)
-        task.append( mosek.accmode.con, nc)
+        task.appendvars(nv)
+        task.appendcons(nc)
         
         bdk = mosek.boundkey
         b = [0]*nv
@@ -1085,7 +1495,8 @@ class SlpNlp():
 
 
         task.optimize()
-        [prosta, solsta] = task.getsolutionstatus(mosek.soltype.itr)
+        prosta = task.getprosta(mosek.soltype.itr) 
+        solsta = task.getsolsta(mosek.soltype.itr) 
 
         task._Task__progress_cb=None
         task._Task__stream_cb=None
@@ -1116,420 +1527,24 @@ class SlpNlp():
         
         
     def solve(self):
+        
+        #try:
+        #    z = self.lastz
+        #except:
         z = self.nlp.initialization()
+        for i in range(100):  
+            z[self.nlp.iv_slack]=0
 
-        for i in range(100):
-            #z[self.nlp.iv_slack]=0
-             
-            self.solve_task(z)
+            self.nlp.bld = 10
+            if not self.solve_task(z):
+                self.nlp.bld = 100
+                self.solve_task(z)
 
             z += 1.0/np.sqrt(i+20)* self.ret_x
 
-            print ('{:9.5f} '*2).format(
-                z[self.nlp.iv_h], self.nlp.obj(z)-z[self.nlp.iv_h])
+            print ('{:9.5f} '*2).format( z[self.nlp.iv_h], self.nlp.obj(z)+z[self.nlp.iv_h])
         
-
+        last_z = z
         return self.nlp.get_policy(z)
         
 
-# older version here
-class SqpPlanner():
-    def __init__(self, ds,l,nls=100):
-        """ initialize planner for dynamical system"""
-        self.ds = ds
-        self.l=l
-        self.collocator = LGL(l)
-        self.line_search_collocator = LGL(nls)
-
-        self.prep_solver()
-        self.setup_slack(100)
-
-    def prep_solver(self):
-        l,nx,nu = self.l, self.ds.nx, self.ds.nu
-
-        nv, nc = 1+l*(nx+nu)+2*nx, l*nx + nx
-        self.nv = nv
-        self.nc = nc
-        
-        self.iv_hxu = np.arange(1+l*(nx+nu))
-        self.ic_dyn = np.arange(l*nx)
-        self.iv_slack_neg = np.arange(1+l*(nx+nu),1+l*(nx+nu)+nx)
-        self.iv_slack_pos = np.arange(1+l*(nx+nu)+nx,1+l*(nx+nu)+2*nx)
-        self.ic_slack = np.arange(l*nx, l*nx+nx)
-
-        task = mosek_env.Task()
-        task.append( mosek.accmode.var, nv)
-        task.append( mosek.accmode.con, nc)
-        
-        bdk = mosek.boundkey
-        b = [0]*nv
-        task.putboundlist(mosek.accmode.var, range(nv), [bdk.fr]*nv,b,b )
-
-        b = [0]*nc
-        task.putboundlist(mosek.accmode.con, range(nc), [bdk.fx]*nc,b,b )
-        
-        task.putcj(0,1.0)
-        task.putobjsense(mosek.objsense.minimize)
-        
-        self.task = task
-
-    def setup_slack(self,lbd):
-        bdk = mosek.boundkey
-        nx = self.ds.nx
-        zs,os = np.zeros(nx), np.ones(nx)
-
-        i = self.ic_slack
-        j = self.iv_slack_pos
-        self.task.putaijlist(i,j,  os)
-        self.task.putclist(j, lbd*os)
-        self.task.putboundlist(mosek.accmode.var, j, [bdk.lo]*nx,zs,zs )
-
-        j = self.iv_slack_neg
-        self.task.putaijlist(i,j, -os)  
-        self.task.putclist(j, lbd*os)
-        self.task.putboundlist(mosek.accmode.var, j, [bdk.lo]*nx,zs,zs )
-
-    def bind_state(self,i,state):
-
-        l,nx,nu = self.l, self.ds.nx, self.ds.nu
-        if i<0:
-            i = l+i
-
-        i = 1 + i*(nx+nu) + np.arange(nx)
-        c_bdk = [mosek.boundkey.fx]*nx
-        self.task.putboundlist(mosek.accmode.var,i,c_bdk,state,state )
-        
-    def bind_state_with_slack(self,i,state):
-
-        l,nx,nu = self.l, self.ds.nx, self.ds.nu
-        if i<0:
-            i = l+i
-
-        j = 1 + i*(nx+nu) + np.arange(nx)
-        i = self.ic_slack
-        
-        self.task.putaijlist(i,j,np.ones(i.size))
-
-        c_bdk = [mosek.boundkey.fx]*nx
-        self.task.putboundlist(mosek.accmode.con, i, c_bdk,state,state )
-        
-    def bound_controls(self,u=None,li=float('inf')):
-        l,nx,nu = self.l, self.ds.nx, self.ds.nu
-        if u is None:
-            u = np.zeros(l*nu)
-        else:
-            u = u.reshape(-1)
-
-        bdk,wx = mosek.boundkey, np.newaxis
-        i = 1 + nx + (nx+nu)*np.arange(l)[:,wx] + np.arange(nu)[wx,:]
-        i = i.reshape(-1)
-        v_bdk = [bdk.ra]*(nu*l)
-        bl = np.maximum(-1.0+u,-li)
-        bu = np.minimum( 1.0+u, li)
-
-        self.task.putboundlist(  mosek.accmode.var,i,v_bdk,bl,bu )
-
-
-    def bound_delta_states(self,li=float('inf')):
-        if li == float('inf'):
-            return
-        l,nx,nu = self.l, self.ds.nx, self.ds.nu
-
-        bdk,wx = mosek.boundkey, np.newaxis
-        i = self.iv_hxu
-        v_bdk = [bdk.ra]*(i.size)
-        bl = [-li]*i.size
-        bu = [+li]*i.size
-
-        self.task.putboundlist(  mosek.accmode.var,i,v_bdk,bl,bu )
-
-
-    @staticmethod
-    @memoize
-    def __linearize_inds(l,nx,nu):
-        wx  = np.newaxis
-        rl  = np.arange(l)
-        rxu = np.arange(nx+nu)
-        rx  = np.arange(nx)
-
-        dd_c = (rl*nx)[wx,:,wx] + np.zeros(l)[wx,wx,:] + rx[:,wx,wx] 
-        dd_v = 1 +(rl*(nx+nu))[wx,wx,:] + np.zeros(l)[wx,:,wx] + rx[:,wx,wx] 
-
-        gh_c = (rl*nx)[:,wx] + np.arange(nx)[wx,:]
-        gh_v = np.zeros(gh_c.size)
-
-        gxu_c = (rl*nx)[:,wx,wx] + np.zeros(nx+nu)[wx,:,wx] + rx[wx,wx,:]
-        gxu_v = 1+(rl*(nx+nu))[:,wx,wx] + rxu[wx,:,wx] + np.zeros(nx)[wx,wx,:]
-
-        c = np.concatenate((dd_c.reshape(-1),
-                    gh_c.reshape(-1), gxu_c.reshape(-1)))
-        v = np.concatenate((dd_v.reshape(-1),
-                    gh_v.reshape(-1), gxu_v.reshape(-1)))
-        
-        return (c,v)
-
-    def linearize_dyn_logh(self,z):
-        # return function value and jacobian for g(x,u,h) = .5*h*f(x,u) - D*x
-        
-        l,nx,nu = self.l,self.ds.nx,self.ds.nu
-        h,dh = np.exp(z[0]), np.exp(z[0])
-        
-        xu = z[1:].reshape(l,-1)
-        x = xu[:,:nx]
-        u = xu[:,-nu:]
-
-
-        buff = array((l,nx+nu))
-        buff.set(xu)
-
-        df = self.ds.f_sp_diff(buff)
-        f = self.ds.f_sp(buff) 
-
-        f,df = f.get(), df.get()
-        
-        wx  = np.newaxis
-        d    =  np.array(np.matrix(self.collocator.diff)*np.matrix(x))
-        dd   =  self.collocator.diff[wx,:,:] + np.zeros(nx)[:,wx,wx]
-
-        gh   = .5*dh*f
-        gxu   = .5*h*df
-        
-        inds = self.__linearize_inds(l,nx,nu)
-        jd = np.concatenate((dd.reshape(-1), gh.reshape(-1), gxu.reshape(-1)))
-        
-        #jd[np.abs(jd)<1e-5]=0
-        jac = coo_matrix((jd,inds)).tocsr().tocoo()
-
-        diff  = (.5*h*f +   d).reshape(-1)
-
-        return diff, jac
-        
-    def linearize_dyn_h(self,z):
-        # return function value and jacobian for g(x,u,h) = .5*h*f(x,u) - D*x
-        
-        l,nx,nu = self.l,self.ds.nx,self.ds.nu
-        #h,dh = np.exp(z[0]), np.exp(z[0])
-        h,dh = z[0], 1.0
-        
-        xu = z[1:].reshape(l,-1)
-        x = xu[:,:nx]
-        u = xu[:,-nu:]
-
-
-        buff = array((l,nx+nu))
-        buff.set(xu)
-
-        df = self.ds.f_sp_diff(buff)
-        f = self.ds.f_sp(buff) 
-
-        f,df = f.get(), df.get()
-        
-        wx  = np.newaxis
-        d    = - np.array(np.matrix(self.collocator.diff)*np.matrix(x))
-        dd   = - self.collocator.diff[wx,:,:] + np.zeros(nx)[:,wx,wx]
-
-        gh   = .5*dh*f
-        gxu   = .5*h*df
-        
-        
-        inds = self.__linearize_inds(l,nx,nu)
-        jd = np.concatenate((dd.reshape(-1), gh.reshape(-1), gxu.reshape(-1)))
-        
-        #jd[np.abs(jd)<1e-5]=0
-        jac = coo_matrix((jd,inds)).tocsr().tocoo()
-
-        diff  = (.5*h*f +   d).reshape(-1)
-
-        return diff, jac
-        
-    def linearize_dyn_loghi(self,z):
-        # return function value and jacobian for g(x,u,h) = .5*h*f(x,u) - D*x
-        
-        l,nx,nu = self.l,self.ds.nx,self.ds.nu
-        #h,dh = np.exp(z[0]), np.exp(z[0])
-        hi,dhi = np.exp(-z[0]), -np.exp(-z[0])
-        
-        xu = z[1:].reshape(l,-1)
-        x = xu[:,:nx]
-        u = xu[:,-nu:]
-
-
-        buff = array((l,nx+nu))
-        buff.set(xu)
-
-        df = self.ds.f_sp_diff(buff)
-        f = self.ds.f_sp(buff) 
-
-        f,df = f.get(), df.get()
-        
-        wx  = np.newaxis
-        d    = np.array(np.matrix(self.collocator.diff)*np.matrix(x))
-        dd   = hi*self.collocator.diff[wx,:,:] + np.zeros(nx)[:,wx,wx]
-
-        gh   =  dhi*d
-        gxu   = .5*df
-        
-        inds = self.__linearize_inds(l,nx,nu)
-        jd = np.concatenate((dd.reshape(-1), gh.reshape(-1), gxu.reshape(-1)))
-        
-        #jd[np.abs(jd)<1e-5]=0
-        jac = coo_matrix((jd,inds)).tocsr().tocoo()
-
-        diff  = (.5*f +   hi*d).reshape(-1)
-
-        return diff, jac
-        
-    linearize_dyn = linearize_dyn_loghi
-    def line_eval(self,z0,dz,al):
-        
-        diff_lin = self.nlcon[np.newaxis,:] + (self.nlcon_jac*dz)[np.newaxis,:]*al[:,np.newaxis]
-
-        z = z0[np.newaxis,:] + al[:,np.newaxis]*dz[np.newaxis,:]
-
-        l,nx,nu = self.l,self.ds.nx,self.ds.nu
-
-        xu = (z[:,1:].reshape(al.size*l,-1).copy())
-
-        buff = array((l*al.size,nx+nu))
-        buff.set(xu)
-        f = self.ds.f_sp(buff).get()
-
-        f = f.reshape(al.size,-1)
-
-        d = np.einsum('ij,ljk->lik',self.collocator.diff,
-                     xu[:,:nx].reshape((al.size,l,nx))).reshape(al.size,-1)
-
-        hi = np.exp(-z[:,0])[:,np.newaxis]
-        diff  = (.5*f +   hi*d)
-       
-        df  = self.slack_costs[np.newaxis,:]*(np.abs(diff)) 
-        df_ = self.slack_costs[np.newaxis,:]*(np.abs(diff_lin)) 
-        
-        return df,df_
-        
-    def line_search(self,z,dz,thrs = 10.0):
-        
-        alphas = (self.line_search_collocator.nodes + 1.0)/2.0
-        ws =  self.line_search_collocator.int_w
-        
-        df,df_ = self.line_eval(z,dz,alphas)
-        fs = np.abs(np.sum(df,1)-np.sum(df_,1))
-        rs =  np.cumsum(fs*ws)
-        
-        i_max = np.max(np.where(rs<thrs))
-        costs = np.sum(df,1) + (z[0]+ alphas*dz[0])
-        i_cost = np.argmin(costs[:i_max])
-        
-        return alphas[i_max], alphas[i_cost]
-
-        
-    def set_dynamics_delta(self,z):
-        
-        l,nx,nu = self.l, self.ds.nx, self.ds.nu
-        f,df = self.linearize_dyn(z)
-        
-        self.nlcon, self.nlcon_jac = f,df
-        
-        self.task.putaijlist( df.row, df.col, df.data  )
-        
-        f = -f
-        nc = l*nx 
-        bdk = mosek.boundkey
-        self.task.putboundlist(mosek.accmode.con,range(nc),[bdk.fx]*nc,f,f )
-
-        zr = np.zeros(nx/2)
-        self.task.putboundlist(mosek.accmode.con,range(nx/2),[bdk.fr]*nx,zr,zr )
-        self.task.putboundlist(mosek.accmode.con,(l-1)*nx+np.arange(nx/2),[bdk.fr]*nx,zr,zr )
-        
-    def qp_solve(self):
-
-        task = self.task
-
-        task.optimize()
-        [prosta, solsta] = task.getsolutionstatus(mosek.soltype.itr)
-
-        task._Task__progress_cb=None
-        task._Task__stream_cb=None
-        if (solsta!=mosek.solsta.optimal 
-                and solsta!=mosek.solsta.near_optimal):
-            # mosek bug fix 
-            print str(solsta)+", "+str(prosta)
-            raise TypeError
-
-           
-        nv,nc = self.nv,self.nc
-        xx = np.zeros(self.nv)
-        y = np.zeros(self.nc)
-
-        warnings.simplefilter("ignore", RuntimeWarning)
-        task.getsolutionslice(mosek.soltype.itr,
-                            mosek.solitem.xx,
-                            0,nv, xx)
-
-        task.getsolutionslice(mosek.soltype.itr,
-                            mosek.solitem.y,
-                            0,nc, y)
-
-        warnings.simplefilter("default", RuntimeWarning)
-        return xx,y
-
-        
-    def linearize_task(self,z,start,end,li=float('inf')):
-        
-        l,nx,nu = self.l, self.ds.nx, self.ds.nu
-         
-        xu = z[1:].reshape(l,-1) 
-
-        #self.bound_delta_states(li)
-
-        self.bind_state_with_slack( 0, np.array(start) - xu[0,:nx])
-        self.bind_state(-1, np.array(end) - xu[-1,:nx])
-
-        self.bound_controls(u=-xu[:,-nu:],li=li)
-
-        self.set_dynamics_delta(z)
-
-        bdk = mosek.boundkey
-        task = self.task
-        task.putbound(mosek.accmode.var,0, bdk.ra, max(-4.0-z[0],-li),min(8.0-z[0],li) )
-        
-        xx,yy = self.qp_solve()
-        
-        z_ = z+ xx[self.iv_hxu]
-        
-        print z_[0],
-        print np.sum(xx[self.iv_slack_pos] + xx[self.iv_slack_neg])
-        #print u
-        
-        return xx[self.iv_hxu]
-
-    def solve(self,start,end):
-        
-        ws = self.ds.state2waypoint(start)
-        we = self.ds.state2waypoint(end)
-
-        for h,spline in self.ds.initializations(ws,we):
-            x = spline((self.collocator.nodes+1.0)/2.0)
-            z = np.concatenate((np.array([h]),x.reshape(-1)))
-            
-            for i in range(50):
-                try:
-                    dz = self.linearize_task(z,start,end)
-                except:
-                    #raise
-                    break
-                al = 1.0/np.sqrt(i+2.0)
-                z = z+ al*dz
-            break
-
-        
-        self.ret_x = z
-        l,nx,nu = self.l, self.ds.nx, self.ds.nu
-        u = z[1:].reshape(l,-1)[:,-nu:]  
-        x = z[1:].reshape(l,-1)[:,:nx]  
-        
-        h = np.exp(z[0])
-        print h
-
-        rt = CollocationPolicy(self.collocator,u.copy(),h)
-        return rt

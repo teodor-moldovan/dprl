@@ -4,21 +4,28 @@ import re
 class Cartpole(DynamicalSystem, Environment):
     def __init__(self, state = (0,0,np.pi,0) , noise = 0):
 
-        DynamicalSystem.__init__(self,4,1,4)
+        DynamicalSystem.__init__(self,4,1)
 
+        state = np.array(state)
         Environment.__init__(self, state, .01, noise=noise)
 
-        self.target = [0,0,0,0]
+        self.target = np.array([0,0,0,0])
 
         self.l = .1    # pole length
         self.mc = .7    # cart mass
         self.mp = .325     # mass at end of pendulum
         self.g = 9.81   # gravitational accel
-        self.ucoeff = 10.0
-        self.friction = .0
+        self.um = 10.0
+        self.ff = .0
 
         tpl = Template(
         """
+        #define l {{ l }}
+        #define mc {{ mc }}
+        #define mp {{ mp }}
+        #define g {{ g }}
+        #define um {{ um }}
+        #define ff {{ ff }}
         __device__ void f(
                 {{ dtype }} y[],
                 {{ dtype }} us[], 
@@ -26,7 +33,7 @@ class Cartpole(DynamicalSystem, Environment):
 
         {{ dtype }} td = y[0];
         {{ dtype }} xd = y[1];
-        {{ dtype }} u = us[0]* {{ ucoeff }};
+        {{ dtype }} u = us[0];
         
         {{ dtype }} s = sin(y[2]);
         {{ dtype }} c = cos(y[2]);
@@ -34,11 +41,11 @@ class Cartpole(DynamicalSystem, Environment):
         yd[2] = td;
         yd[3] = xd;
 
-        {{ dtype }} tmp = 1.0/({{ mc }}+{{ mp }}*s*s);
-        yd[0] = (u *c - {{ mp * l }}* td*td * s*c + {{ (mc+mp) *g }}*s) 
-                *{{ 1.0/l }}*tmp - {{ ff }}*td;
+        {{ dtype }} tmp = 1.0/(mc+ mp*s*s);
+        yd[0] = (u *um*c - mp * l * td*td * s*c + (mc+mp) *g *s) 
+                * (1.0/l )*tmp -  ff *td;
          
-        yd[1] = (u - {{ mp * l}}*s*td*td +{{ mp*g }}*c*s )*tmp; 
+        yd[1] = (u*um -  mp * l *s*td*td + mp*g *c*s )*tmp; 
 
         }
         """
@@ -49,42 +56,11 @@ class Cartpole(DynamicalSystem, Environment):
                 mc=self.mc,
                 mp=self.mp,
                 g = self.g,
-                ff = self.friction,
-                ucoeff = self.ucoeff,
+                ff = self.ff,
+                um = self.um,
                 dtype = cuda_dtype)
 
         self.k_f = rowwise(fn,'cartpole')
-
-
-
-        tpl = Template(
-        """
-        #define l  {{ l }} // [m]      length of pendulum
-        __device__ void f(
-                {{ dtype }} y[],
-                {{ dtype }} w[]){
-
-        {{ dtype }} td = y[0];
-        {{ dtype }} xd = y[1];
-        {{ dtype }} s = sin(y[2]);
-        {{ dtype }} c = cos(y[2]);
-        {{ dtype }} x = y[3];
-
-        
-        w[0] = l*s + x; 
-        w[1] = l*(1-c);
-        w[2] = l*td*c + xd;
-        w[3] = l*td*s;
-
-        }
-        """
-        )
-
-        fn = tpl.render(
-                l=self.l,
-                dtype = cuda_dtype)
-
-        self.k_task_state = rowwise(fn,'cartpole_task_state')
 
 
 class CartpolePilco(DynamicalSystem, Environment):
