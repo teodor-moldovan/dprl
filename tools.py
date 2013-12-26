@@ -42,18 +42,27 @@ def memoize(func, *args):
 
 @my_decorator
 def memoize_one(func, *args):
+    #print 'entering ', func
     try:
-        return func._memoize_one_dic
+        if func._memoize_one_args == hash(args):
+            result = func._memoize_one_dic
+            #print 'cache_hit: ', func
+            return result
+        else:
+            raise AttributeError
     except AttributeError:
         # _memoize_dic doesn't exist yet.
 
         result = func(*args)
-        func._memoize_dic = result
+        func._memoize_one_dic = result
+        func._memoize_one_args = hash(args)
+        #print 'cache_miss: ', func
         return result
 
 if False:   # set True to disable caching
     memoize = lambda x : x
     memoize_one = lambda x : x
+#memoize_one = lambda x : x
 
 ## end settings
 cublas_handle = cublas.cublasCreate()
@@ -86,7 +95,7 @@ class array(GPUArray):
         self.__slc = None
         self.brd = True
         self.transposed = False
-        self.hash_id = [0,]
+        self.hash_id = [0.0,]
         self.newhash()
 
     def view(self):
@@ -122,7 +131,7 @@ class array(GPUArray):
     def __hash__(self):
         return hash((self.ptr,self.shape,self.hash_id[0]))
     def newhash(self):
-        self.hash_id[0] += 1.0
+        self.hash_id[0] += np.random.random()
         
 
     @property
@@ -674,6 +683,7 @@ def ufunc(fnc,name='noname',preface='',output_inds=(0,)):
         brds = tuple((a.brd for a in args ))
         nds,gs,bs = broadcast(cs,brds)
 
+        #print gs, bs
         k_ufunc(fnc, nds,name,preface).prepared_call(
                 (gs,1,1),(bs,1,1),*[p.gpudata for p in args] )
         

@@ -6,7 +6,9 @@ from  scipy.sparse import coo_matrix
 from sys import stdout
 import math
 
-import pylab as plt
+import matplotlib as mpl
+mpl.use('pdf')
+import matplotlib.pyplot as plt
 
 import mosek
 import warnings
@@ -14,7 +16,7 @@ mosek_env = mosek.Env()
 #mosek_env.init()
 
 class ExplicitRK(object):    
-    def __init__(self,st='lw6'):
+    def __init__(self,st='rk4'):
         ars = {
             'rk4': [
                 [.5],
@@ -226,9 +228,8 @@ class Environment:
             dx = dx.get().reshape(-1)
 
             nz = self.noise*np.random.normal(size=self.nx/2)
-            # changed
             # hack
-            #dx[:self.nx/2] += nz
+            dx[:self.nx/2] += nz
 
             return dx,u #.get().reshape(-1)
 
@@ -351,7 +352,7 @@ class DynamicalSystem(object):
 
         
 class OptimisticDynamicalSystem(DynamicalSystem):
-    def __init__(self,nx,nu, nxi,start, pred, xi_scale = 4.0, **kwargs):
+    def __init__(self,nx,nu, nxi, start, pred, xi_scale = 1.0, **kwargs):
 
         DynamicalSystem.__init__(self,nx,nu+nxi, **kwargs)
         
@@ -976,8 +977,13 @@ class MSMext():
         self.lbd = 100.0
         
         nx,nu = self.ds.nx, self.ds.nu
+        try:
+            nxi = self.ds.nxi
+        except:
+            nxi = 0
+
         self.nv = 1 + (l+ 1)*nx + l*nu + 2*l*nx
-        self.nc = nx*l + 2*nx
+        self.nc = nx*l + 2*nx + l
         
         self.iv_h = 0
 
@@ -988,11 +994,15 @@ class MSMext():
         self.iv_xuc = tmp[:-1,:] 
         self.iv_x = tmp[:,:nx] 
         self.iv_u = tmp[:-1,nx:] 
+        self.iv_u_binf = self.iv_u[:,:nu-nxi]
+        self.iv_qcon = self.iv_u[:,nu-nxi:nu]
         self.iv_slack = 1 + (l+1)*nx + l*nu + np.arange(2*l*nx).reshape(2,l,nx)
         
         self.ic_col = np.arange(l*nx).reshape(l,nx)
         self.ic_o = l*nx+ np.arange(nx)
         self.ic_f = l*nx+ nx+ np.arange(nx)
+        self.ic_eq = np.arange(nx*l+2*nx)
+        self.ic_qcon = nx*l+2*nx + np.arange(l)
 
         self.no_slack = False
         
@@ -1001,7 +1011,8 @@ class MSMext():
 
     def bounds(self):
         b = float('inf')*np.ones(self.nv)
-        b[self.iv_u] = 1.0
+        #b[self.iv_u] = 1.0
+        b[self.iv_u_binf] = 1.0
         
         bl = -b
         bu = b
@@ -1017,13 +1028,13 @@ class MSMext():
         return bl, bu
 
     def obj(self,z):
-        return -z[0] + self.lbd*np.sum(z[self.iv_slack].reshape(-1))
+        return -z[0] + self.lbd/self.l*np.sum(z[self.iv_slack].reshape(-1))
 
     def obj_grad_inds(self):
         return np.concatenate((np.array([0]), self.iv_slack.reshape(-1) ))
 
-    def obj_grad(self,z):
-        return np.concatenate((np.array([-1]), self.lbd *np.ones(2*self.l*self.ds.nx) ))
+    def obj_grad(self,z=None):
+        return np.concatenate((np.array([-1]), self.lbd *np.ones(2*self.l*self.ds.nx) ))/self.l
 
     def ccol(self,z):
         
@@ -1131,8 +1142,11 @@ class MSMext():
     def get_policy(self,z):
 
         hi = z[self.iv_h]
-        pi = PiecewiseConstantPolicy(z[self.iv_u],1.0/hi)
+        us = z[self.iv_u[:,:-self.ds.nxi]].copy()
+        pi = PiecewiseConstantPolicy(us,1.0/hi)
         pi.x = z[self.iv_x]/hi
+        pi.uxi = z[self.iv_u].copy()
+        #print np.sum(z[self.iv_qcon]*z[self.iv_qcon],1)
         return pi
 
     def initialization(self):
@@ -1407,46 +1421,15 @@ class KnitroNlp():
         return self.prob.get_policy(np.array(self.ret_x))
 
 
-class Linearizer():
-    """ NPL first order approximation """
-    def __init__(self,nlp):
-        self.nlp = nlp 
-        self.nv,self.nc = nlp.nv, nlp.nc
-
-    def bounds(self,z):
-        bl,bu = self.nlp.bounds()
-        
-        rl, ru = bl-z, bu-z
-        rl[self.nlp.iv_slack] = bl[self.nlp.iv_slack]
-        ru[self.nlp.iv_slack] = bu[self.nlp.iv_slack] 
-        
-        return self.nlp.iv, rl,ru
-
-    def obj(self,z):
-        return self.nlp.obj_grad_inds(),self.nlp.obj_grad(z)
-        
-    def constraints(self,z):
-        
-        c = self.nlp.ccol(z) 
-        i,j = self.nlp.ccol_jacobian_inds()
-        d = self.nlp.ccol_jacobian(z)
-        
-        #tmp = coo_matrix((d,(i,j)),shape=[self.nlp.nc,self.nlp.nv])*np.matrix(z).T
-        #c = c - np.array(tmp).reshape(-1)
-        
-        return self.nlp.ic.reshape(-1), -c, i,j,d
-
-
 class SlpNlp():
     """Nonlinear program solver based on sequential linear programming """
-    def __init__(self, prob, linearizer = Linearizer):
+    def __init__(self, prob):
         self.nlp = prob
-        self.lp = linearizer(prob)
         self.prep_solver() 
 
     def prep_solver(self):
 
-        nv, nc = self.lp.nv, self.lp.nc
+        nv, nc = self.nlp.nv, self.nlp.nc
 
         self.nv = nv
         self.nc = nc
@@ -1468,16 +1451,9 @@ class SlpNlp():
         
         task.putobjsense(mosek.objsense.minimize)
         
-        self.task = task
 
-    def solve_task(self,z):
-
-        task = self.task
-
-        j,c = self.lp.obj(z)
-        task.putclist(j,c)
-
-        i,l,u = self.lp.bounds(z)
+        l,u = self.nlp.bounds()
+        i = self.nlp.iv
         bm = self.bm
         bm[np.logical_and(np.isinf(l), np.isinf(u))] = mosek.boundkey.fr
         bm[np.logical_and(np.isinf(l), np.isfinite(u))] = mosek.boundkey.up
@@ -1485,8 +1461,49 @@ class SlpNlp():
         bm[np.logical_and(np.isfinite(l), np.isfinite(u))] = mosek.boundkey.ra
 
         task.putboundlist(mosek.accmode.var,i,bm,l,u )
-         
-        ic, c,i,j,d = self.lp.constraints(z)
+
+        j,c =  self.nlp.obj_grad_inds(),self.nlp.obj_grad()
+        task.putclist(j,c)
+        
+        # hack
+        if False:
+            i = self.nlp.iv_qcon
+            k = self.nlp.ic_qcon
+            task.putboundlist(mosek.accmode.con, k, [mosek.boundkey.up]*k.size,[.5]*k.size,[.5]*k.size )
+            k = (k[:,np.newaxis] + 0*i).reshape(-1)
+            nxi = i.shape[1]
+            i = i.reshape(-1)
+            task.putqcon(k, i, i, np.ones(i.size))
+        else:
+            i = self.nlp.iv_qcon
+            k = self.nlp.ic_qcon
+            task.putboundlist(mosek.accmode.con, k, [mosek.boundkey.up]*k.size,[.5]*k.size,[.5]*k.size )
+            k = (k[:,np.newaxis] + 0*i).reshape(-1)
+            nxi = i.shape[1]
+            i = i.reshape(-1)
+            task.putqconk(k[0], i, i, np.ones(i.size)/i.size)
+
+        # end hack
+
+        
+        #j = self.nlp.iv_x.reshape(-1)
+        #task.putqobj(j,j,.001*np.ones(j.size))
+        
+
+        self.task = task
+
+    def solve_task(self,z):
+
+        task = self.task
+        c = self.nlp.ccol(z) 
+        i,j = self.nlp.ccol_jacobian_inds()
+        d = self.nlp.ccol_jacobian(z)
+        
+        tmp = coo_matrix((d,(i,j)),
+                shape=[self.nlp.nc,self.nlp.nv])*np.matrix(z).T
+        c = -c + np.array(tmp).reshape(-1)
+        ic =  self.nlp.ic_eq.reshape(-1)
+
         
         task.putaijlist(i,j,d)
         
@@ -1508,7 +1525,7 @@ class SlpNlp():
             ret = False
             #raise TypeError
 
-        nv,nc = self.lp.nv,self.lp.nc
+        nv,nc = self.nlp.nv,self.nlp.nc
 
         warnings.simplefilter("ignore", RuntimeWarning)
         task.getsolutionslice(mosek.soltype.itr,
@@ -1526,25 +1543,70 @@ class SlpNlp():
            
         
         
+    def iterate(self,z,n_iters):
+
+        for i in range(n_iters):  
+            self.nlp.bld = 100
+            #self.no_slack=True
+            if not self.solve_task(z):
+                #self.nlp.no_slack=False
+                self.nlp.bld = 1000
+                if not self.solve_task(z):
+                    pass
+                    #break
+
+            z = z + 1.0/np.sqrt(i+20)* (self.ret_x-z)
+            #z[self.nlp.iv_slack] = self.ret_x[self.nlp.iv_slack]
+
+            obj = self.nlp.obj(z) 
+            print ('{:9.5f} '*2).format( z[self.nlp.iv_h], obj+z[self.nlp.iv_h])
+
+        return obj, z 
+
+        
     def solve(self):
         
-        #try:
-        #    z = self.lastz
-        #except:
-        z = self.nlp.initialization()
-        for i in range(100):  
-            z[self.nlp.iv_slack]=0
-
-            self.nlp.bld = 10
-            if not self.solve_task(z):
-                self.nlp.bld = 100
-                self.solve_task(z)
-
-            z += 1.0/np.sqrt(i+20)* self.ret_x
-
-            print ('{:9.5f} '*2).format( z[self.nlp.iv_h], self.nlp.obj(z)+z[self.nlp.iv_h])
         
-        last_z = z
+        zi = self.nlp.initialization()
+
+
+        obj, z = self.iterate(zi,75)
+        
+        self.last_z = z
+        
+        return self.nlp.get_policy(z)
+        
+
+    def solve_(self):
+        
+        s0 = np.array(self.nlp.ds.target)
+        
+        sm = (float("inf"),None,None)
+        for i in (-1,0,1):
+            for j in (-1,0,1):
+                s = s0.copy()
+                s[3] += i*2*np.pi
+                s[4] += j*2*np.pi
+                
+                self.nlp.ds.target = s
+                zi = self.nlp.initialization()
+                #try:
+                #    zi[self.nlp.iv_u] = self.last_z[self.nlp.iv_u]
+                #except:
+                #    pass
+
+                obj, z = self.iterate(zi,15)
+                
+                if obj < sm[0]:
+                    sm = (obj,z, s)
+        
+        obj,z,s = sm
+        self.nlp.ds.target = s
+        
+        obj, z = self.iterate(z,50)
+        self.nlp.ds.target = s0
+        self.last_z = z
+        
         return self.nlp.get_policy(z)
         
 

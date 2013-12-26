@@ -662,6 +662,98 @@ class TestsClustering(unittest.TestCase):
 
 
 
+    def test_niw_cond_tools(self):
+        l,k,p,py = 8*12,25,28,4
+        px = p-py
+
+        s = NIW(p,l)
+
+        np.random.seed(6)
+        so = np.random.normal(size=l*p*p).reshape(l,p,p)
+        psi = np.einsum('nij,nkj->nik',so,so) + 10*np.eye(p)[np.newaxis,:,:]
+        mu = np.random.normal(size=l*p).reshape(l,p)
+        x = np.random.normal(size=k*px).reshape(k,px)
+        n = np.random.random(size=l)*10+ 1
+        nu = np.random.random(size=l)*10+2*p
+
+        s.mu  = to_gpu(  mu)
+        s.psi = to_gpu( psi)
+        s.n   = to_gpu(   n)
+        s.nu  = to_gpu(  nu)
+        
+        fn,fmu,fmo,Pyy_bar = s.cond_linear_forms(py)
+        
+        i,j = -1,-1
+
+        fn = fn.get()[i]
+        fmu = fmu.get()[i]
+        fmo = fmo.get()[i]
+
+        m = s.mu.get()[i]
+        my = m[:py]
+        mx = m[py:]
+
+        nu = s.nu.get()[i]
+        n  = s.n.get()[i]
+
+        P  = s.psi.get()[i]
+        Pyy = P[:py,:py]
+        Pxx = P[py:,py:]
+        Pyx = P[:py,py:]
+        Pxy = P[py:,:py]
+
+        t = s.sufficient_statistics(to_gpu(  x)).get()[j]
+        x = x[j]
+        
+        d = x-mx
+        
+        r  = np.dot(fn,t)
+        r_ = n*np.dot(d,np.linalg.solve(Pxx,d))
+        np.testing.assert_array_almost_equal(r,r_)
+        
+        r_ = np.dot(fmu,t)  
+        b  = np.dot(Pyx, np.linalg.solve(Pxx,d)) + my
+        r = b
+        
+        np.testing.assert_array_almost_equal(r,r_)
+
+        r_ = np.dot(fmo,t)  
+        r =  b[:,np.newaxis]*b[np.newaxis,:]
+
+        np.testing.assert_array_almost_equal(r,r_)
+
+    def test_niw_cond_mix(self):
+        l,k,p,py = 28,28,30,4
+        px = p-py
+
+        s = NIW(p,l)
+
+        np.random.seed(6)
+        so = np.random.normal(size=l*p*p).reshape(l,p,p)
+        psi = np.einsum('nij,nkj->nik',so,so) + 10*np.eye(p)[np.newaxis,:,:]
+        mu = np.random.normal(size=l*p).reshape(l,p)
+        x = np.random.normal(size=k*px).reshape(k,px)
+        n = np.random.random(size=l)*10+ 1
+        nu = np.random.random(size=l)*10+2*p
+
+        probs = to_gpu(np.eye(k,l))
+        x = to_gpu( x)
+        s.mu  = to_gpu(  mu)
+        s.psi = to_gpu( psi)
+        s.n   = to_gpu(   n)
+        s.nu  = to_gpu(  nu)
+        
+        clj = s.conditional(x)
+        clm = s.conditional_mix(probs,x)
+        
+        np.testing.assert_array_almost_equal(clj.n.get(),clm.n.get())
+        np.testing.assert_array_almost_equal(clj.nu.get(),clm.nu.get())
+        np.testing.assert_array_almost_equal(clj.mu.get(),clm.mu.get())
+        np.testing.assert_array_almost_equal(clj.psi.get(),clm.psi.get())
+        
+        
+        
+
     def test_niw_marginal(self):
         l,p,q = 32*8*11,40,32
 
@@ -1145,6 +1237,55 @@ class TestsClustering(unittest.TestCase):
         toc(t)
 
 
+    def test_pred_kl(self):
+        l,p,q = 100,28,26
+        k = 10*p
+
+        sbp = SBP(l)
+        clusters = NIW(p,l)
+        mix =  Mixture(sbp,clusters)
+        
+
+        np.random.seed(3)
+        aln = np.random.random(size=l)*10
+        a  = 3.0
+
+        mix.sbp.a = to_gpu(np.array((a,))) 
+        al = to_gpu(aln)
+        
+        mix.sbp.from_counts(al)
+        
+        so  = np.random.normal(size=l*p*p).reshape(l,p,p)
+        psi = 1000*np.einsum('nij,nkj->nik',so,so)
+        mu  = np.random.normal(size=l*p).reshape(l,p)
+        n  = (np.random.random(size=l)*10+2.0)
+        nu = (np.random.random(size=l)*10+2*p)
+        x = np.random.normal(size=k*q).reshape(k,q)
+        xi = np.random.normal(size=k*(p-q)).reshape(k,p-q)
+
+
+        mix.clusters.mu  = to_gpu(  mu)
+        mix.clusters.psi = to_gpu( psi)
+        mix.clusters.n   = to_gpu(   n)
+        mix.clusters.nu  = to_gpu(  nu)
+
+        x  = to_gpu(  x)
+        xi = to_gpu(  xi)
+        
+        prd = mix
+
+        for i in range(10):
+            x.newhash()
+            xi.newhash()
+            prd.predict_kl(x,xi)
+
+        x.newhash()
+        xi.newhash()
+        t=tic()
+        d = prd.predict_kl(x,xi)
+        toc(t)
+
+
     def setUp(self):
         np.random.seed(1)
         As = np.array([[[1,2,5],[2,2,2]],
@@ -1156,7 +1297,7 @@ class TestsClustering(unittest.TestCase):
                         [0,0,10],
                         ])
 
-        n = 120
+        n = 12000
         self.nc = mus.shape[0]
         self.data = np.vstack([self.gen_data(A,mu,n=n) for A,mu in zip(As,mus)])
         self.As=As
@@ -1179,10 +1320,16 @@ class TestsClustering(unittest.TestCase):
         l,p =  data.shape
         k = 50
 
-        s = BatchVDP(Mixture(SBP(k),NIW(p,k)),w=.4)
+        s = BatchVDP(Mixture(SBP(k),NIW(p,k)),buffer_size=l,w=.4)
         
         s.learn(to_gpu(data))
-        print s.mix.sbp.al.get() -1.0
+        #print s.mix.sbp.al.get() -1.0
+        pmu = s.mix.clusters.cond_linear_forms(2)[1]
+        r_ = pmu.get()[:3,:2,:3]
+        r = self.As
+
+        np.testing.assert_array_almost_equal( r, r_[[2,1,0]],1)
+        
 
          
     def test_streaming_vdp(self):
@@ -1235,7 +1382,7 @@ class TestsCartpole(unittest.TestCase):
 
         ds = Cartpole()
         
-        l,p,k = 1000, 5,11*8
+        l,p,k = 10000, 5,11*8
 
         np.random.seed(5)
 
@@ -1354,50 +1501,93 @@ class TestsCartDoublePole(unittest.TestCase):
         learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
         model = OptimisticCartDoublePole(learner)
 
+        #pp = KnitroNlp(GPM(model,25))
+        planner = SlpNlp(MSMext(model,25))
+
+        env = CartDoublePole(noise = 2.0)
+        trj = env.step(ZeroPolicy(env.nu), 50, random_control=True) 
+
+        state = env.state
+        env = CartDoublePole(noise = 0)
+        env.state = state
+
+
+        model.plot_init()
+
+
+        for t in range(100000):
+            env.print_state()
+
+            if not trj is None:
+                model.update(trj)
+
+            model.state = env.state
+            pi = planner.solve()
+
+
+            us = pi.us.reshape(pi.us.shape[0],-1).copy()
+            x = to_gpu(pi.x[:-1])
+            dx1  = env.f(x, to_gpu(us)).get()
+            us = np.hstack((us,np.zeros((us.shape[0],model.nxi))))
+            dx2 = model.f(x, to_gpu(pi.uxi)).get()
+            
+            a = dx1[:,:3]
+            b = dx2[:,:3]
+            r =  np.sum(a*b,1) / np.sqrt(np.sum(a*a,1)*np.sum(b*b,1))
+            r = np.insert(r,r.shape[0],0,axis=0)
+
+            model.plot_traj(pi.x,r)
+            model.plot_draw()
+
+
+            trj = env.step(pi,5)
+            #trj = env.step(pi,5)
+
+            
+
+
+    def test_disp(self):
+
+        seed = 45 # 11,15,22
+        np.random.seed(seed)
+
+        p,k = 13, 2*11*8
+        learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
+        model = OptimisticCartDoublePole(learner)
+
+        #pp = KnitroNlp(GPM(model,25))
+        planner = SlpNlp(MSMext(model,25))
+
         env = CartDoublePole(noise = 1.0)
         trj = env.step(ZeroPolicy(env.nu), 50, random_control=True) 
 
         model.update(trj)
-        state = env.state
-        env = CartDoublePole(noise = 0.1)
-        env.state = state
+        model.plot_init()
 
-        end = np.zeros(6)
 
-        #pp = KnitroNlp(GPM(model,25))
+        model.state = env.state
 
-        pp = SlpNlp(MSMext(model,25))
-        plt.show()
-        plt.ion()
+        zi = planner.nlp.initialization()
+        pi = planner.nlp.get_policy(zi)
 
-        for t in range(10000):
-            s = env.state
-            print 't: ',('{:4.2f} ').format(env.t),' state: ',('{:9.3f} '*6).format(*s)
-            model.state = env.state
-            pi = pp.solve()
 
-            trj = env.step(pi,5)
+        us = pi.us.reshape(pi.us.shape[0],-1).copy()
+        x = to_gpu(pi.x[:-1])
+        dx1  = env.f(x, to_gpu(us)).get()
+        us = np.hstack((us,np.zeros((us.shape[0],model.nxi))))
+        dx2 = model.f(x, to_gpu(pi.uxi)).get()
+        
+        a = dx1[:,:3]
+        b = dx2[:,:3]
+        r =  np.sum(a*b,1) / np.sqrt(np.sum(a*a,1)*np.sum(b*b,1))
+        r = np.insert(r,r.shape[0],0,axis=0)
 
-            tmp = pi.x
+
+        model.plot_traj(pi.x,r)
+        
+        #model.plot_draw()
+
             
-            plt.clf()
-
-            plt.sca(plt.subplot(2,1,1))
-
-            plt.xlim([-2*np.pi,2*np.pi])
-            plt.ylim([-40,40])
-            plt.plot(tmp[:,3],tmp[:,0])
-
-            plt.sca(plt.subplot(2,1,2))
-
-            plt.xlim([-2*np.pi,2*np.pi])
-            plt.ylim([-40,40])
-            plt.plot(tmp[:,4],tmp[:,1])
-
-            plt.draw()
-
-            if not trj is None:
-                model.update(trj)
 
 
     def test_pp_iter(self):
@@ -1446,28 +1636,29 @@ class TestsCartDoublePole(unittest.TestCase):
 
         env = CartDoublePole()
 
-        pp = SlpNlp(
+        pp = KnitroNlp(
             MSMext(env,35)
             )
 
-        
         pi = pp.solve()
 
         tmp = pi.x
+
+        if False:
         
-        plt.sca(plt.subplot(2,1,1))
+            plt.sca(plt.subplot(2,1,1))
 
-        plt.xlim([-2*np.pi,2*np.pi])
-        plt.ylim([-40,40])
-        plt.plot(tmp[:,3],tmp[:,0])
+            plt.xlim([-2*np.pi,2*np.pi])
+            plt.ylim([-40,40])
+            plt.plot(tmp[:,3],tmp[:,0])
 
-        plt.sca(plt.subplot(2,1,2))
+            plt.sca(plt.subplot(2,1,2))
 
-        plt.xlim([-2*np.pi,2*np.pi])
-        plt.ylim([-40,40])
-        plt.plot(tmp[:,4],tmp[:,1])
+            plt.xlim([-2*np.pi,2*np.pi])
+            plt.ylim([-40,40])
+            plt.plot(tmp[:,4],tmp[:,1])
 
-        plt.show()
+            plt.show()
 
 
 
@@ -1855,7 +2046,7 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_pp'
+    single_test = 'test_iter'
     tests = TestsCartDoublePole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()

@@ -112,7 +112,7 @@ class CartpolePilco(DynamicalSystem, Environment):
 class OptimisticCartpole(OptimisticDynamicalSystem):
     def __init__(self,predictor,**kwargs):
 
-        OptimisticDynamicalSystem.__init__(self,4,1,2, predictor, **kwargs)
+        OptimisticDynamicalSystem.__init__(self,4,1,2, np.array([0,0,np.pi,0]), predictor, **kwargs)
 
         tpl = Template(
             """
@@ -233,7 +233,7 @@ class OptimisticCartpole(OptimisticDynamicalSystem):
 class OptimisticCartpoleSC(OptimisticDynamicalSystem):
     def __init__(self,predictor,**kwargs):
 
-        OptimisticDynamicalSystem.__init__(self,4,1,2, predictor, **kwargs) 
+        OptimisticDynamicalSystem.__init__(self,4,1,2, np.array([0,0,np.pi,0]), predictor, **kwargs) 
 
         tpl = Template(
             """

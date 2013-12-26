@@ -2,7 +2,7 @@ from planning import *
 import sympy
 from sympy.utilities.codegen import codegen
 import re
-
+ 
 class CartDoublePole(DynamicalSystem, Environment):
     def __init__(self, noise = 0):
 
@@ -72,6 +72,13 @@ class CartDoublePole(DynamicalSystem, Environment):
 
         return s
 
+    def step_(self,*args,**kwargs):
+        rt = Environment.step(self,*args,**kwargs)
+
+        self.state[3] =  np.mod(self.state[3] + np.pi,2*np.pi)-np.pi
+        self.state[4] =  np.mod(self.state[4] + np.pi,2*np.pi)-np.pi
+        return rt
+
     def step(self,*args,**kwargs):
         rt = Environment.step(self,*args,**kwargs)
 
@@ -79,12 +86,17 @@ class CartDoublePole(DynamicalSystem, Environment):
         self.state[4] =  np.mod(self.state[4] + 2*np.pi,4*np.pi)-2*np.pi
         return rt
 
+
+    def print_state(self):
+        s,t = self.state,self.t    
+        print 't: ',('{:4.2f} ').format(t),' state: ',('{:9.3f} '*6).format(*s)
+
 class OptimisticCartDoublePole(OptimisticDynamicalSystem):
     def __init__(self,predictor,**kwargs):
 
         OptimisticDynamicalSystem.__init__(self,6,1,3, 
                  np.array([0,0,0,np.pi,np.pi,0]),
-                 predictor,xi_scale=4.0, **kwargs)
+                 predictor,xi_scale=1.0, **kwargs)
 
         self.target = [0,0,0,0,0,0]
 
@@ -100,14 +112,18 @@ class OptimisticCartDoublePole(OptimisticDynamicalSystem):
             // p1 : state
             // p2 : controls
             // p3 : input state to predictor
-            o[0 ] = s[0];
-            o[1 ] = s[1];
-            o[2 ] = s[2];
+            //{{ dtype }} gn = u[0] > 0 ? 1.0 : -1.0;
+            {{ dtype }} gn = 1.0;
+            o[0 ] = gn*s[0];
+            o[1 ] = gn*s[1];
+            o[2 ] = gn*s[2];
             o[3 ] = cos(s[3]);
-            o[4 ] = sin(s[3]);
+            o[4 ] = gn*sin(s[3]);
             o[5 ] = cos(s[4]);
-            o[6 ] = sin(s[4]);
-            o[7 ] = u[0];
+            o[6 ] = gn*sin(s[4]);
+            //o[7 ] = cos(s[4]-s[3]);
+            //o[8 ] = gn*sin(s[4]-s[3]);
+            o[7 ] = gn*u[0];
             }
             
             """
@@ -123,9 +139,13 @@ class OptimisticCartDoublePole(OptimisticDynamicalSystem):
                 {{ dtype }} us[], 
                 {{ dtype }} yd[]){
 
-        yd[0] = z[0];
-        yd[1] = z[1];
-        yd[2] = z[2];
+
+        //{{ dtype }} gn = u[0] > 0 ? 1.0 : -1.0;
+        {{ dtype }} gn = 1.0;
+
+        yd[0] = gn*z[0];
+        yd[1] = gn*z[1];
+        yd[2] = gn*z[2];
         yd[3] = y[0];
         yd[4] = y[1];
         yd[5] = y[2];
@@ -150,22 +170,64 @@ class OptimisticCartDoublePole(OptimisticDynamicalSystem):
             // s  : state
             // u  : controls
             // o  : output for learner
+
+            //{{ dtype }} gn = u[0] > 0 ? 1.0 : -1.0;
+            {{ dtype }} gn = 1.0;
             
-            o[0 ] = ds[0];
-            o[1 ] = ds[1];
-            o[2 ] = ds[2];
-            o[3 ] = s[0];
-            o[4 ] = s[1];
-            o[5 ] = s[2];
+            o[0 ] = gn*ds[0];
+            o[1 ] = gn*ds[1];
+            o[2 ] = gn*ds[2];
+            o[3 ] = gn*s[0];
+            o[4 ] = gn*s[1];
+            o[5 ] = gn*s[2];
             o[6 ] = cos(s[3]);
-            o[7 ] = sin(s[3]);
+            o[7 ] = gn*sin(s[3]);
             o[8 ] = cos(s[4]);
-            o[9 ] = sin(s[4]);
-            o[10] = u[0];
+            o[9 ] = gn*sin(s[4]);
+            //o[10] = cos(s[4]-s[3]);
+            //o[11] = gn*sin(s[4]-s[3]);
+            o[10] = gn*u[0];
             } 
             """
             )
 
         fn = tpl.render(dtype = cuda_dtype)
         self.k_update  = rowwise(fn,'opt_cartpole_update')
+
+    def plot_init(self):
+        plt.ion()
+        fig = plt.figure(1, figsize=(10, 15))
+
+    def plot_traj(self, tmp,r):
+
+
+        plt.sca(plt.subplot(3,1,1))
+
+        plt.xlim([-2*np.pi,2*np.pi])
+        plt.ylim([-60,60])
+        plt.plot(tmp[:,3],tmp[:,0])
+        plt.scatter(tmp[:,3],tmp[:,0],c=r,linewidth=0,vmin=-1,vmax=1,s=40)
+
+        plt.sca(plt.subplot(3,1,2))
+
+        plt.xlim([-2*np.pi,2*np.pi])
+        plt.ylim([-60,60])
+        plt.plot(tmp[:,4],tmp[:,1])
+        plt.scatter(tmp[:,4],tmp[:,1],c=r,linewidth=0,vmin=-1,vmax=1,s=40)
+
+        plt.sca(plt.subplot(3,1,3))
+
+        plt.plot(tmp[:,5],tmp[:,2])
+        plt.scatter(tmp[:,5],tmp[:,2],c=r,linewidth=0,vmin=-1,vmax=1,s=40)
+        plt.xlim([-6,6])
+        plt.ylim([-20,20])
+
+        
+    def plot_draw(self):
+        
+        plt.draw()
+        plt.show()
+        fig = plt.gcf()
+        fig.savefig('out.pdf')
+        plt.clf()
 

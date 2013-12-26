@@ -37,8 +37,9 @@ class NIW(object):
         return x[:,:,np.newaxis],x[:,np.newaxis,:]
 
     @classmethod
-    def __sufficient_statistics(self,p,x):
+    def sufficient_statistics(self,x):
         
+        p = x.shape[-1]
         d, dmu, dpsi, dnnu = self.__ss_ws(x.shape[0],p)
         xl,xr = self.__ss_xlr(x)
 
@@ -47,10 +48,6 @@ class NIW(object):
         ufunc('a=1.0')(dnnu)
         
         return d
-
-
-    def sufficient_statistics(self,x):
-        return self.__sufficient_statistics(self.p,x)
 
 
     @staticmethod
@@ -240,8 +237,6 @@ class NIW(object):
                 fc,f2,f3,f0
                 )
 
-
-
     @memoize_one
     def __pp_ll_prep(slf): 
 
@@ -308,6 +303,109 @@ class NIW(object):
         return d
 
 
+    @staticmethod
+    @memoize
+    def __cond_linear_forms_cache(px):
+
+        eye = to_gpu(np.eye(px)) 
+        return eye[None,:,:]
+
+    @memoize_one
+    def cond_linear_forms(self,py):
+        l,p = self.l,self.p
+        px = p-py
+        
+        eye = self.__cond_linear_forms_cache(px)
+
+        # m = [m_y, m_x], 
+        # dimension m_y = q
+        # dimension m_x = p-q
+        asgn = ufunc('a=b')
+        
+        psi_xx = array((l,px,px))
+        psi_xx_chol = array((l,px,px))
+        
+        ufunc('a=b/c')(psi_xx, self.psi[:,py:,py:], self.n[:,None,None])
+        chol_batched(psi_xx, psi_xx_chol , bd=4)
+        
+        te = array((l,px, p + 1 ))
+        asgn(te[:,:,:px], eye)
+        ufunc('a=b/c')(te[:,:,px:p], self.psi[:,py:p,:py],self.n[:,None,None])
+        asgn(te[:,:,p:p+1], self.mu[:,py:,None])
+        solve_triangular(psi_xx_chol,te,bd=2)
+        
+        # te now holds sqrt(n)* Psi_xx^(-1/2) * [ I, Psi_xy/n, m_x ]
+
+        tf = array((l,p+1, p + 1 ))
+        
+
+        # tf will hold 
+        #[n*Psi_xx^-1      , Psi_xx^-1*Psi_xy          , n*Psi_xx^-1 * m_x  ]
+        #[Psi_yx*Psi_xx^-1 , Psi_yx*Psi_xx^-1*Psi_xy/n , Psi_yx*Psi_xx^-1 * m_x]
+        #[n*m_x^T*Psi_xx^-1, m_x^T*Psi_xx^-1*Psi_xy    , n*m_x*T*Psi_xx^-1* m_x]
+        
+        outer_product(te,tf) 
+        
+        Pyy_bar = array((l,py,py))
+        ufunc('a =  b - c*n')(Pyy_bar, self.psi[:,:py,:py], 
+                        tf[:,px:p,px:p], self.n[:,None,None])
+
+        # construct linear form fn such that:
+        # fn^T* [x,x*x^T,1,1] == n*(x - m_x)^T * Psi_xx^-1 * (x - mx_x)
+        # fn == [- 2*n*m_x*Psi_xx^-1, n*vec(Psi_xx^-1), 
+        #               n*m_x^T*Psi_xx^-1*m_x, 0.0 ]
+            
+        fn = array((l,px+px*px+2))
+        fn = fn.no_broadcast
+
+        ufunc('a=-2*b')(fn[:,:px,None], tf[:,:px,p:] )
+        ufunc('a= b')(fn[:,px:px+px*px,None], tf[:,:px,:px] )
+        ufunc('a= b')(fn[:,-2:-1,None], tf[:,p:,p:] )
+        ufunc('a= 0.0')(fn[:,-1:,None])
+        
+        # intermediate results:
+        # b = m_y - Psi_yx * Psi_xx^-1 *m_x
+        # A = Psi_yx * Psi_xx^-1
+        
+
+        ufunc('a = b - a')(tf[:,px:p,p:], self.mu[:,:py,None])
+        
+        # construct linear form fmu such that:
+        # fmu^T * [x,x*x^T,1,1] 
+        #    == m_y - Psi_yx*Psi_xx^-1*m_x + Psi_yx*Psi_xx^-1*x
+        # fmu = [ A, 0, b, 0 ]
+
+        fmu = array((l,py,px+px*px+2))
+        ufunc('a=0')(fmu)
+        ufunc('a=b')(fmu[:,:,:px], tf[:,px:p,:px]) # A
+        ufunc('a=b')(fmu[:,:,-1:], tf[:,px:p,p:])  # b
+        
+        # construct linear form fmo such that:
+        # fmo^T * [x,x*x^T,1,1]
+        #   == (b + A*x)*(b+A*x)^T
+            
+        fmox  = array((l,py,py,px,1))
+        ufunc('a =b*c')(fmox, tf[:,None,px:p,None,p:], 
+                              tf[:,px:p,None,:px,None])
+
+        ufunc('a+=b*c')(fmox, tf[:,px:p,None,None,p:], 
+                              tf[:,None,px:p,:px,None])
+
+        fmoxo = array((l,py,py,px,px))
+        ufunc('a =b*c')(fmoxo, tf[:,px:p,None,:px,None],
+                               tf[:,None,px:p,None,:px])
+
+        fmoc  = array((l,py,py,1,1))
+        ufunc('a =b*c')(fmoc, tf[:,px:p,None,p:,None],
+                              tf[:,None,px:p,None,p:])
+        
+        fmo = array((l,py,py,px+px*px+2)).no_broadcast
+        ufunc('a=b')(fmo[:,:,:,:px,None], fmox)
+        ufunc('a=b')(fmo[:,:,:,px:px+px*px,None], fmoxo)
+        ufunc('a=b')(fmo[:,:,:,-2:-1,None], fmoc)
+        ufunc('a=0')(fmo[:,:,:,-1:])
+
+        return fn, fmu, fmo, Pyy_bar
 
     @classmethod
     @memoize
@@ -409,14 +507,76 @@ class NIW(object):
 
 
 
+    @classmethod
+    @memoize
+    def __cond_mix_new_like_me(cls,p,l):
+        return cls(p,l)
+                
+    @memoize_one
+    def conditional_mix(self,prob,x):
+        
+        k, px = x.shape
+        p,l = self.p, self.l
+        py = p-px
+
+        fn,fmu,fmo,Pyy_bar = self.cond_linear_forms(py)
+        
+        x = self.sufficient_statistics(x)
+
+        tau  = array((k,py+py*py+2))
+        
+        pn_bar = array((k,l))
+        matrix_mult(x,fn.T,pn_bar)
+        ufunc('a= n/(1 + a)*p')(pn_bar, self.n[None,:],prob)
+        
+        f  = array((l, py+py*py+2, (px+px*px+2)))
+        g  = array((k, py+py*py+2, (px+px*px+2)))
+
+        ufunc('a=b')(f[:,:py,:], fmu)
+        ufunc('a=b')(f.no_broadcast[:,py:py+py*py,None,:], fmo)
+        ufunc('a=0.0')(f[:,-2:,:])
+        ufunc('a=1.0')(f[:,-2:-1,-2:-1])
+
+        f.shape = (l, (py+py*py+2)*(px+px*px+2))
+        g.shape = (k, (py+py*py+2)*(px+px*px+2))
+        
+        matrix_mult(pn_bar,f,g)
+        
+        g.shape = (k, (py+py*py+2),(px+px*px+2))
+        
+        oshape = x.shape
+        x.shape = (x.shape[0], x.shape[1],1)
+
+        tau.shape = (k,py+py*py+2,1) 
+        batch_matrix_mult(g,x,tau)
+        
+        x.shape = oshape  
+        tau.shape = (k,py+py*py+2) 
+        
+        # terms independent of x
+        t1,t2 = array((l,py*py+1)), array((k,py*py+1))
+        ufunc('a=b')(t1.no_broadcast[:,:py*py,None], Pyy_bar)
+        ufunc('a=b')(t1[:,-1:], self.nu[:,None])
+        
+        matrix_mult(prob,t1,t2)
+        
+        ufunc('a+=b')(tau[:,py:py+py*py], t2[:,:py*py] )
+        ufunc('a+=b+2+'+str(py))(tau[:,-1:], t2[:,py*py:] )
+
+        clr = self.__cond_mix_new_like_me(py,k)
+
+        clr.from_nat(tau)
+
+        return clr
+
     @staticmethod
     @memoize
     def __mean_plus_stdev_ws(k,p):
         sg  = array((k,p,p))
+        psi = array((k,p,p))
         out = array((k,p))
-        r = array((k,))
         
-        return sg,out,r, r[:,None]
+        return sg,psi,out
 
 
     @memoize_one
@@ -424,13 +584,14 @@ class NIW(object):
         
         k,p = xi.shape[0], self.p
 
-        sg,out,r,rb = self.__mean_plus_stdev_ws(k,p)
+        sg,psi_tmp,out = self.__mean_plus_stdev_ws(k,p)
         cls = self
         mu,psi,n,nu = cls.mu,cls.psi,cls.n,cls.nu
 
-        ufunc('a= sqrt(n*(u - '+str(p)+' + 1.0))')(r,n,nu)
+        
+        ufunc('a=b/(u - ' +str(p) + ' + 1.0)')(psi_tmp,psi,nu[:,None,None])
         ufunc('a=0')(sg)
-        chol_batched(psi,sg,bd=2)
+        chol_batched(psi_tmp,sg,bd=2)
 
         orig_shape = xi.shape
         xi.shape= xi.shape +(1,)
@@ -440,7 +601,7 @@ class NIW(object):
         out.shape= orig_shape
         xi.shape = orig_shape
         
-        ufunc('a = a/c + b',name='fnl')(out,rb,mu)
+        ufunc('a = a/sqrt(n) + b',name='fnl')(out,n[:,None],mu)
         
         return out
 
@@ -639,27 +800,22 @@ class Mixture(object):
         return rt
 
     @memoize_one
-    def predict_conditional(self,x,xi):
+    def predict_kl(self,x,xi):
 
         mix = self
-        k,p,q,r = x.shape[0], x.shape[1]+xi.shape[1],x.shape[1], xi.shape[1]
+        k,p,q = x.shape[0], x.shape[1]+xi.shape[1],x.shape[1]
         
         xclusters = mix.clusters.marginal(q)
 
         xmix = Mixture(mix.sbp,xclusters)  
         prob = xmix.predictive_posterior_resps(x) 
         
-        tau_,clusters_ = self.__predictor_predict_ws(k,r)
-
-        tau = mix.clusters.conditional(x).get_nat()
-
-        matrix_mult(prob,tau,tau_) 
-        clusters_.from_nat(tau_)        
+        clusters_ = self.clusters.conditional_mix(prob,x)
 
         rt = clusters_.mean_plus_stdev(xi)
         return rt
 
-    predict = predict_joint
+    predict = predict_kl
 class StreamingNIW(object):
     def __init__(self,p):
         self.niw = NIW(p,1)        
@@ -752,8 +908,8 @@ class BatchVDP(object):
         self.learn(self.buff)
         
 
-    def predict(self,*args,**kwargs):
-        return self.mix.predict(*args,**kwargs)
+    def predict(self,*args):
+        return self.mix.predict(*args)
 
     @staticmethod
     @memoize
@@ -793,6 +949,8 @@ class BatchVDP(object):
         
         ex_alpha = to_gpu(np.array([1.0]))
         
+        #phinp = np.random.random(size=n*k).reshape((n,k))
+        #phi = to_gpu(phinp)
         phi = to_gpu(self.phi0)
         w.shape = (w.size,)
         row_sum(phi,w)
@@ -830,7 +988,7 @@ class BatchVDP(object):
             # computing responsibilities for next iteration
             phi = self.mix.pseudo_resps(ss)
 
-        print 'Num clusters: ', np.sum(counts.get()>1e-4)
+        #print 'Num clusters: ', np.sum(counts.get()>1e-4)
         
     @property
     def p(self):
