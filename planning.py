@@ -16,7 +16,7 @@ mosek_env = mosek.Env()
 #mosek_env.init()
 
 class ExplicitRK(object):    
-    def __init__(self,st='rk4'):
+    def __init__(self,st='lw6'):
         ars = {
             'rk4': [
                 [.5],
@@ -268,6 +268,8 @@ class Environment:
         return t,dx,x,u
 
 
+    def print_state(self):
+        pass
 class DynamicalSystem(object):
     """ Controls are assumed to be bounded between -1 and 1 """
     def __init__(self,nx,nu):
@@ -352,7 +354,7 @@ class DynamicalSystem(object):
 
         
 class OptimisticDynamicalSystem(DynamicalSystem):
-    def __init__(self,nx,nu, nxi, start, pred, xi_scale = 1.0, **kwargs):
+    def __init__(self,nx,nu, nxi, start, pred, xi_scale = 4.0, **kwargs):
 
         DynamicalSystem.__init__(self,nx,nu+nxi, **kwargs)
         
@@ -974,7 +976,7 @@ class MSMext():
     def __init__(self, ds, l):
         self.ds = ds
         self.l = l
-        self.lbd = 100.0
+        self.lbd = 10000.0
         
         nx,nu = self.ds.nx, self.ds.nu
         try:
@@ -982,8 +984,8 @@ class MSMext():
         except:
             nxi = 0
 
-        self.nv = 1 + (l+ 1)*nx + l*nu + 2*l*nx
-        self.nc = nx*l + 2*nx + l
+        self.nv = 1 + (l+ 1)*nx + l*nu + l
+        self.nc = nx*l + 2*nx 
         
         self.iv_h = 0
 
@@ -995,14 +997,14 @@ class MSMext():
         self.iv_x = tmp[:,:nx] 
         self.iv_u = tmp[:-1,nx:] 
         self.iv_u_binf = self.iv_u[:,:nu-nxi]
-        self.iv_qcon = self.iv_u[:,nu-nxi:nu]
-        self.iv_slack = 1 + (l+1)*nx + l*nu + np.arange(2*l*nx).reshape(2,l,nx)
+
+        self.iv_slack = 1 + (l+1)*nx + l*nu + np.arange(l)
+        self.iv_qcone = np.hstack((self.iv_slack[:,np.newaxis], self.iv_u[:,nu-nxi:nu]))
         
         self.ic_col = np.arange(l*nx).reshape(l,nx)
         self.ic_o = l*nx+ np.arange(nx)
         self.ic_f = l*nx+ nx+ np.arange(nx)
         self.ic_eq = np.arange(nx*l+2*nx)
-        self.ic_qcon = nx*l+2*nx + np.arange(l)
 
         self.no_slack = False
         
@@ -1020,21 +1022,18 @@ class MSMext():
         bl[self.iv_h] = .1
         bu[self.iv_h] = 100.0
         
-        bl[self.iv_slack] = 0
-        if self.no_slack:
-            bu[self.iv_slack] = 0
-
+        bl[self.iv_slack] = 1.0
 
         return bl, bu
 
     def obj(self,z):
-        return -z[0] + self.lbd/self.l*np.sum(z[self.iv_slack].reshape(-1))
+        return -z[0] + self.lbd/self.l*np.sum(z[self.iv_slack]-1.0)
 
     def obj_grad_inds(self):
-        return np.concatenate((np.array([0]), self.iv_slack.reshape(-1) ))
+        return np.concatenate((np.array([0]), self.iv_slack ))
 
     def obj_grad(self,z=None):
-        return np.concatenate((np.array([-1]), self.lbd *np.ones(2*self.l*self.ds.nx) ))/self.l
+        return np.concatenate((np.array([-1]), self.lbd *np.ones(self.l) ))/self.l
 
     def ccol(self,z):
         
@@ -1051,7 +1050,7 @@ class MSMext():
         accs = self.ds.integrate_sp(hxu).get()
 
         c = np.zeros(self.nc) 
-        c[self.ic_col] = l*(z[self.iv_x[1:]] - z[self.iv_x[:-1]]) - accs + z[self.iv_slack[0]] - z[self.iv_slack[1]]
+        c[self.ic_col] = l*(z[self.iv_x[1:]] - z[self.iv_x[:-1]]) - accs 
         
         c[self.ic_o] = z[self.iv_x[ 0]] - np.array(self.ds.state) * hi
         c[self.ic_f] = z[self.iv_x[-1]] - np.array(self.ds.target) * hi
@@ -1081,15 +1080,13 @@ class MSMext():
         j3 = np.sum(da[:,1:1+nx,:]*z[self.iv_x[:-1]][:,:,np.newaxis],axis=1)+ (1.0/l)*da[:,0,:]
         
         j4 = np.ones(2*nx) 
+
         j5 = -np.concatenate((self.ds.state, self.ds.target))
-        j6 = np.ones(l*nx)
-        j7 = -np.ones(l*nx)
         
 
         return np.concatenate((
                 j1.reshape(-1),j2.reshape(-1),j3.reshape(-1),
-                j4,j5,j6,j7))
-
+                j4,j5))
 
     @staticmethod
     @memoize
@@ -1124,16 +1121,9 @@ class MSMext():
                     for i in range(2*nx)
               ]
 
-        ji7 = [(i,  1 + (l+1)*nx + l*nu +i ) 
-                    for i in range(l*nx)
-              ]
 
-        ji8 = [(i,  1 + (l+1)*nx + l*nu + l*nx +i ) 
-                    for i in range(l*nx)
-              ]
+        ic, iv = zip(*(ji1+ji2+ji3+ji4+ji5+ji6))
 
-
-        ic, iv = zip(*(ji1+ji2+ji3+ji4+ji5+ji6+ji7+ji8))
         return np.array(ic), np.array(iv)
 
 
@@ -1157,6 +1147,7 @@ class MSMext():
             z[self.iv_x] = xu[:,:self.ds.nx]*np.exp(-h)
             z[self.iv_u] = xu[:-1,self.ds.nx:]
             z[self.iv_h] = np.exp(-h)
+            z[self.iv_slack] = 1.0
         
             return z 
 
@@ -1466,24 +1457,9 @@ class SlpNlp():
         task.putclist(j,c)
         
         # hack
-        if False:
-            i = self.nlp.iv_qcon
-            k = self.nlp.ic_qcon
-            task.putboundlist(mosek.accmode.con, k, [mosek.boundkey.up]*k.size,[.5]*k.size,[.5]*k.size )
-            k = (k[:,np.newaxis] + 0*i).reshape(-1)
-            nxi = i.shape[1]
-            i = i.reshape(-1)
-            task.putqcon(k, i, i, np.ones(i.size))
-        else:
-            i = self.nlp.iv_qcon
-            k = self.nlp.ic_qcon
-            task.putboundlist(mosek.accmode.con, k, [mosek.boundkey.up]*k.size,[.5]*k.size,[.5]*k.size )
-            k = (k[:,np.newaxis] + 0*i).reshape(-1)
-            nxi = i.shape[1]
-            i = i.reshape(-1)
-            task.putqconk(k[0], i, i, np.ones(i.size)/i.size)
-
-        # end hack
+        
+        for i in self.nlp.iv_qcone:
+            task.appendcone(mosek.conetype.quad, 0.0, i)
 
         
         #j = self.nlp.iv_x.reshape(-1)
@@ -1546,17 +1522,13 @@ class SlpNlp():
     def iterate(self,z,n_iters):
 
         for i in range(n_iters):  
-            self.nlp.bld = 100
-            #self.no_slack=True
             if not self.solve_task(z):
-                #self.nlp.no_slack=False
-                self.nlp.bld = 1000
-                if not self.solve_task(z):
-                    pass
-                    #break
+                pass
+                #break
 
             z = z + 1.0/np.sqrt(i+20)* (self.ret_x-z)
             #z[self.nlp.iv_slack] = self.ret_x[self.nlp.iv_slack]
+            #print z[self.nlp.iv_slack]
 
             obj = self.nlp.obj(z) 
             print ('{:9.5f} '*2).format( z[self.nlp.iv_h], obj+z[self.nlp.iv_h])

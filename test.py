@@ -1437,6 +1437,60 @@ class TestsCartpole(unittest.TestCase):
         #pp.solve(np.array([0,0,-np.pi*.01,0]), np.array([0,0,0,0]))
         
 
+
+    def test_iter(self):
+
+        seed = 45 # 11,15,22
+        np.random.seed(seed)
+
+        p,k = 7, 11*8
+        learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
+        model = OptimisticCartpoleSC(learner)
+
+        planner = SlpNlp(MSMext(model,25))
+
+        env = CartpolePilco(noise = 0.1)
+        trj = env.step(ZeroPolicy(env.nu), 50, random_control=True) 
+
+        state = env.state
+        env = CartpolePilco(noise = 0.001)
+        env.state = state
+
+
+        model.plot_init()
+
+
+        for t in range(10000):
+            env.print_state()
+
+            if not trj is None:
+                model.update(trj)
+
+            model.state = env.state
+            pi = planner.solve()
+
+
+            us = pi.us.reshape(pi.us.shape[0],-1).copy()
+            x = to_gpu(pi.x[:-1])
+            dx1  = env.f(x, to_gpu(us)).get()
+            us = np.hstack((us,np.zeros((us.shape[0],model.nxi))))
+            dx2 = model.f(x, to_gpu(pi.uxi)).get()
+            
+            a = dx1[:,:3]
+            b = dx2[:,:3]
+            r =  np.sum(a*b,1) / np.sqrt(np.sum(a*a,1)*np.sum(b*b,1))
+            r = np.insert(r,r.shape[0],0,axis=0)
+
+            model.plot_traj(pi.x,r)
+            model.plot_draw()
+
+
+            trj = env.step(pi,5)
+            #trj = env.step(pi,5)
+
+            
+
+
     def test_pp_iter(self):
 
         seed = 45 # 11,15,22
@@ -1497,7 +1551,7 @@ class TestsCartDoublePole(unittest.TestCase):
         seed = 45 # 11,15,22
         np.random.seed(seed)
 
-        p,k = 11, 11*8
+        p,k = 13, 11*8
         learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
         model = OptimisticCartDoublePole(learner)
 
@@ -1515,7 +1569,7 @@ class TestsCartDoublePole(unittest.TestCase):
         model.plot_init()
 
 
-        for t in range(100000):
+        for t in range(10000):
             env.print_state()
 
             if not trj is None:
@@ -1994,10 +2048,12 @@ class TestsPP(unittest.TestCase):
 
         d   = td.ccol_jacobian(z) 
         i,j = td.ccol_jacobian_inds()
-        j = np.array(coo_matrix((d,(i,j))).todense())
+        j = np.array(coo_matrix((d,(i,j)),shape=(td.nc,td.nv)).todense())
         f_ = td.ccol(z+dz) 
         
         r  = (f_- f)/eps
+        print j.shape
+        print dz.shape
         r_ =  np.dot(j,dz)/eps
 
         np.testing.assert_almost_equal(r,r_,2)
@@ -2047,7 +2103,7 @@ class TestsPP(unittest.TestCase):
 
 if __name__ == '__main__':
     single_test = 'test_iter'
-    tests = TestsCartDoublePole
+    tests = TestsCartpole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))

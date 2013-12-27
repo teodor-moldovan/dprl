@@ -96,7 +96,7 @@ class OptimisticCartDoublePole(OptimisticDynamicalSystem):
 
         OptimisticDynamicalSystem.__init__(self,6,1,3, 
                  np.array([0,0,0,np.pi,np.pi,0]),
-                 predictor,xi_scale=1.0, **kwargs)
+                 predictor,xi_scale=2.0, **kwargs)
 
         self.target = [0,0,0,0,0,0]
 
@@ -121,9 +121,9 @@ class OptimisticCartDoublePole(OptimisticDynamicalSystem):
             o[4 ] = gn*sin(s[3]);
             o[5 ] = cos(s[4]);
             o[6 ] = gn*sin(s[4]);
-            //o[7 ] = cos(s[4]-s[3]);
-            //o[8 ] = gn*sin(s[4]-s[3]);
-            o[7 ] = gn*u[0];
+            o[7 ] = cos(s[4]-s[3]);
+            o[8 ] = gn*sin(s[4]-s[3]);
+            o[9 ] = gn*u[0];
             }
             
             """
@@ -184,9 +184,9 @@ class OptimisticCartDoublePole(OptimisticDynamicalSystem):
             o[7 ] = gn*sin(s[3]);
             o[8 ] = cos(s[4]);
             o[9 ] = gn*sin(s[4]);
-            //o[10] = cos(s[4]-s[3]);
-            //o[11] = gn*sin(s[4]-s[3]);
-            o[10] = gn*u[0];
+            o[10] = cos(s[4]-s[3]);
+            o[11] = gn*sin(s[4]-s[3]);
+            o[12] = gn*u[0];
             } 
             """
             )

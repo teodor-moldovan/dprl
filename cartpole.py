@@ -64,7 +64,7 @@ class Cartpole(DynamicalSystem, Environment):
 
 
 class CartpolePilco(DynamicalSystem, Environment):
-    def __init_f_(self, noise = 0):
+    def __init__(self, noise = 0):
 
         DynamicalSystem.__init__(self,4,1)
         Environment.__init__(self, [0,0,np.pi,0], .01, noise=noise)
@@ -113,6 +113,8 @@ class OptimisticCartpole(OptimisticDynamicalSystem):
     def __init__(self,predictor,**kwargs):
 
         OptimisticDynamicalSystem.__init__(self,4,1,2, np.array([0,0,np.pi,0]), predictor, **kwargs)
+
+        self.target = [0,0,0,0]
 
         tpl = Template(
             """
@@ -188,52 +190,12 @@ class OptimisticCartpole(OptimisticDynamicalSystem):
         fn = tpl.render(dtype = cuda_dtype)
         self.k_update  = rowwise(fn,'opt_cartpole_update')
 
-    def initializations(self,ws,we):
-
-        #ws_ = np.zeros(ws.shape)
-        #ws_[2] = ws[2]
-        #ws = ws_
-        h = -1.0
-        x = self.waypoint_spline((ws,we))
-        yield h, x
-
-        #for t in range(2):
-        #    h = -1.0+np.random.normal()
-        #    yield h,x0
-
-        m = np.zeros(ws.shape)
-        #m[2] = np.pi
-        #x = self.waypoint_spline((ws,we))
-        #yield h, x
-
-        #m[2] = -np.pi
-        #x = self.waypoint_spline((ws,we))
-        #yield h, x
-
-        
-        i = 1
-        while True:
-            
-            #ws0 = ws.copy()
-            #ws0[2] = ws[2] -np.sign(ws[2]-we[2] ) *(np.random.normal()>0)*np.pi
-            
-            #print ws0[2], ws[2]
-
-            #m[2]= (i%3 - 1) * np.pi
-
-            m[2] = 2.0*np.pi* 2.0*(np.random.random()-.5 )
-
-            h = 2.0*np.random.normal()
-
-            x = self.waypoint_spline((ws,m,we))
-
-            i = i+1
-            yield h,x
-
 class OptimisticCartpoleSC(OptimisticDynamicalSystem):
     def __init__(self,predictor,**kwargs):
 
         OptimisticDynamicalSystem.__init__(self,4,1,2, np.array([0,0,np.pi,0]), predictor, **kwargs) 
+
+        self.target = [0,0,0,0]
 
         tpl = Template(
             """
@@ -313,8 +275,33 @@ class OptimisticCartpoleSC(OptimisticDynamicalSystem):
         fn = tpl.render(dtype = cuda_dtype)
         self.k_update  = rowwise(fn,'opt_cartpole_update')
 
-    def initializations(self,ws,we):
-        h = -1.0
-        x = self.waypoint_spline((ws,we))
-        yield h, x
+    def plot_init(self):
+        plt.ion()
+        fig = plt.figure(1, figsize=(10, 10))
+
+    def plot_traj(self, tmp,r):
+
+
+        plt.sca(plt.subplot(2,1,1))
+
+        plt.xlim([-2*np.pi,2*np.pi])
+        plt.ylim([-60,60])
+        plt.plot(tmp[:,2],tmp[:,0])
+        plt.scatter(tmp[:,2],tmp[:,0],c=r,linewidth=0,vmin=-1,vmax=1,s=40)
+
+        plt.sca(plt.subplot(2,1,2))
+
+        plt.xlim([-2*np.pi,2*np.pi])
+        plt.ylim([-60,60])
+        plt.plot(tmp[:,3],tmp[:,1])
+        plt.scatter(tmp[:,3],tmp[:,1],c=r,linewidth=0,vmin=-1,vmax=1,s=40)
+
+        
+    def plot_draw(self):
+        
+        plt.draw()
+        plt.show()
+        fig = plt.gcf()
+        fig.savefig('out.pdf')
+        plt.clf()
 

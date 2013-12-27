@@ -815,7 +815,7 @@ class Mixture(object):
         rt = clusters_.mean_plus_stdev(xi)
         return rt
 
-    predict = predict_kl
+    predict = predict_joint
 class StreamingNIW(object):
     def __init__(self,p):
         self.niw = NIW(p,1)        
