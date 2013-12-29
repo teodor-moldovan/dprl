@@ -18,7 +18,7 @@ class NIW(object):
         # old version used 2*d+1+2, this seems to work well
         # 2*d + 1 was also a good choice but can't remember why
 
-        lbd = [0,]*(p+p*p+1)+[2*p+1]
+        lbd = [0,]*(p+p*p)+[0.0, 2*p+1]
         self.prior = to_gpu(np.array(lbd).reshape(1,-1))
 
         
@@ -485,11 +485,11 @@ class NIW(object):
         
         asgn = ufunc('a=b')
 
-        asgn(te0,psib1)
+        ufunc('a=b/n')(te0,psib1,self.n[:,None,None])
         chol_batched(te0, te,bd=4)
 
         ufunc('a =c - b')( td,x,mub1 )  
-        asgn( txb1,psib2 )
+        ufunc('a=b/n')( txb1,psib2,self.n[:,None,None] )
         asgn( txb2,tdb1 )  
 
         solve_triangular(te,tx,bd=16)
@@ -500,8 +500,8 @@ class NIW(object):
         #batch_matrix_mult(tx.T,tx,tf)
                 
         ufunc('a=b+c')(dmub1,mub2 ,tfb1)
-        ufunc('a=b-c')(dst.psi,psib3,tfb2)
-        ufunc('a = 1.0/(r + 1.0/b) ')(dnb,tfb3,nb)
+        ufunc('a=b-c*n')(dst.psi,psib3,tfb2,self.n[:,None,None])
+        ufunc('a = n/(r + 1.0) ')(dnb,nb,tfb3)
 
         return dst
 
@@ -579,6 +579,7 @@ class NIW(object):
         return sg,psi,out
 
 
+    #todo: need to change this name
     @memoize_one
     def mean_plus_stdev(self,xi):
         
@@ -588,8 +589,7 @@ class NIW(object):
         cls = self
         mu,psi,n,nu = cls.mu,cls.psi,cls.n,cls.nu
 
-        
-        ufunc('a=b/(u - ' +str(p) + ' + 1.0)')(psi_tmp,psi,nu[:,None,None])
+        ufunc('a=b/n')(psi_tmp,psi,n[:,None,None])
         ufunc('a=0')(sg)
         chol_batched(psi_tmp,sg,bd=2)
 
@@ -601,7 +601,7 @@ class NIW(object):
         out.shape= orig_shape
         xi.shape = orig_shape
         
-        ufunc('a = a/sqrt(n) + b',name='fnl')(out,n[:,None],mu)
+        ufunc('a= a/sqrt(u - ' +str(p) + ' + 1.0) + b')(out,nu[:,None],mu)
         
         return out
 
@@ -787,7 +787,6 @@ class Mixture(object):
         
         tau_,clusters_ = self.__predictor_predict_ws(k,p)
         tau = mix.clusters.get_nat()
-        
         xclusters = mix.clusters.marginal(q)
 
         xmix = Mixture(mix.sbp,xclusters)  
@@ -795,7 +794,7 @@ class Mixture(object):
 
         matrix_mult(prob,tau,tau_) 
         clusters_.from_nat(tau_)
-        
+
         rt = clusters_.predict(x,xi)
         return rt
 
@@ -865,7 +864,7 @@ class StreamingNIW(object):
         
 class BatchVDP(object):
     def __init__(self,mix,buffer_size=11*32*32,
-             w =.1, kl_tol = 1e-6, max_iters = 10000):
+             w =.01, diff_tol = 1e-3, max_iters = 10000):
         
         self.buff = array((buffer_size, mix.clusters.prior.size))
         self.clear() 
@@ -874,7 +873,7 @@ class BatchVDP(object):
         self.w = to_gpu(np.array([[w]]))
         self.s = to_gpu(np.array([0.0,0]))
         
-        self.kl_tol = kl_tol
+        self.diff_tol = diff_tol
         self.max_iters = max_iters 
 
         n,k = buffer_size, mix.sbp.l
@@ -963,11 +962,11 @@ class BatchVDP(object):
             ufunc('a=b')(counts[:,None],tau[:,d-1:d])
             ufunc('a+=b')(tau,lbd)
              
-            ufunc('a = b*(log(b)-log(a)) ')(old_counts,counts)
-            kl = pycuda.gpuarray.sum(old_counts)
+            ufunc('a = max(a-b,b-a) ')(old_counts,counts)
+            diff = pycuda.gpuarray.sum(old_counts)
             ufunc('a = b')(old_counts,counts)
             
-            if abs(kl.get()) < self.kl_tol:
+            if diff.get() < self.diff_tol:
                 break
 
             # sorting 

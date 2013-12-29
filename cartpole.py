@@ -287,14 +287,18 @@ class OptimisticCartpoleSC(OptimisticDynamicalSystem):
         plt.xlim([-2*np.pi,2*np.pi])
         plt.ylim([-60,60])
         plt.plot(tmp[:,2],tmp[:,0])
-        plt.scatter(tmp[:,2],tmp[:,0],c=r,linewidth=0,vmin=-1,vmax=1,s=40)
+        
+        if not r is None:
+            plt.scatter(tmp[:,2],tmp[:,0],c=r,linewidth=0,vmin=-1,vmax=1,s=40)
 
         plt.sca(plt.subplot(2,1,2))
 
         plt.xlim([-2*np.pi,2*np.pi])
         plt.ylim([-60,60])
         plt.plot(tmp[:,3],tmp[:,1])
-        plt.scatter(tmp[:,3],tmp[:,1],c=r,linewidth=0,vmin=-1,vmax=1,s=40)
+
+        if not r is None:
+            plt.scatter(tmp[:,3],tmp[:,1],c=r,linewidth=0,vmin=-1,vmax=1,s=40)
 
         
     def plot_draw(self):

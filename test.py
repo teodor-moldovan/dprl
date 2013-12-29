@@ -1448,14 +1448,12 @@ class TestsCartpole(unittest.TestCase):
         model = OptimisticCartpoleSC(learner)
 
         planner = SlpNlp(MSMext(model,25))
+        #planner = SqpPlanner(model,25)
 
         env = CartpolePilco(noise = 0.1)
         trj = env.step(ZeroPolicy(env.nu), 50, random_control=True) 
 
-        state = env.state
-        env = CartpolePilco(noise = 0.001)
-        env.state = state
-
+        env.noise = 0.0
 
         model.plot_init()
 
@@ -1470,16 +1468,19 @@ class TestsCartpole(unittest.TestCase):
             pi = planner.solve()
 
 
-            us = pi.us.reshape(pi.us.shape[0],-1).copy()
-            x = to_gpu(pi.x[:-1])
-            dx1  = env.f(x, to_gpu(us)).get()
-            us = np.hstack((us,np.zeros((us.shape[0],model.nxi))))
-            dx2 = model.f(x, to_gpu(pi.uxi)).get()
-            
-            a = dx1[:,:3]
-            b = dx2[:,:3]
-            r =  np.sum(a*b,1) / np.sqrt(np.sum(a*a,1)*np.sum(b*b,1))
-            r = np.insert(r,r.shape[0],0,axis=0)
+            if True:
+                us = pi.us.reshape(pi.us.shape[0],-1).copy()
+                x = to_gpu(pi.x[:-1])
+                dx1  = env.f(x, to_gpu(us)).get()
+                us = np.hstack((us,np.zeros((us.shape[0],model.nxi))))
+                dx2 = model.f(x, to_gpu(pi.uxi)).get()
+                
+                a = dx1[:,:3]
+                b = dx2[:,:3]
+                r =  np.sum(a*b,1) / np.sqrt(np.sum(a*a,1)*np.sum(b*b,1))
+                r = np.insert(r,r.shape[0],0,axis=0)
+            else:
+                r = None
 
             model.plot_traj(pi.x,r)
             model.plot_draw()
@@ -1551,19 +1552,19 @@ class TestsCartDoublePole(unittest.TestCase):
         seed = 45 # 11,15,22
         np.random.seed(seed)
 
-        p,k = 13, 11*8
+        p,k = 11, 2*11*8
         learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
         model = OptimisticCartDoublePole(learner)
 
         #pp = KnitroNlp(GPM(model,25))
         planner = SlpNlp(MSMext(model,25))
 
-        env = CartDoublePole(noise = 2.0)
-        trj = env.step(ZeroPolicy(env.nu), 50, random_control=True) 
-
-        state = env.state
-        env = CartDoublePole(noise = 0)
-        env.state = state
+        env = CartDoublePole(noise = .01)
+        trj = env.step(ZeroPolicy(env.nu), 150, random_control=True) 
+        
+        #state = env.state
+        #env = CartDoublePole(noise = 0.01)
+        #env.state = state
 
 
         model.plot_init()
@@ -1596,8 +1597,6 @@ class TestsCartDoublePole(unittest.TestCase):
 
             trj = env.step(pi,5)
             #trj = env.step(pi,5)
-
-            
 
 
     def test_disp(self):
@@ -1862,17 +1861,18 @@ class TestsHeli(unittest.TestCase):
 class TestsPP(unittest.TestCase):
     def test_pcw_policy(self):
 
-        l,nu = 10,3
+        l,nu = 4,3
         us = np.random.random(l*nu).reshape(l,nu)
-        h  = 3.0
+        h  = 4.0
         
         pi = PiecewiseConstantPolicy(us,h)
         print us
         print pi.u(.0, None)
-        print pi.u(.001, None)
-        print pi.u(1.0,None)
-        print pi.u(2.99, None)
-        print pi.u(3.0, None)
+        print pi.u(1.0, None)
+        print pi.u(2.0, None)
+        print pi.u(3.0,None)
+        print pi.u(4.0, None)
+        
 
     def test_sim(self):
 

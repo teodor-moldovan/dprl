@@ -16,7 +16,7 @@ mosek_env = mosek.Env()
 #mosek_env.init()
 
 class ExplicitRK(object):    
-    def __init__(self,st='lw6'):
+    def __init__(self,st='rk4'):
         ars = {
             'rk4': [
                 [.5],
@@ -162,7 +162,7 @@ class NumDiff(object):
         df.shape = (l,n,m) 
 
         #hack
-        #ufunc('x = abs(x) < 1e-10 ? 0 : x')(df)
+        #ufunc('x = abs(x) < 1e-8 ? 0 : x')(df)
         return df
 
 
@@ -229,7 +229,7 @@ class Environment:
 
             nz = self.noise*np.random.normal(size=self.nx/2)
             # hack
-            dx[:self.nx/2] += nz
+            #dx[:self.nx/2] += nz
 
             return dx,u #.get().reshape(-1)
 
@@ -261,8 +261,8 @@ class Environment:
 
         nz = self.noise*np.random.normal(size=dx.shape[0]*self.nx/2)
         # hack
-        dx[:,:self.nx/2] += nz.reshape(dx.shape[0],self.nx/2)
-        #dx += self.noise*np.random.normal(size=dx.size).reshape(dx.shape)
+        #dx[:,:self.nx/2] += nz.reshape(dx.shape[0],self.nx/2)
+        #d  += self.noise*np.random.normal(size= x.size).reshape( x.shape)
         #u  += self.noise*np.random.normal(size= u.size).reshape( u.shape)
 
         return t,dx,x,u
@@ -354,7 +354,7 @@ class DynamicalSystem(object):
 
         
 class OptimisticDynamicalSystem(DynamicalSystem):
-    def __init__(self,nx,nu, nxi, start, pred, xi_scale = 4.0, **kwargs):
+    def __init__(self,nx,nu, nxi, start, pred, xi_scale = 1.0, **kwargs):
 
         DynamicalSystem.__init__(self,nx,nu+nxi, **kwargs)
         
@@ -607,7 +607,7 @@ class GPM():
         self.invert_h = invert_h
         self.slack_cost = 100.0
         
-        nx,nu,nk = self.ds.nx, self.ds.nu, self.ds.nk
+        nx,nu = self.ds.nx, self.ds.nu
         self.nv = 1 + (l+ 2)*nx + l*nu  + 2*(l+1)*nx
         self.nc = nx*(l+1) 
         
@@ -653,7 +653,7 @@ class GPM():
         bu[self.iv_x[-1]] = self.ds.target
 
         bl[self.iv_slack] = 0.0
-        bu[self.iv_slack] = 0.0
+        #bu[self.iv_slack] = 0.0
 
         return bl, bu
 
@@ -781,9 +781,9 @@ class GPM():
         jac[self.ic_col.reshape(-1), self.iv_slack[0].reshape(-1) ] =  1.0
         jac[self.ic_col.reshape(-1), self.iv_slack[1].reshape(-1) ] = -1.0
         
-        jt = np.zeros((self.ic_target.size,self.nv))
+        #jt = np.zeros((self.ic_target.size,self.nv))
 
-        return jt.reshape(-1)
+        return jac.reshape(-1)
 
 
     @staticmethod
@@ -799,9 +799,10 @@ class GPM():
 
     # hack (not elegant, bug prone)
     def get_policy(self,z):
-        pi =  CollocationPolicy(self,z[self.iv_u],np.exp(z[self.iv_h]))
+        us = z[self.iv_u[:,:-self.ds.nxi]].copy()
+        pi =  CollocationPolicy(self,us,np.exp(z[self.iv_h]))
         pi.x = z[self.iv_x]
-        print z[self.iv_h], np.sum(z[self.iv_slack].reshape(-1))
+        pi.uxi = z[self.iv_u].copy()
         return pi
 
     def initialization(self):
@@ -955,6 +956,7 @@ class MSM():
 
         pi = PiecewiseConstantPolicy(z[self.iv_u],np.exp(z[self.iv_h]))
         pi.x = z[self.iv_x]
+        pi.uxi = z[self.iv_u].copy()
         return pi
 
     def initialization(self):
@@ -976,7 +978,7 @@ class MSMext():
     def __init__(self, ds, l):
         self.ds = ds
         self.l = l
-        self.lbd = 10000.0
+        self.lbd = 100.0
         
         nx,nu = self.ds.nx, self.ds.nu
         try:
@@ -984,7 +986,8 @@ class MSMext():
         except:
             nxi = 0
 
-        self.nv = 1 + (l+ 1)*nx + l*nu + l
+        self.nv = 1 + (l+ 1)*nx + l*nu + 1
+        #self.nv = 1 + (l+ 1)*nx + l*nu + l
         self.nc = nx*l + 2*nx 
         
         self.iv_h = 0
@@ -998,8 +1001,10 @@ class MSMext():
         self.iv_u = tmp[:-1,nx:] 
         self.iv_u_binf = self.iv_u[:,:nu-nxi]
 
-        self.iv_slack = 1 + (l+1)*nx + l*nu + np.arange(l)
-        self.iv_qcone = np.hstack((self.iv_slack[:,np.newaxis], self.iv_u[:,nu-nxi:nu]))
+        self.iv_slack = 1 + (l+1)*nx + l*nu + np.arange(1)
+        self.iv_qcone = np.concatenate((self.iv_slack, self.iv_u[:,nu-nxi:nu].reshape(-1))).reshape(1,-1)
+        #self.iv_slack = 1 + (l+1)*nx + l*nu + np.arange(l)
+        #self.iv_qcone = np.hstack((self.iv_slack[:,np.newaxis], self.iv_u[:,nu-nxi:nu]))
         
         self.ic_col = np.arange(l*nx).reshape(l,nx)
         self.ic_o = l*nx+ np.arange(nx)
@@ -1023,17 +1028,19 @@ class MSMext():
         bu[self.iv_h] = 100.0
         
         bl[self.iv_slack] = 1.0
+        if self.no_slack:
+            bu[self.iv_slack] = 1.0
 
         return bl, bu
 
     def obj(self,z):
-        return -z[0] + self.lbd/self.l*np.sum(z[self.iv_slack]-1.0)
+        return -z[0] + self.lbd*np.sum(z[self.iv_slack]-1.0)
 
     def obj_grad_inds(self):
         return np.concatenate((np.array([0]), self.iv_slack ))
 
     def obj_grad(self,z=None):
-        return np.concatenate((np.array([-1]), self.lbd *np.ones(self.l) ))/self.l
+        return np.concatenate((np.array([-1]), self.lbd *np.ones(self.l) ))
 
     def ccol(self,z):
         
@@ -1387,7 +1394,7 @@ class KnitroNlp():
     def solve(self):
         
         bl,bu = self.prob.bounds()
-        if not self.is_first:
+        if not self.is_first or True:
             x = self.ret_x
             #l = self.ret_lambda
         else:
@@ -1443,15 +1450,6 @@ class SlpNlp():
         task.putobjsense(mosek.objsense.minimize)
         
 
-        l,u = self.nlp.bounds()
-        i = self.nlp.iv
-        bm = self.bm
-        bm[np.logical_and(np.isinf(l), np.isinf(u))] = mosek.boundkey.fr
-        bm[np.logical_and(np.isinf(l), np.isfinite(u))] = mosek.boundkey.up
-        bm[np.logical_and(np.isfinite(l), np.isinf(u))] = mosek.boundkey.lo
-        bm[np.logical_and(np.isfinite(l), np.isfinite(u))] = mosek.boundkey.ra
-
-        task.putboundlist(mosek.accmode.var,i,bm,l,u )
 
         j,c =  self.nlp.obj_grad_inds(),self.nlp.obj_grad()
         task.putclist(j,c)
@@ -1467,6 +1465,19 @@ class SlpNlp():
         
 
         self.task = task
+
+        self.put_var_bounds()
+
+    def put_var_bounds(self):
+        l,u = self.nlp.bounds()
+        i = self.nlp.iv
+        bm = self.bm
+        bm[np.logical_and(np.isinf(l), np.isinf(u))] = mosek.boundkey.fr
+        bm[np.logical_and(np.isinf(l), np.isfinite(u))] = mosek.boundkey.up
+        bm[np.logical_and(np.isfinite(l), np.isinf(u))] = mosek.boundkey.lo
+        bm[np.logical_and(np.isfinite(l), np.isfinite(u))] = mosek.boundkey.ra
+
+        self.task.putboundlist(mosek.accmode.var,i,bm,l,u )
 
     def solve_task(self,z):
 
@@ -1514,6 +1525,7 @@ class SlpNlp():
 
         warnings.simplefilter("default", RuntimeWarning)
 
+
         return ret
 
            
@@ -1523,17 +1535,16 @@ class SlpNlp():
 
         for i in range(n_iters):  
             if not self.solve_task(z):
-                pass
                 #break
+                pass
 
-            z = z + 1.0/np.sqrt(i+20)* (self.ret_x-z)
-            #z[self.nlp.iv_slack] = self.ret_x[self.nlp.iv_slack]
-            #print z[self.nlp.iv_slack]
+            z = z + 1.0/np.sqrt(i+20.0)* (self.ret_x-z)
+            z[self.nlp.iv_slack] = self.ret_x[self.nlp.iv_slack]
 
             obj = self.nlp.obj(z) 
             print ('{:9.5f} '*2).format( z[self.nlp.iv_h], obj+z[self.nlp.iv_h])
 
-        return obj, z 
+        return -z[self.nlp.iv_h], z 
 
         
     def solve(self):
@@ -1542,7 +1553,7 @@ class SlpNlp():
         zi = self.nlp.initialization()
 
 
-        obj, z = self.iterate(zi,75)
+        obj, z = self.iterate(zi,150)
         
         self.last_z = z
         
@@ -1582,3 +1593,360 @@ class SlpNlp():
         return self.nlp.get_policy(z)
         
 
+
+# classes from older code
+class LGL():
+    def __init__(self,l):
+        self.l = l
+
+        n = self.l-1
+        L = legendre.Legendre.basis(n)
+        tau= np.hstack(([-1.0],L.deriv().roots(), [1.0]))
+
+        vs = L(tau)
+        dn = ( tau[:,np.newaxis] - tau[np.newaxis,:] )
+        dn[dn ==0 ] = float('inf')
+
+        D = -vs[:,np.newaxis] / vs[np.newaxis,:] / dn
+        D[0,0] = n*(n+1)/4.0
+        D[-1,-1] = -n*(n+1)/4.0
+
+        self.diff = D
+        self.nodes = tau
+        self.int_w = 2.0/n/(n+1.0)/(vs*vs)
+
+        rcp = 1.0/(tau[:,np.newaxis] - tau[np.newaxis,:]+np.eye(tau.size)) - np.eye(tau.size)
+        self.rcp_nodes_diff = rcp
+
+
+    def interp_coefficients(self,r):
+
+        if r < -1 or r > 1:
+            raise TypeError
+
+        nds = self.nodes
+        df = ((r - nds)[np.newaxis,:]*self.rcp_nodes_diff) + np.eye(nds.size)
+        w = df.prod(axis=1)
+
+        return w
+
+        
+
+class SqpPlanner():
+    def __init__(self, ds,l):
+        """ initialize planner for dynamical system"""
+        self.ds = ds
+        self.l=l
+        self.differentiator = NumDiff()
+        self.collocator = LGL(l)
+
+        self.prep_solver()
+        self.setup_slacks(10.0)
+
+    def prep_solver(self):
+        l,nx,nu = self.l, self.ds.nx, self.ds.nu
+
+        nv, nc = 1+l*(nx+nu)+l*nx, l*nx
+        self.nv = nv
+        self.nc = nc
+        
+        self.iv_hxu = np.arange(1+l*(nx+nu))
+        self.ic_dyn = np.arange(l*nx)
+        self.iv_slack = np.arange(1+l*(nx+nu),1+l*(nx+nu)+l*nx)
+
+        task = mosek_env.Task()
+        task.appendvars(nv)
+        task.appendcons(nc)
+        
+        bdk = mosek.boundkey
+        b = [0]*nv
+        task.putboundlist(mosek.accmode.var, range(nv), [bdk.fr]*nv,b,b )
+
+        b = [0]*nc
+        task.putboundlist(mosek.accmode.con, range(nc), [bdk.fx]*nc,b,b )
+        
+        #hack
+        task.putbound(mosek.accmode.var,0, bdk.lo, -4.0,0 )
+
+        task.putcj(0,1.0)
+        task.putobjsense(mosek.objsense.minimize)
+        
+        self.task = task
+
+    def setup_slacks(self,c):
+        
+        task = self.task
+        
+        w = self.collocator.int_w[:,np.newaxis]+np.zeros(self.ds.nx)
+        w = w.reshape(-1)
+        
+        task.putaijlist(self.ic_dyn, self.iv_slack, np.ones(self.iv_slack.size))
+        task.putqobj(self.iv_slack, self.iv_slack, c*w) 
+
+    def bind_state(self,i,state):
+
+        l,nx,nu = self.l, self.ds.nx, self.ds.nu
+        if i<0:
+            i = l+i
+
+        i = 1 + i*(nx+nu) + np.arange(nx)
+        c_bdk = [mosek.boundkey.fx]*nx
+        self.task.putboundlist(mosek.accmode.var,i,c_bdk,state,state )
+        
+    def bound_controls(self,u=None):
+        l,nx,nu = self.l, self.ds.nx, self.ds.nu
+        if u is None:
+            u = np.zeros(l*nu)
+        else:
+            u = u.reshape(-1)
+
+        bdk,wx = mosek.boundkey, np.newaxis
+        i = 1 + nx + (nx+nu)*np.arange(l)[:,wx] + np.arange(nu)[wx,:]
+        i = i.reshape(-1)
+        v_bdk = [bdk.ra]*(nu*l)
+
+        self.task.putboundlist(  mosek.accmode.var,i,v_bdk,-1.0+u,1.0+u )
+
+
+    @staticmethod
+    @memoize
+    def __linearize_inds(l,nx,nu):
+        wx  = np.newaxis
+        rl  = np.arange(l)
+        rxu = np.arange(nx+nu)
+        rx  = np.arange(nx)
+
+        dd_c = (rl*nx)[wx,:,wx] + np.zeros(l)[wx,wx,:] + rx[:,wx,wx] 
+        dd_v = 1 +(rl*(nx+nu))[wx,wx,:] + np.zeros(l)[wx,:,wx] + rx[:,wx,wx] 
+
+        gh_c = (rl*nx)[:,wx] + np.arange(nx)[wx,:]
+        gh_v = np.zeros(gh_c.size)
+
+        gxu_c = (rl*nx)[:,wx,wx] + np.zeros(nx+nu)[wx,:,wx] + rx[wx,wx,:]
+        gxu_v = 1+(rl*(nx+nu))[:,wx,wx] + rxu[wx,:,wx] + np.zeros(nx)[wx,wx,:]
+
+        c = np.concatenate((dd_c.reshape(-1),
+                    gh_c.reshape(-1), gxu_c.reshape(-1)))
+        v = np.concatenate((dd_v.reshape(-1),
+                    gh_v.reshape(-1), gxu_v.reshape(-1)))
+        
+        return (c,v)
+
+    def linearize_dyn_logh(self,z):
+        # return function value and jacobian for g(x,u,h) = .5*h*f(x,u) - D*x
+        
+        l,nx,nu = self.l,self.ds.nx,self.ds.nu
+        h,dh = np.exp(z[0]), np.exp(z[0])
+        
+        xu = z[1:].reshape(l,-1)
+        x = xu[:,:nx]
+        u = xu[:,-nu:]
+
+
+        buff = array((l,nx+nu))
+        buff.set(xu)
+
+        df = self.differentiator.diff(lambda x_: self.ds.f_sp(x_), buff)   
+        f = self.ds.f_sp(buff) 
+
+        f,df = f.get(), df.get()
+        
+        wx  = np.newaxis
+        d    =  np.array(np.matrix(self.collocator.diff)*np.matrix(x))
+        dd   =  self.collocator.diff[wx,:,:] + np.zeros(nx)[:,wx,wx]
+
+        gh   = .5*dh*f
+        gxu   = .5*h*df
+        
+        inds = self.__linearize_inds(l,nx,nu)
+        jd = np.concatenate((dd.reshape(-1), gh.reshape(-1), gxu.reshape(-1)))
+        
+        #jd[np.abs(jd)<1e-5]=0
+        jac = coo_matrix((jd,inds)).tocsr().tocoo()
+
+        diff  = (.5*h*f +   d).reshape(-1)
+
+        return diff, jac
+        
+    def linearize_dyn_h(self,z):
+        # return function value and jacobian for g(x,u,h) = .5*h*f(x,u) - D*x
+        
+        l,nx,nu = self.l,self.ds.nx,self.ds.nu
+        #h,dh = np.exp(z[0]), np.exp(z[0])
+        h,dh = z[0], 1.0
+        
+        xu = z[1:].reshape(l,-1)
+        x = xu[:,:nx]
+        u = xu[:,-nu:]
+
+
+        buff = array((l,nx+nu))
+        buff.set(xu)
+
+        df = self.differentiator.diff(lambda x_: self.ds.f_sp(x_), buff)   
+        f = self.ds.f_sp(buff) 
+
+        f,df = f.get(), df.get()
+        
+        wx  = np.newaxis
+        d    = - np.array(np.matrix(self.collocator.diff)*np.matrix(x))
+        dd   = - self.collocator.diff[wx,:,:] + np.zeros(nx)[:,wx,wx]
+
+        gh   = .5*dh*f
+        gxu   = .5*h*df
+        
+        
+        inds = self.__linearize_inds(l,nx,nu)
+        jd = np.concatenate((dd.reshape(-1), gh.reshape(-1), gxu.reshape(-1)))
+        
+        #jd[np.abs(jd)<1e-5]=0
+        jac = coo_matrix((jd,inds)).tocsr().tocoo()
+
+        diff  = (.5*h*f +   d).reshape(-1)
+
+        return diff, jac
+        
+    def linearize_dyn_loghi(self,z):
+        # return function value and jacobian for g(x,u,h) = .5*h*f(x,u) - D*x
+        
+        l,nx,nu = self.l,self.ds.nx,self.ds.nu
+        #h,dh = np.exp(z[0]), np.exp(z[0])
+        hi,dhi = np.exp(-z[0]), -np.exp(-z[0])
+        
+        xu = z[1:].reshape(l,-1)
+        x = xu[:,:nx]
+        u = xu[:,-nu:]
+
+
+        buff = array((l,nx+nu))
+        buff.set(xu)
+
+        df = self.differentiator.diff(lambda x_: self.ds.f_sp(x_), buff)   
+        f = self.ds.f_sp(buff) 
+
+        f,df = f.get(), df.get()
+        
+        wx  = np.newaxis
+        d    = - np.array(np.matrix(self.collocator.diff)*np.matrix(x))
+        dd   = - hi*self.collocator.diff[wx,:,:] + np.zeros(nx)[:,wx,wx]
+
+        gh   =  dhi*d
+        gxu   = .5*df
+        
+        inds = self.__linearize_inds(l,nx,nu)
+        jd = np.concatenate((dd.reshape(-1), gh.reshape(-1), gxu.reshape(-1)))
+        
+        #jd[np.abs(jd)<1e-5]=0
+        jac = coo_matrix((jd,inds)).tocsr().tocoo()
+
+        diff  = (.5*f +   hi*d).reshape(-1)
+
+        return diff, jac
+        
+    linearize_dyn = linearize_dyn_logh
+    def set_dynamics_delta(self,z):
+        
+        l,nx,nu = self.l, self.ds.nx, self.ds.nu
+        f,df = self.linearize_dyn(z)
+        
+        self.task.putaijlist( df.row, df.col, df.data  )
+        
+        f = -f
+        nc = l*nx 
+        bdk = mosek.boundkey
+        self.task.putboundlist(mosek.accmode.con,range(nc),[bdk.fx]*nc,f,f )
+        
+    def qp_solve(self):
+
+        task = self.task
+
+        task.optimize()
+        prosta = task.getprosta(mosek.soltype.itr) 
+        solsta = task.getsolsta(mosek.soltype.itr) 
+
+        task._Task__progress_cb=None
+        task._Task__stream_cb=None
+        if (solsta!=mosek.solsta.optimal 
+                and solsta!=mosek.solsta.near_optimal):
+            # mosek bug fix 
+            print str(solsta)+", "+str(prosta)
+            #raise Exception(str(solsta)+", "+str(prosta))
+
+           
+        nv = self.nv
+        xx = np.zeros(self.nv)
+
+        warnings.simplefilter("ignore", RuntimeWarning)
+        task.getsolutionslice(mosek.soltype.itr,
+                            mosek.solitem.xx,
+                            0,nv, xx)
+
+        warnings.simplefilter("default", RuntimeWarning)
+        return xx
+
+        
+    def linearize_task(self,z,start,end):
+        
+        l,nx,nu = self.l, self.ds.nx, self.ds.nu
+         
+        xu = z[1:].reshape(l,-1) 
+
+        self.bind_state( 0, np.array(start) - xu[0,:nx])
+        self.bind_state(-1, np.array(end) - xu[-1,:nx])
+        self.bound_controls(-xu[:,-nu:])
+        self.set_dynamics_delta(z)
+
+        bdk = mosek.boundkey
+        #self.task.putbound(mosek.accmode.var,0, bdk.lo,-z[0],-z[0] )
+        
+        xx = self.qp_solve()
+        
+        
+        slacks = xx[self.iv_slack].reshape(l,nx)
+        x = z[1:].reshape(l,-1)[:,:nx]
+        u = z[1:].reshape(l,-1)[:,-nu:] + xx[1:1+l*(nx+nu)].reshape(l,-1)[:,-nu:] 
+
+        sc = np.sum(slacks*slacks* self.collocator.int_w[:,np.newaxis])
+
+        if sc > 1e-6:
+            self.task.putbound(mosek.accmode.var,0, bdk.lo, 0.0, 0 )
+        else:
+            self.task.putbound(mosek.accmode.var,0, bdk.lo, -4.0-z[0],0 )
+
+        #print z[0], sc
+        #print u
+        
+        #plt.ion()
+        #plt.clf()
+        #plt.plot(x[:,2],x[:,0])
+        #plt.draw()
+
+        self.slack_cost = sc
+
+        return xx[self.iv_hxu]
+
+    def solve(self):
+        
+        for h,spline in self.ds.initializations():
+            x = spline((self.collocator.nodes+1.0)/2.0)
+            z = np.concatenate((np.array([h]),x.reshape(-1)))
+            
+            for i in range(40):
+                dz = self.linearize_task(z,self.ds.state,self.ds.target)
+                z = z+ dz/np.sqrt(i+2.0)
+                #z = z+ dz/np.sqrt(i+2.0)
+            break
+
+        
+        self.ret_x = z
+        l,nx,nu = self.l, self.ds.nx, self.ds.nu
+        u = z[1:].reshape(l,-1)[:,-nu:]  
+        x = z[1:].reshape(l,-1)[:,:nx]  
+        
+        h = np.exp(z[0])
+        print h,self.slack_cost
+
+        rt = CollocationPolicy(self.collocator,u.copy(),h)
+        rt.x = x
+        rt.uxi = u.copy() 
+        return rt
