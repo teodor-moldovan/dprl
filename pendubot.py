@@ -3,17 +3,15 @@ import sympy
 from sympy.utilities.codegen import codegen
 import re
  
-class CartDoublePole(DynamicalSystem, Environment):
+class Pendubot(DynamicalSystem, Environment):
     def __init__(self, noise = 0):
 
-        DynamicalSystem.__init__(self,6,1)
-        Environment.__init__(self, np.array([0,0,0,np.pi,np.pi,0]), .01, noise=noise)
+        DynamicalSystem.__init__(self,4,1)
+        Environment.__init__(self, np.array([0,0,np.pi,np.pi]),.01,noise=noise)
         
-        self.target = np.array([0,0,0,0,0,0])
+        self.target = np.array([0,0,0,0])
 
-        m1,m2,m3,l2,l3,b,g,um = (.5,.5,.5,.6,.6,.1,9.82, 20.0)
-        #m1,m2,m3,l2,l3,b,g,um = (.5,.5,.5,.6,.6,.1,9.82, 20.0)
-        s = self.codegen( m1,m2,m3,l2,l3,b,g,um  )        
+        s = self.codegen()        
 
         tpl = Template( s +
         """
@@ -23,12 +21,10 @@ class CartDoublePole(DynamicalSystem, Environment):
                 {{ dtype }} us[], 
                 {{ dtype }} yd[]){
 
-        yd[0] = ddth1(y[0],y[1],y[2],y[3],y[4],us[0]);
-        yd[1] = ddth2(y[0],y[1],y[2],y[3],y[4],us[0]);
-        yd[2] =   ddx(y[0],y[1],y[2],y[3],y[4],us[0]);
-        yd[3] = y[0];
-        yd[4] = y[1];
-        yd[5] = y[2];
+        yd[0] = ddth1(y[0],y[1],y[2],y[3],us[0]);
+        yd[1] = ddth2(y[0],y[1],y[2],y[3],us[0]);
+        yd[2] = y[0];
+        yd[3] = y[1];
         
         }
         """
@@ -36,33 +32,36 @@ class CartDoublePole(DynamicalSystem, Environment):
 
         fn = tpl.render(dtype = cuda_dtype)
 
-        self.k_f = rowwise(fn,'cartpole')
+        self.k_f = rowwise(fn,'pendubot')
 
     @staticmethod
-    def codegen(*args):
-        m1,m2,m3,l2,l3,b,g,um = args
+    def codegen():
+
+        m1,m2,b1,b2,l1,l2,g,um = (.5,.5,0,0,.5,.5,9.82, 3.5)
+        I1 = m1*l1*l1/12.0
+        I2 = m2*l2*l2/12.0
 
         cos,sin = sympy.cos, sympy.sin
-        zl = sympy.symbols('x,dx,dth1,dth2,th1,th2')
-        fl = sympy.symbols('u')
+        zl = sympy.symbols('dth1,dth2,th1,th2',real=True)
+        fl = sympy.symbols('u',real=True)
         z = lambda i: zl[i-1]
         f = lambda i: fl*um
         t = 1
 
-        A = [[2*(m1+m2+m3), -(m2+2*m3)*l2*cos(z(5)), -m3*l3*cos(z(6))],
-             [  -(3*m2+6*m3)*cos(z(5)), (2*m2+6*m3)*l2, 3*m3*l3*cos(z(5)-z(6))],
-             [  -3*cos(z(6)), 3*l2*cos(z(5)-z(6)), 2*l3]];
-        b = [2*f(t)-2*b*z(2)-(m2+2*m3)*l2*z(3)*z(3)*sin(z(5))-m3*l3*z(4)*z(4)*sin(z(6)),
-               (3*m2+6*m3)*g*sin(z(5))-3*m3*l3*z(4)*z(4)*sin(z(5)-z(6)),
-               3*l2*z(3)*z(3)*sin(z(5)-z(6))+3*g*sin(z(6))];
+        A = [[l1*l1*(0.25*m1+m2) + I1,      0.5*m2*l1*l2*cos(z(3)-z(4)) ],
+             [0.5*m2*l1*l2*cos(z(3)-z(4)), l2*l2*0.25*m2 + I2           ]]
+
+        b = [g*l1*sin(z(3))*(0.5*m1+m2) - 0.5*m2*l1*l2*z(2)*z(2)*sin(z(3)-z(4))
+                                                        + f(t) - b1*z(1), 
+            0.5*m2*l2*( l1*z(1)*z(1)*sin(z(3)-z(4)) + g*sin(z(4)) )    - b2*z(2)]
 
         A = sympy.Matrix(A)
-        b = sympy.Matrix(3,1,b)
+        b = sympy.Matrix(2,1,b)
         x = sympy.Inverse(A)*b
         
         f,g = codegen(
-            (('ddx',x[0]),('ddth1', x[1]), ('ddth2',x[2])) 
-            ,'c','cart2pole',header=False)
+            (('ddth1', x[0]), ('ddth2',x[1])) 
+            ,'c','pendubot',header=False)
 
         s = f[1]
         s = re.sub(r'(?m)^\#.*\n?', '', s)
@@ -75,30 +74,30 @@ class CartDoublePole(DynamicalSystem, Environment):
     def step_(self,*args,**kwargs):
         rt = Environment.step(self,*args,**kwargs)
 
+        self.state[2] =  np.mod(self.state[2] + np.pi,2*np.pi)-np.pi
         self.state[3] =  np.mod(self.state[3] + np.pi,2*np.pi)-np.pi
-        self.state[4] =  np.mod(self.state[4] + np.pi,2*np.pi)-np.pi
         return rt
 
     def step(self,*args,**kwargs):
         rt = Environment.step(self,*args,**kwargs)
 
+        self.state[2] =  np.mod(self.state[2] + 2*np.pi,4*np.pi)-2*np.pi
         self.state[3] =  np.mod(self.state[3] + 2*np.pi,4*np.pi)-2*np.pi
-        self.state[4] =  np.mod(self.state[4] + 2*np.pi,4*np.pi)-2*np.pi
         return rt
 
 
     def print_state(self):
         s,t = self.state,self.t    
-        print 't: ',('{:4.2f} ').format(t),' state: ',('{:9.3f} '*6).format(*s)
+        print 't: ',('{:4.2f} ').format(t),' state: ',('{:9.3f} '*4).format(*s)
 
-class OptimisticCartDoublePole(OptimisticDynamicalSystem):
+class OptimisticPendubot(OptimisticDynamicalSystem):
     def __init__(self,predictor,**kwargs):
 
-        OptimisticDynamicalSystem.__init__(self,6,1,3, 
-                 np.array([0,0,0,np.pi,np.pi,0]),
-                 predictor,xi_scale=4.0, **kwargs)
+        OptimisticDynamicalSystem.__init__(self,4,1,2, 
+                 np.array([0,0,np.pi,np.pi]),
+                 predictor, xi_scale = 4.0, **kwargs)
 
-        self.target = [0,0,0,0,0,0]
+        self.target = [0,0,0,0]
 
         tpl = Template(
             """
@@ -112,18 +111,17 @@ class OptimisticCartDoublePole(OptimisticDynamicalSystem):
             // p1 : state
             // p2 : controls
             // p3 : input state to predictor
+
             //{{ dtype }} gn = u[0] > 0 ? 1.0 : -1.0;
             {{ dtype }} gn = 1.0;
+
             o[0 ] = gn*s[0];
             o[1 ] = gn*s[1];
-            o[2 ] = gn*s[2];
-            o[3 ] = cos(s[3]);
-            o[4 ] = gn*sin(s[3]);
-            o[5 ] = cos(s[4]);
-            o[6 ] = gn*sin(s[4]);
-            o[7 ] = cos(s[4]-s[3]);
-            o[8 ] = gn*sin(s[4]-s[3]);
-            o[9 ] = gn*u[0];
+            o[2 ] = gn*sin(s[2]);
+            o[3 ] = gn*sin(s[3]);
+            o[4 ] = cos(s[2]-s[3]);
+            o[5 ] = gn*sin(s[2]-s[3]);
+            o[6 ] = gn*u[0];
             }
             
             """
@@ -139,16 +137,13 @@ class OptimisticCartDoublePole(OptimisticDynamicalSystem):
                 {{ dtype }} u[], 
                 {{ dtype }} yd[]){
 
-
         //{{ dtype }} gn = u[0] > 0 ? 1.0 : -1.0;
         {{ dtype }} gn = 1.0;
 
         yd[0] = gn*z[0];
         yd[1] = gn*z[1];
-        yd[2] = gn*z[2];
-        yd[3] = y[0];
-        yd[4] = y[1];
-        yd[5] = y[2];
+        yd[2] = y[0];
+        yd[3] = y[1];
         
         }
         """
@@ -173,20 +168,16 @@ class OptimisticCartDoublePole(OptimisticDynamicalSystem):
 
             //{{ dtype }} gn = u[0] > 0 ? 1.0 : -1.0;
             {{ dtype }} gn = 1.0;
-            
+
             o[0 ] = gn*ds[0];
             o[1 ] = gn*ds[1];
-            o[2 ] = gn*ds[2];
-            o[3 ] = gn*s[0];
-            o[4 ] = gn*s[1];
-            o[5 ] = gn*s[2];
-            o[6 ] = cos(s[3]);
-            o[7 ] = gn*sin(s[3]);
-            o[8 ] = cos(s[4]);
-            o[9 ] = gn*sin(s[4]);
-            o[10] = cos(s[4]-s[3]);
-            o[11] = gn*sin(s[4]-s[3]);
-            o[12] = gn*u[0];
+            o[2 ] = gn*s[0];
+            o[3 ] = gn*s[1];
+            o[4 ] = gn*sin(s[2]);
+            o[5 ] = gn*sin(s[3]);
+            o[6 ] = cos(s[2]-s[3]);
+            o[7 ] = gn*sin(s[2]-s[3]);
+            o[8 ] = gn*u[0];
             } 
             """
             )
@@ -198,31 +189,34 @@ class OptimisticCartDoublePole(OptimisticDynamicalSystem):
         plt.ion()
         fig = plt.figure(1, figsize=(10, 15))
 
-    def plot_traj(self, tmp,r):
+    def plot_traj(self, tmp,r=None, u=None):
 
 
         plt.sca(plt.subplot(3,1,1))
 
         plt.xlim([-2*np.pi,2*np.pi])
         plt.ylim([-60,60])
-        plt.plot(tmp[:,3],tmp[:,0])
-        plt.scatter(tmp[:,3],tmp[:,0],c=r,linewidth=0,vmin=-1,vmax=1,s=40)
+        plt.plot(tmp[:,2],tmp[:,0])
+        if not r is None:
+            plt.scatter(tmp[:,2],tmp[:,0],c=r,linewidth=0,vmin=-1,vmax=1,s=40)
 
         plt.sca(plt.subplot(3,1,2))
 
         plt.xlim([-2*np.pi,2*np.pi])
         plt.ylim([-60,60])
-        plt.plot(tmp[:,4],tmp[:,1])
-        plt.scatter(tmp[:,4],tmp[:,1],c=r,linewidth=0,vmin=-1,vmax=1,s=40)
+        plt.plot(tmp[:,3],tmp[:,1])
+        if not r is None:
+            plt.scatter(tmp[:,3],tmp[:,1],c=r,linewidth=0,vmin=-1,vmax=1,s=40)
 
         plt.sca(plt.subplot(3,1,3))
 
-        plt.plot(tmp[:,5],tmp[:,2])
-        plt.scatter(tmp[:,5],tmp[:,2],c=r,linewidth=0,vmin=-1,vmax=1,s=40)
-        plt.xlim([-6,6])
-        plt.ylim([-20,20])
-
+        plt.ylim([-1.2,1.2])
         
+        if not u is None:
+            plt.plot(u)
+
+
+
     def plot_draw(self):
         
         plt.draw()

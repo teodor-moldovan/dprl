@@ -2,12 +2,14 @@ import unittest
 from clustering import *
 from cartpole import *
 from cart2pole import *
+from pendubot import *
 from heli import *
 import time
 import scipy.linalg
 import scipy.special
 import pycuda.driver as drv
 import pycuda.scan
+import cPickle
 #import dpcluster
 import cPickle
 
@@ -1382,7 +1384,7 @@ class TestsCartpole(unittest.TestCase):
 
         ds = Cartpole()
         
-        l,p,k = 10000, 5,11*8
+        l,p,k = 1000, 7,2*11*8
 
         np.random.seed(5)
 
@@ -1392,7 +1394,7 @@ class TestsCartpole(unittest.TestCase):
         r[:,1] *= 3
         r[:,2] *= 2*np.pi
         r[:,3] *= 1
-        r[:,4] *= 10
+        r[:,4] *= 1
         
         x,u = r[:,:4], r[:,4:5]
         uxi = np.insert(u,1,0,axis=1)
@@ -1401,7 +1403,7 @@ class TestsCartpole(unittest.TestCase):
 
         for t in range(10):
             learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
-            model = OptimisticCartpole(learner)
+            model = OptimisticCartpoleSC(learner)
             
             trj = (None,dx,x,u)
 
@@ -1559,13 +1561,10 @@ class TestsCartDoublePole(unittest.TestCase):
         #pp = KnitroNlp(GPM(model,25))
         planner = SlpNlp(MSMext(model,25))
 
-        env = CartDoublePole(noise = .01)
-        trj = env.step(ZeroPolicy(env.nu), 150, random_control=True) 
+        env = CartDoublePole(noise = .1)
+        trj = env.step(ZeroPolicy(env.nu), 50, random_control=True) 
         
-        #state = env.state
-        #env = CartDoublePole(noise = 0.01)
-        #env.state = state
-
+        env.noise = 0.0
 
         model.plot_init()
 
@@ -1714,6 +1713,170 @@ class TestsCartDoublePole(unittest.TestCase):
             plt.show()
 
 
+
+class TestsPendubot(unittest.TestCase):
+    def test_iter(self):
+
+        seed = 45 # 11,15,22
+        np.random.seed(seed)
+
+        p,k = 9, 2*11*8
+        learner = BatchVDP(Mixture(SBP(k),NIW(p,k)),w=.1)
+        model = OptimisticPendubot(learner)
+
+        planner = SlpNlp(MSMext(model,25))
+        #planner = SqpPlanner(model,25)
+
+        env = Pendubot(noise = 1.0)
+        trj = env.step(ZeroPolicy(env.nu), 150, random_control=True) 
+        
+        env.noise = 0.0
+
+        model.plot_init()
+
+
+        for t in range(10000):
+            
+            if env.t > 1.0:
+                env.t -= 1.0
+                env.state = np.array([0,0,np.pi,np.pi])
+
+            env.print_state()
+
+            if not trj is None:
+                model.update(trj)
+
+            model.state = env.state
+            pi = planner.solve()
+
+
+            if True:
+                us = pi.us.reshape(pi.us.shape[0],-1).copy()
+                #x = to_gpu(pi.x)
+                x = to_gpu(pi.x[:-1])
+                dx1  = env.f(x, to_gpu(us)).get()
+                us_ = np.hstack((us,np.zeros((us.shape[0],model.nxi))))
+                dx2 = model.f(x, to_gpu(us_)).get()
+                #dx2 = model.f(x, to_gpu(pi.uxi)).get()
+                
+                a = dx1[:,:2]
+                b = dx2[:,:2]
+                r =  np.sum(a*b,1) / np.sqrt(np.sum(a*a,1)*np.sum(b*b,1))
+                r = np.insert(r,r.shape[0],0,axis=0)
+            else:
+                r = None
+
+            model.plot_traj(pi.x,r)
+            model.plot_draw()
+
+
+            trj = env.step(pi,5)
+            #trj = env.step(pi,2)
+
+
+
+    def test_rand_pp(self):
+
+        seed = 45 # 11,15,22
+        np.random.seed(seed)
+
+        p,k = 9, 2*11*8
+        learner = BatchVDP(Mixture(SBP(k),NIW(p,k)),w=.1)
+        model = OptimisticPendubot(learner)
+
+        #planner = SlpNlp(MSMext(model,25))
+        planner = SqpPlanner(model,25)
+
+        env = Pendubot(noise = 1.0)
+        
+        filename = 'out/traj_cpickle.pkl'
+        if False:
+            trj = env.step(ZeroPolicy(env.nu), 10000, random_control=True) 
+            cPickle.dump(trj,open(filename,'wb'))
+        else:
+            trj = cPickle.load(open(filename,'rb'))
+        
+        
+        env.noise = 0.01
+
+        model.plot_init()
+
+        if not trj is None:
+            model.update(trj)
+
+
+        for t in range(10000):
+            env.print_state()
+
+
+            model.state = env.state
+            pi = planner.solve()
+
+
+            if True:
+                us = pi.us.reshape(pi.us.shape[0],-1).copy()
+                x = to_gpu(pi.x)
+                #x = to_gpu(pi.x[:-1])
+                dx1  = env.f(x, to_gpu(us)).get()
+                us_ = np.hstack((us,np.zeros((us.shape[0],model.nxi))))
+                dx2 = model.f(x, to_gpu(us_)).get()
+                #dx2 = model.f(x, to_gpu(pi.uxi)).get()
+                
+                a = dx1[:,:2]
+                b = dx2[:,:2]
+                r =  np.sum(a*b,1) / np.sqrt(np.sum(a*a,1)*np.sum(b*b,1))
+                #r = np.insert(r,r.shape[0],0,axis=0)
+            else:
+                r = None
+
+            model.plot_traj(pi.x,r,u=pi.us)
+            model.plot_draw()
+
+
+            trj = env.step(pi,5)
+            #trj = env.step(pi,2)
+
+
+
+    def test_model(self):
+
+        ds = Pendubot()
+        
+        l,p,k = 1000, 9,2*11*8
+
+        np.random.seed(5)
+
+        r = (np.random.random(size=l*5).reshape(l,-1) - .5)*2.0
+        
+        r[:,0] *= 10
+        r[:,1] *= 10
+        r[:,2] *= 2*np.pi
+        r[:,3] *= 2*np.pi
+        r[:,4] *= 1
+        
+        x,u = r[:,:4], r[:,4:5]
+        uxi = np.insert(u,1,0,axis=1)
+        
+        dx = ds.f(to_gpu(x),to_gpu(u)).get()
+
+        for t in range(10):
+            learner = BatchVDP(Mixture(SBP(k),NIW(p,k)),w=.1)
+            model = OptimisticPendubot(learner)
+            
+            trj = (None,dx,x,u)
+
+            model.update(trj)
+
+            dx_ = model.f(to_gpu(x),to_gpu(uxi)).get()
+            #print dx[:5]
+            #print dx_[:5]
+                
+            r = np.sum(dx*dx_,0)/np.sqrt(np.sum(dx*dx,0)*np.sum(dx_*dx_,0))
+            
+            cl = learner.mix.clusters
+        
+            print r
+        
 
 class TestsHeli(unittest.TestCase):
     def test_f(self):
@@ -2103,7 +2266,7 @@ class TestsPP(unittest.TestCase):
 
 if __name__ == '__main__':
     single_test = 'test_iter'
-    tests = TestsCartpole
+    tests = TestsPendubot
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))

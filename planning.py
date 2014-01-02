@@ -261,9 +261,9 @@ class Environment:
 
         nz = self.noise*np.random.normal(size=dx.shape[0]*self.nx/2)
         # hack
-        #dx[:,:self.nx/2] += nz.reshape(dx.shape[0],self.nx/2)
-        #d  += self.noise*np.random.normal(size= x.size).reshape( x.shape)
-        #u  += self.noise*np.random.normal(size= u.size).reshape( u.shape)
+        dx[:,:self.nx/2] += nz.reshape(dx.shape[0],self.nx/2)
+        x  += self.noise*np.random.normal(size= x.size).reshape( x.shape)
+        u  += self.noise*np.random.normal(size= u.size).reshape( u.shape)
 
         return t,dx,x,u
 
@@ -354,7 +354,7 @@ class DynamicalSystem(object):
 
         
 class OptimisticDynamicalSystem(DynamicalSystem):
-    def __init__(self,nx,nu, nxi, start, pred, xi_scale = 1.0, **kwargs):
+    def __init__(self,nx,nu, nxi, start, pred, xi_scale = 4.0, **kwargs):
 
         DynamicalSystem.__init__(self,nx,nu+nxi, **kwargs)
         
@@ -978,7 +978,7 @@ class MSMext():
     def __init__(self, ds, l):
         self.ds = ds
         self.l = l
-        self.lbd = 100.0
+        self.lbd = 10.0
         
         nx,nu = self.ds.nx, self.ds.nu
         try:
@@ -986,8 +986,8 @@ class MSMext():
         except:
             nxi = 0
 
-        self.nv = 1 + (l+ 1)*nx + l*nu + 1
-        #self.nv = 1 + (l+ 1)*nx + l*nu + l
+        #self.nv = 1 + (l+ 1)*nx + l*nu + 1
+        self.nv = 1 + (l+ 1)*nx + l*nu + l
         self.nc = nx*l + 2*nx 
         
         self.iv_h = 0
@@ -1001,10 +1001,10 @@ class MSMext():
         self.iv_u = tmp[:-1,nx:] 
         self.iv_u_binf = self.iv_u[:,:nu-nxi]
 
-        self.iv_slack = 1 + (l+1)*nx + l*nu + np.arange(1)
-        self.iv_qcone = np.concatenate((self.iv_slack, self.iv_u[:,nu-nxi:nu].reshape(-1))).reshape(1,-1)
-        #self.iv_slack = 1 + (l+1)*nx + l*nu + np.arange(l)
-        #self.iv_qcone = np.hstack((self.iv_slack[:,np.newaxis], self.iv_u[:,nu-nxi:nu]))
+        #self.iv_slack = 1 + (l+1)*nx + l*nu + np.arange(1)
+        #self.iv_qcone = np.concatenate((self.iv_slack, self.iv_u[:,nu-nxi:nu].reshape(-1))).reshape(1,-1)
+        self.iv_slack = 1 + (l+1)*nx + l*nu + np.arange(l)
+        self.iv_qcone = np.hstack((self.iv_slack[:,np.newaxis], self.iv_u[:,nu-nxi:nu]))
         
         self.ic_col = np.arange(l*nx).reshape(l,nx)
         self.ic_o = l*nx+ np.arange(nx)
@@ -1437,6 +1437,9 @@ class SlpNlp():
         self.ret_y = np.zeros(nc)
         
         task = mosek_env.Task()
+
+        # hack to ensure determinism
+        task.putintparam(mosek.iparam.num_threads, 1) 
         task.appendvars(nv)
         task.appendcons(nc)
         
@@ -1538,7 +1541,7 @@ class SlpNlp():
                 #break
                 pass
 
-            z = z + 1.0/np.sqrt(i+20.0)* (self.ret_x-z)
+            z = z + 1.0/np.sqrt(i+2.0)* (self.ret_x-z)
             z[self.nlp.iv_slack] = self.ret_x[self.nlp.iv_slack]
 
             obj = self.nlp.obj(z) 
@@ -1655,6 +1658,8 @@ class SqpPlanner():
         self.iv_slack = np.arange(1+l*(nx+nu),1+l*(nx+nu)+l*nx)
 
         task = mosek_env.Task()
+        # hack to ensure determinism
+        task.putintparam(mosek.iparam.num_threads, 1) 
         task.appendvars(nv)
         task.appendcons(nc)
         
@@ -1827,8 +1832,8 @@ class SqpPlanner():
         f,df = f.get(), df.get()
         
         wx  = np.newaxis
-        d    = - np.array(np.matrix(self.collocator.diff)*np.matrix(x))
-        dd   = - hi*self.collocator.diff[wx,:,:] + np.zeros(nx)[:,wx,wx]
+        d    =   np.array(np.matrix(self.collocator.diff)*np.matrix(x))
+        dd   =   hi*self.collocator.diff[wx,:,:] + np.zeros(nx)[:,wx,wx]
 
         gh   =  dhi*d
         gxu   = .5*df
@@ -1843,7 +1848,7 @@ class SqpPlanner():
 
         return diff, jac
         
-    linearize_dyn = linearize_dyn_logh
+    linearize_dyn = linearize_dyn_loghi
     def set_dynamics_delta(self,z):
         
         l,nx,nu = self.l, self.ds.nx, self.ds.nu
@@ -1927,26 +1932,28 @@ class SqpPlanner():
 
     def solve(self):
         
+        l,nx,nu = self.l, self.ds.nx, self.ds.nu
+
         for h,spline in self.ds.initializations():
             x = spline((self.collocator.nodes+1.0)/2.0)
             z = np.concatenate((np.array([h]),x.reshape(-1)))
             
-            for i in range(40):
-                dz = self.linearize_task(z,self.ds.state,self.ds.target)
+            for i in range(150):
+                dz = self.linearize_task(z, self.ds.state, self.ds.target)
                 z = z+ dz/np.sqrt(i+2.0)
+                #print z[1:].reshape(l,-1)[:,-nu:] 
                 #z = z+ dz/np.sqrt(i+2.0)
             break
 
         
         self.ret_x = z
-        l,nx,nu = self.l, self.ds.nx, self.ds.nu
         u = z[1:].reshape(l,-1)[:,-nu:]  
         x = z[1:].reshape(l,-1)[:,:nx]  
         
         h = np.exp(z[0])
         print h,self.slack_cost
 
-        rt = CollocationPolicy(self.collocator,u.copy(),h)
+        rt = CollocationPolicy(self.collocator,u[:,:nu-self.ds.nxi].copy(),h)
         rt.x = x
         rt.uxi = u.copy() 
         return rt

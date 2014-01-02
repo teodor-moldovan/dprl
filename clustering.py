@@ -15,8 +15,8 @@ class NIW(object):
 
         # set default prior
         #
-        # old version used 2*d+1+2, this seems to work well
-        # 2*d + 1 was also a good choice but can't remember why
+        # old version used 2*p+1+2, this seems to work well
+        # 2*p + 1 was also a good choice but can't remember why
 
         lbd = [0,]*(p+p*p)+[0.0, 2*p+1]
         self.prior = to_gpu(np.array(lbd).reshape(1,-1))
@@ -864,7 +864,7 @@ class StreamingNIW(object):
         
 class BatchVDP(object):
     def __init__(self,mix,buffer_size=11*32*32,
-             w =.01, diff_tol = 1e-3, max_iters = 10000):
+             w =.1, diff_tol = 1e-3, max_iters = 10000):
         
         self.buff = array((buffer_size, mix.clusters.prior.size))
         self.clear() 
@@ -987,7 +987,12 @@ class BatchVDP(object):
             # computing responsibilities for next iteration
             phi = self.mix.pseudo_resps(ss)
 
-        #print 'Num clusters: ', np.sum(counts.get()>1e-4)
+        #print 'Num clusters: ', counts.get()
+        #ad = cl.mu.get()[:np.sum(counts.get()>1.0),4:8]
+        #np.sum(ad*ad,1)
+        #cl.mu.get()[:np.sum(counts.get()>1.0),-1]
+        print 'Num clusters based on 10 or more observations: ', np.sum(counts.get()>10.0)
+        
         
     @property
     def p(self):
