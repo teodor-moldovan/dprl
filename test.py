@@ -1720,26 +1720,27 @@ class TestsPendubot(unittest.TestCase):
         seed = 45 # 11,15,22
         np.random.seed(seed)
 
-        p,k = 9, 2*11*8
+        p,k = 9, 11*8
         learner = BatchVDP(Mixture(SBP(k),NIW(p,k)),w=.1)
         model = OptimisticPendubot(learner)
 
         planner = SlpNlp(MSMext(model,25))
         #planner = SqpPlanner(model,25)
 
-        env = Pendubot(noise = 1.0)
+        env = Pendubot(noise = 0.01)
+        s0 = env.state.copy()
         trj = env.step(ZeroPolicy(env.nu), 150, random_control=True) 
         
-        env.noise = 0.0
+        env.noise = 0.01
 
         model.plot_init()
 
 
         for t in range(10000):
             
-            if env.t > 1.0:
-                env.t -= 1.0
-                env.state = np.array([0,0,np.pi,np.pi])
+            if env.t > 2.0 and False:
+                env.t -= 2.0
+                env.state = s0.copy()
 
             env.print_state()
 

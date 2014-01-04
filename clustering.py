@@ -18,7 +18,7 @@ class NIW(object):
         # old version used 2*p+1+2, this seems to work well
         # 2*p + 1 was also a good choice but can't remember why
 
-        lbd = [0,]*(p+p*p)+[0.0, 2*p+1]
+        lbd = [0,]*(p+p*p)+[0.0, 2*p+1+2]
         self.prior = to_gpu(np.array(lbd).reshape(1,-1))
 
         
@@ -589,7 +589,7 @@ class NIW(object):
         cls = self
         mu,psi,n,nu = cls.mu,cls.psi,cls.n,cls.nu
 
-        ufunc('a=b/n')(psi_tmp,psi,n[:,None,None])
+        ufunc('a=b*(n+1.0)/n/(u - ' +str(p) + ' + 1.0)')(psi_tmp,psi,n[:,None,None],nu[:,None,None])
         ufunc('a=0')(sg)
         chol_batched(psi_tmp,sg,bd=2)
 
@@ -601,7 +601,7 @@ class NIW(object):
         out.shape= orig_shape
         xi.shape = orig_shape
         
-        ufunc('a= a/sqrt(u - ' +str(p) + ' + 1.0) + b')(out,nu[:,None],mu)
+        ufunc('a= n/(n+1)*m + a/(n+1)')(out,n[:,None],mu)
         
         return out
 
@@ -814,7 +814,7 @@ class Mixture(object):
         rt = clusters_.mean_plus_stdev(xi)
         return rt
 
-    predict = predict_joint
+    predict = predict_kl
 class StreamingNIW(object):
     def __init__(self,p):
         self.niw = NIW(p,1)        

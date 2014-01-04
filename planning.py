@@ -634,7 +634,7 @@ class GPM():
     def obj_grad_inds(self):
         return np.concatenate(([self.iv_h,], self.iv_slack.reshape(-1)))
 
-    def obj_grad(self,z):
+    def obj_grad(self,z=None):
         return np.concatenate(([1,], self.slack_cost*np.ones(self.iv_slack.size)))
         
     def bounds(self):
@@ -1394,9 +1394,9 @@ class KnitroNlp():
     def solve(self):
         
         bl,bu = self.prob.bounds()
-        if not self.is_first or True:
+        if not self.is_first:
             x = self.ret_x
-            #l = self.ret_lambda
+            l = self.ret_lambda
         else:
             self.is_first= False
             x = self.prob.initialization().tolist()
@@ -1541,7 +1541,7 @@ class SlpNlp():
                 #break
                 pass
 
-            z = z + 1.0/np.sqrt(i+2.0)* (self.ret_x-z)
+            z = z + 1.0/np.sqrt(i+20.0)* (self.ret_x-z)
             z[self.nlp.iv_slack] = self.ret_x[self.nlp.iv_slack]
 
             obj = self.nlp.obj(z) 
@@ -1550,7 +1550,7 @@ class SlpNlp():
         return -z[self.nlp.iv_h], z 
 
         
-    def solve(self):
+    def solve_(self):
         
         
         zi = self.nlp.initialization()
@@ -1563,7 +1563,7 @@ class SlpNlp():
         return self.nlp.get_policy(z)
         
 
-    def solve_(self):
+    def solve(self):
         
         s0 = np.array(self.nlp.ds.target)
         
@@ -1571,8 +1571,8 @@ class SlpNlp():
         for i in (-1,0,1):
             for j in (-1,0,1):
                 s = s0.copy()
-                s[3] += i*2*np.pi
-                s[4] += j*2*np.pi
+                s[2] += i*2*np.pi
+                s[3] += j*2*np.pi
                 
                 self.nlp.ds.target = s
                 zi = self.nlp.initialization()
