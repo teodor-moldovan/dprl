@@ -79,14 +79,14 @@ class Pendubot(DynamicalSystem, Environment):
 
         return s
 
-    def step(self,*args,**kwargs):
+    def step_(self,*args,**kwargs):
         rt = Environment.step(self,*args,**kwargs)
 
         self.state[2] =  np.mod(self.state[2] + np.pi,2*np.pi)-np.pi
         self.state[3] =  np.mod(self.state[3] + np.pi,2*np.pi)-np.pi
         return rt
 
-    def step_(self,*args,**kwargs):
+    def step(self,*args,**kwargs):
         rt = Environment.step(self,*args,**kwargs)
 
         self.state[2] =  np.mod(self.state[2] + 2*np.pi,4*np.pi)-2*np.pi
@@ -102,7 +102,7 @@ class OptimisticPendubot(OptimisticDynamicalSystem):
     def __init__(self,predictor,**kwargs):
 
         OptimisticDynamicalSystem.__init__(self,4,1,2, 
-                 np.array([0,0,np.pi,np.pi]),
+                 np.array([0,0,np.pi,0]),
                  predictor, xi_scale = 2.0, **kwargs)
 
         self.target = [0,0,0,0]

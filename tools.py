@@ -108,8 +108,8 @@ class array(GPUArray):
         return rt
         
 
-    def set(self,*args,**kwargs):
-        GPUArray.set(self,*args,**kwargs)
+    def set(self,s,**kwargs):
+        GPUArray.set(self,np.ascontiguousarray(s,dtype=self.dtype),**kwargs)
         self.newhash()
 
     def __getitem__(self,slc):
@@ -202,7 +202,7 @@ class array(GPUArray):
 
 def to_gpu(s):
     d = array(s.shape)
-    d.set(s.astype(d.dtype))
+    d.set(s)
     return d
 
 @memoize

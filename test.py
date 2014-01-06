@@ -1549,6 +1549,57 @@ class TestsCartpole(unittest.TestCase):
         
 
 class TestsCartDoublePole(unittest.TestCase):
+    def test_impl_model(self):
+
+        ds = CartDoublePole()
+        
+        l = 1000
+
+        np.random.seed(5)
+
+        r = (np.random.random(size=l*7).reshape(l,-1) - .5)*2.0
+        
+        r[:,0] *= 30
+        r[:,1] *= 30
+        r[:,2] *= 3
+        r[:,3] *= 2*np.pi
+        r[:,4] *= 2*np.pi
+        r[:,5] *= 1
+        r[:,6] *= 1
+        
+        x,u = r[:,:-1], r[:,-1:]
+        
+        
+        dth1 = x[:,0]
+        dth2 = x[:,1]
+        dz = x[:,2]
+        th1 = x[:,3]
+        th2 = x[:,4]
+
+        dx = ds.f(to_gpu(x),to_gpu(u)).get()
+        dx += .001*np.random.normal(size=dx.size).reshape(dx.shape)
+
+        f = np.vstack(( 
+                dx[:,2], dx[:,0]*np.cos(th1), dx[:,1]*np.cos(th2), 
+                dx[:,2]*np.cos(th1), dx[:,0], dx[:,1]*np.cos(th1-th2), 
+                dx[:,2]*np.cos(th2), dx[:,0]*np.cos(th1-th2), dx[:,1],
+                dth1*dth1*np.sin(th1), dth2*dth2*np.sin(th2), dz, u[:,0],
+                dth2*dth2*np.sin(th1-th2), np.sin(th1),
+                dth1*dth1*np.sin(th1-th2), np.sin(th2),
+                #dth1*dth2*u[:,0], np.sin(th1)*np.sin(th2)
+            )).T
+
+        g = np.array([-3.0, +0.9, +0.3, -0.9, -0.3, -0.2, +40.0])
+        print g/np.sqrt(np.sum(g*g))
+
+        model = StreamingNIW(f.shape[1])
+        model.update(to_gpu(f.copy()))
+        
+        v,l = np.linalg.eig(model.niw.psi.get()[0])
+        i = np.argsort(np.abs(v))
+        print l[:,i[0:3]].T
+        print np.sort(v)
+
     def test_iter(self):
 
         seed = 45 # 11,15,22
@@ -1558,7 +1609,7 @@ class TestsCartDoublePole(unittest.TestCase):
         learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
         model = OptimisticCartDoublePole(learner)
 
-        #pp = KnitroNlp(GPM(model,25))
+        #pp = KnitroNlp(model,25)
         planner = SlpNlp(MSMext(model,25))
 
         env = CartDoublePole(noise = .1)
@@ -1724,10 +1775,12 @@ class TestsPendubot(unittest.TestCase):
         learner = BatchVDP(Mixture(SBP(k),NIW(p,k)),w=.1)
         model = OptimisticPendubot(learner)
 
-        planner = SlpNlp(MSMext(model,25))
+        planner = SlpNlp(GPM(model,25))
+        #planner = KnitroNlp(GPM(model,25))
+        #planner = SlpNlp(MSMext(model,25))
         #planner = SqpPlanner(model,25)
 
-        env = Pendubot(noise = 0.01)
+        env = Pendubot(noise = .01)
         s0 = env.state.copy()
         trj = env.step(ZeroPolicy(env.nu), 150, random_control=True) 
         
@@ -1754,7 +1807,7 @@ class TestsPendubot(unittest.TestCase):
             if True:
                 us = pi.us.reshape(pi.us.shape[0],-1).copy()
                 #x = to_gpu(pi.x)
-                x = to_gpu(pi.x[:-1])
+                x = to_gpu(pi.x[1:-1])
                 dx1  = env.f(x, to_gpu(us)).get()
                 us_ = np.hstack((us,np.zeros((us.shape[0],model.nxi))))
                 dx2 = model.f(x, to_gpu(us_)).get()
@@ -1764,6 +1817,7 @@ class TestsPendubot(unittest.TestCase):
                 b = dx2[:,:2]
                 r =  np.sum(a*b,1) / np.sqrt(np.sum(a*a,1)*np.sum(b*b,1))
                 r = np.insert(r,r.shape[0],0,axis=0)
+                r = np.insert(r,0,0,axis=0)
             else:
                 r = None
 
@@ -2141,6 +2195,30 @@ class TestsPP(unittest.TestCase):
         z_ = z+ dz
         
         f  = td.ccol(z) 
+        j  = td.ccol_jacobian(z) 
+        f_ = td.ccol(z+dz) 
+        
+        r  = (f_- f)/eps
+        r_ =  np.dot(j.reshape(f.size,-1),dz)/eps
+
+        np.testing.assert_almost_equal(r,r_,4)
+
+    def test_mpgpm(self):
+        k,p = 3, 2
+        td = MPGPM(Cartpole(),k,p)
+        
+        #td.interp_coefficients(.3)
+        
+        np.random.seed(2)
+        eps = 1e-8
+        z = np.random.normal(size=td.nv)
+        dz = eps*np.random.normal(size = td.nv)
+        
+        z_ = z+ dz
+        
+        f  = td.ccol(z) 
+        return
+
         j  = td.ccol_jacobian(z) 
         f_ = td.ccol(z+dz) 
         

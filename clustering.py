@@ -18,7 +18,7 @@ class NIW(object):
         # old version used 2*p+1+2, this seems to work well
         # 2*p + 1 was also a good choice but can't remember why
 
-        lbd = [0,]*(p+p*p)+[0.0, 2*p+1+2]
+        lbd = [0,]*(p+p*p)+[0.0, 2*p+1]
         self.prior = to_gpu(np.array(lbd).reshape(1,-1))
 
         
@@ -580,6 +580,31 @@ class NIW(object):
 
 
     #todo: need to change this name
+    @memoize_one
+    def mean_plus_stdev_old(self,xi):
+        
+        k,p = xi.shape[0], self.p
+
+        sg,psi_tmp,out = self.__mean_plus_stdev_ws(k,p)
+        cls = self
+        mu,psi,n,nu = cls.mu,cls.psi,cls.n,cls.nu
+
+        ufunc('a=b/n')(psi_tmp,psi,n[:,None,None])
+        ufunc('a=0')(sg)
+        chol_batched(psi_tmp,sg,bd=2)
+
+        orig_shape = xi.shape
+        xi.shape= xi.shape +(1,)
+        out.shape= out.shape +(1,)
+
+        batch_matrix_mult(sg,xi,out) 
+        out.shape= orig_shape
+        xi.shape = orig_shape
+        
+        ufunc('a= a/sqrt(u - ' +str(p) + ' + 1.0) + m ')(out,nu[:,None],mu)
+        
+        return out
+
     @memoize_one
     def mean_plus_stdev(self,xi):
         

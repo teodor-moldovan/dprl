@@ -162,7 +162,7 @@ class NumDiff(object):
         df.shape = (l,n,m) 
 
         #hack
-        #ufunc('x = abs(x) < 1e-8 ? 0 : x')(df)
+        ufunc('x = abs(x) < 1e-10 ? 0 : x')(df)
         return df
 
 
@@ -646,6 +646,7 @@ class GPM():
         bl = -b
         bu = b
         
+        bl[self.iv_h] = -3.0
         bl[self.iv_x[0]] = self.ds.state
         bu[self.iv_x[0]] = self.ds.state
 
@@ -819,6 +820,105 @@ class GPM():
         
             return z 
 
+# wip
+class MPGPM():
+    """ Multi-phase Gauss Pseudospectral Method
+    http://vdol.mae.ufl.edu/SubmittedJournalPublications/Integral-Costate-August-2013.pdf
+    http://vdol.mae.ufl.edu/JournalPublications/AIAA-20478.pdf
+    """
+    def __init__(self, ds, k, p ):
+
+        self.ds = ds
+        self.p = p
+        self.k = k
+        
+        self.slack_cost = 100.0
+        
+        nx,nu = self.ds.nx, self.ds.nu
+        
+        nv = 0
+        self.iv_x  = np.arange((k*p + k + 1)*nx).reshape(-1,nx)
+        nv += self.iv_x.size
+        self.iv_xc = self.iv_x[:-1,:].reshape(k,p+1,nx)[:,1:,:]
+        self.iv_x_dyn = self.iv_xc.reshape(-1,nx)
+        self.iv_xw = self.iv_x[::p+1,:]
+        self.iv_xwl = self.iv_xw[:-1,:]
+        self.iv_xwr = self.iv_xw[1:,:]
+        self.iv_u  = nv + np.arange(k*p*nu).reshape(k*p,nu)
+        nv += self.iv_u.size
+        self.iv_dx = nv + np.arange(k*p*nx).reshape(k,p,nx)
+        self.iv_dx_dyn = self.iv_dx.reshape(-1,nx)
+        nv += self.iv_dx.size
+
+        self.iv_xu_dyn = np.hstack((self.iv_x_dyn,self.iv_u))
+
+        self.iv_h = nv
+        nv += 1
+            
+        nc = 0
+        self.ic_col = np.arange(k*p*nx).reshape(k,p,nx)
+        nc += self.ic_col.size
+        self.ic_colw = np.arange(k*nx).reshape(k,nx)
+        nc += self.ic_colw.size
+        self.ic_dyn = np.arange(k*p*nx).reshape(k*p,nx)
+        nc += self.ic_dyn.size
+        self.ic_edge = np.arange(2*nx).reshape(2,nx)
+        nc += self.ic_edge.size
+
+        self.nv = nv
+        self.iv = np.arange(nv)
+        self.nc = nc
+        self.ic = np.arange(nc)
+
+    @classmethod
+    @memoize
+    def quadrature(cls,N):
+
+        P = legendre.Legendre.basis
+        tauk = P(N).roots()
+
+        vs = P(N).deriv()(tauk)
+        int_w = 2.0/(vs*vs)/(1.0- tauk*tauk)
+
+        taui = np.hstack(([-1.0],tauk))
+        
+        wx = np.newaxis
+        
+        dn = taui[:,wx] - taui[wx,:]
+        dd = tauk[:,wx] - taui[wx,:]
+        dn[dn==0] = float('inf')
+
+        dd = dd[wx,:,:] + np.zeros(taui.size)[:,wx,wx]
+        dd[np.arange(taui.size),:,np.arange(taui.size)] = 1.0
+        
+        l = dd[:,:,wx,:]/dn[wx,wx,:,:]
+        l[:,:,np.arange(taui.size),np.arange(taui.size)] = 1.0
+        
+        l = np.prod(l,axis=3)
+        l[np.arange(taui.size),:,np.arange(taui.size)] = 0.0
+        D = np.sum(l,axis=0)
+
+        return tauk, D, int_w
+
+    @staticmethod
+    @memoize
+    def __buff(l,n):
+        return array((l,n))
+
+    def ccol(self,z):
+        """ collocation constraint violations """
+
+        _,D,w =  self.quadrature(self.p)
+
+
+        buff = self.__buff(*self.iv_xu_dyn.shape)
+        buff.set(z[self.iv_xu_dyn])
+
+        accs =  self.ds.f_sp(buff).get()
+        
+        df = np.zeros(self.ic.shape)
+        return  df
+
 class MSM():
     def __init__(self, ds, l):
         self.ds = ds
@@ -974,7 +1074,7 @@ class MSM():
 
 
 
-class MSMext():
+class MSMext_old():
     def __init__(self, ds, l):
         self.ds = ds
         self.l = l
@@ -1155,6 +1255,200 @@ class MSMext():
             z[self.iv_u] = xu[:-1,self.ds.nx:]
             z[self.iv_h] = np.exp(-h)
             z[self.iv_slack] = 1.0
+        
+            return z 
+
+
+
+
+
+class MSMext():
+    def __init__(self, ds, l):
+        self.ds = ds
+        self.l = l
+        self.lbd = 100.0
+        
+        nx,nu = self.ds.nx, self.ds.nu
+        try:
+            nxi = self.ds.nxi
+        except:
+            nxi = 0
+
+        self.nv = 1 + (l+ 1)*nx + l*nu + 2*l*nx
+        self.nc = nx*l + 2*nx + l
+        
+        self.iv_h = 0
+
+        self.iv = np.arange(self.nv)
+        self.ic = np.arange(self.nc)
+        
+        tmp = 1+ np.arange((l+1)*(nx+nu)).reshape(l+1,-1)
+        self.iv_xuc = tmp[:-1,:] 
+        self.iv_x = tmp[:,:nx] 
+        self.iv_u = tmp[:-1,nx:] 
+        self.iv_u_binf = self.iv_u[:,:nu-nxi]
+        self.iv_qcon = self.iv_u[:,nu-nxi:nu]
+        self.iv_slack = 1 + (l+1)*nx + l*nu + np.arange(2*l*nx).reshape(2,l,nx)
+        
+        self.ic_col = np.arange(l*nx).reshape(l,nx)
+        self.ic_o = l*nx+ np.arange(nx)
+        self.ic_f = l*nx+ nx+ np.arange(nx)
+        self.ic_eq = np.arange(nx*l+2*nx)
+        self.ic_qcon = nx*l+2*nx + np.arange(l)
+
+        self.no_slack = False
+        
+
+    # hack (not elegant, bug prone)
+
+    def bounds(self):
+        b = float('inf')*np.ones(self.nv)
+        #b[self.iv_u] = 1.0
+        b[self.iv_u_binf] = 1.0
+        
+        bl = -b
+        bu = b
+
+        bl[self.iv_h] = .1
+        bu[self.iv_h] = 100.0
+        
+        bl[self.iv_slack] = 0
+        if self.no_slack:
+            bu[self.iv_slack] = 0
+
+
+        return bl, bu
+
+    def obj(self,z):
+        return -z[0] + self.lbd*np.sum(z[self.iv_slack].reshape(-1))
+
+    def obj_grad_inds(self):
+        return np.concatenate((np.array([0]), self.iv_slack.reshape(-1) ))
+
+    def obj_grad(self,z=None):
+        return np.concatenate((np.array([-1]), self.lbd *np.ones(self.iv_slack.size) ))
+
+    def ccol(self,z):
+        
+        l,nx,nu = self.l,self.ds.nx,self.ds.nu
+
+        hi  = z[self.iv_h]
+        dti  = self.l*hi
+        dt = 1.0/dti
+
+        hxu = array((l,nx+nu+1))
+        ufunc('a=b')(hxu[:,:1], to_gpu(np.array([[dt]]))  )
+        ufunc('a=b')(hxu[:,1:1+nx+nu], to_gpu(z[self.iv_xuc])  )
+        ufunc('a/=b')(hxu[:,1:1+nx], to_gpu(np.array([[hi]]))  )
+        accs = self.ds.integrate_sp(hxu).get()
+
+        c = np.zeros(self.nc) 
+        c[self.ic_col] = l*(z[self.iv_x[1:]] - z[self.iv_x[:-1]]) - accs + z[self.iv_slack[0]] - z[self.iv_slack[1]]
+        
+        c[self.ic_o] = z[self.iv_x[ 0]] - np.array(self.ds.state) * hi
+        c[self.ic_f] = z[self.iv_x[-1]] - np.array(self.ds.target) * hi
+
+        return c.reshape(-1)
+
+    def ccol_jacobian(self,z):
+        l,nx,nu = self.l,self.ds.nx,self.ds.nu
+
+        hi  = z[self.iv_h]
+        dti  = self.l*hi
+        dt = 1.0/dti
+
+        hxu = array((l,nx+nu+1))
+        ufunc('a=b')(hxu[:,:1], to_gpu(np.array([[dt]]))  )
+        ufunc('a=b')(hxu[:,1:1+nx+nu], to_gpu(z[self.iv_xuc])  )
+        ufunc('a/=b')(hxu[:,1:1+nx], to_gpu(np.array([[hi]]))  )
+
+        da = self.ds.integrate_sp_diff(hxu).get()
+        da[:,0:1+nx,:] /= hi
+
+        j1 = -da[:,1:,:] - l * np.eye(nx+nu,nx)[np.newaxis,:,:]
+        
+        j2 = l* np.ones(l*nx)
+        
+        da[:,0:1+nx,:] /= hi
+        j3 = np.sum(da[:,1:1+nx,:]*z[self.iv_x[:-1]][:,:,np.newaxis],axis=1)+ (1.0/l)*da[:,0,:]
+        
+        j4 = np.ones(2*nx) 
+        j5 = -np.concatenate((self.ds.state, self.ds.target))
+        j6 = np.ones(l*nx)
+        j7 = -np.ones(l*nx)
+        
+
+        return np.concatenate((
+                j1.reshape(-1),j2.reshape(-1),j3.reshape(-1),
+                j4,j5,j6,j7))
+
+
+    @staticmethod
+    @memoize
+    def __ccol_jac_inds(l,nx,nu):
+
+        ji1 = [(t*nx + i, 1 + t*(nx+nu) + j ) 
+                    for t in range(l)
+                    for j in range(nx+nu)
+                    for i in range(nx)
+              ]
+
+        ji2 = [(t*nx + i, 1 + (t+1)*(nx+nu) + i ) 
+                    for t in range(l)
+                    for i in range(nx)
+              ]
+
+        ji3 = [(t*nx + i, 0 ) 
+                    for t in range(l)
+                    for i in range(nx)
+              ]
+
+        ji4 = [(l*nx + i, 1 + i ) 
+                    for i in range(nx)
+              ]
+
+        ji5 = [(l*nx + nx + i, 1 + l*(nx+nu) + i )  
+                    for i in range(nx)
+              ]
+
+
+        ji6 = [(l*nx + i, 0)  
+                    for i in range(2*nx)
+              ]
+
+        ji7 = [(i,  1 + (l+1)*nx + l*nu +i ) 
+                    for i in range(l*nx)
+              ]
+
+        ji8 = [(i,  1 + (l+1)*nx + l*nu + l*nx +i ) 
+                    for i in range(l*nx)
+              ]
+
+
+        ic, iv = zip(*(ji1+ji2+ji3+ji4+ji5+ji6+ji7+ji8))
+        return np.array(ic), np.array(iv)
+
+
+    def ccol_jacobian_inds(self):
+        return self.__ccol_jac_inds(self.l,self.ds.nx,self.ds.nu)
+    def get_policy(self,z):
+
+        hi = z[self.iv_h]
+        us = z[self.iv_u[:,:-self.ds.nxi]].copy()
+        pi = PiecewiseConstantPolicy(us,1.0/hi)
+        pi.x = z[self.iv_x]/hi
+        pi.uxi = z[self.iv_u].copy()
+        #print np.sum(z[self.iv_qcon]*z[self.iv_qcon],1)
+        return pi
+
+    def initialization(self):
+        for h,w in self.ds.initializations():
+            xu = w(np.linspace(0,1.0,self.l+1))
+            z = np.zeros(self.nv)
+
+            z[self.iv_x] = xu[:,:self.ds.nx]*np.exp(-h)
+            z[self.iv_u] = xu[:-1,self.ds.nx:]
+            z[self.iv_h] = np.exp(-h)
         
             return z 
 
@@ -1458,9 +1752,24 @@ class SlpNlp():
         task.putclist(j,c)
         
         # hack
-        
-        for i in self.nlp.iv_qcone:
-            task.appendcone(mosek.conetype.quad, 0.0, i)
+        if False:
+            i = self.nlp.iv_qcon
+            k = self.nlp.ic_qcon
+            task.putboundlist(mosek.accmode.con, k, [mosek.boundkey.up]*k.size,[.5]*k.size,[.5]*k.size )
+            k = (k[:,np.newaxis] + 0*i).reshape(-1)
+            nxi = i.shape[1]
+            i = i.reshape(-1)
+            task.putqcon(k, i, i, np.ones(i.size))
+        if False:
+            i = self.nlp.iv_qcon
+            k = self.nlp.ic_qcon
+            task.putboundlist(mosek.accmode.con, k, [mosek.boundkey.up]*k.size,[.5]*k.size,[.5]*k.size )
+            k = (k[:,np.newaxis] + 0*i).reshape(-1)
+            nxi = i.shape[1]
+            i = i.reshape(-1)
+            task.putqconk(k[0], i, i, np.ones(i.size)/i.size)
+
+        # end hack
 
         
         #j = self.nlp.iv_x.reshape(-1)
@@ -1492,13 +1801,15 @@ class SlpNlp():
         tmp = coo_matrix((d,(i,j)),
                 shape=[self.nlp.nc,self.nlp.nv])*np.matrix(z).T
         c = -c + np.array(tmp).reshape(-1)
-        ic =  self.nlp.ic_eq.reshape(-1)
+        ic =  self.nlp.ic.reshape(-1)
+        #ic =  self.nlp.ic_eq.reshape(-1)
 
         
         task.putaijlist(i,j,d)
         
         task.putboundlist(mosek.accmode.con,ic, 
                     [mosek.boundkey.fx]*ic.size ,c,c )
+        self.put_var_bounds()
 
 
         task.optimize()
@@ -1541,20 +1852,18 @@ class SlpNlp():
                 #break
                 pass
 
-            z = z + 1.0/np.sqrt(i+20.0)* (self.ret_x-z)
+            z = z + 1.0/np.sqrt(i+2.0)* (self.ret_x-z)
             z[self.nlp.iv_slack] = self.ret_x[self.nlp.iv_slack]
 
             obj = self.nlp.obj(z) 
-            print ('{:9.5f} '*2).format( z[self.nlp.iv_h], obj+z[self.nlp.iv_h])
+            print ('{:9.5f} '*2).format( z[self.nlp.iv_h], obj-z[self.nlp.iv_h])
 
-        return -z[self.nlp.iv_h], z 
+        return obj, z 
 
         
-    def solve_(self):
-        
+    def solve(self):
         
         zi = self.nlp.initialization()
-
 
         obj, z = self.iterate(zi,150)
         
@@ -1563,7 +1872,7 @@ class SlpNlp():
         return self.nlp.get_policy(z)
         
 
-    def solve(self):
+    def solve_(self):
         
         s0 = np.array(self.nlp.ds.target)
         

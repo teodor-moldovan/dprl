@@ -58,7 +58,7 @@ class CartDoublePole(DynamicalSystem, Environment):
 
         A = sympy.Matrix(A)
         b = sympy.Matrix(3,1,b)
-        x = sympy.Inverse(A)*b
+        x = A.inv()*b
         
         f,g = codegen(
             (('ddx',x[0]),('ddth1', x[1]), ('ddth2',x[2])) 
