@@ -1701,8 +1701,9 @@ class TestsCartDoublePole(unittest.TestCase):
         p,k = 11, 11*8
 
         env = CartDoublePole(noise = 0)
+        #env.state = np.array([-2.513, -11.849,    2.121,   2.059 ,   3.458,  -0.069])
 
-        pp = SlpNlp(MSMext(env,25))
+        pp = KnitroNlp(GPMext(env,25))
         plt.show()
         plt.ion()
 
@@ -1775,7 +1776,8 @@ class TestsPendubot(unittest.TestCase):
         learner = BatchVDP(Mixture(SBP(k),NIW(p,k)),w=.1)
         model = OptimisticPendubot(learner)
 
-        planner = SlpNlp(GPM(model,25))
+        planner = SlpNlp(GPMext(model,25))
+        #planner = SlpNlp(GPMext(model,25))
         #planner = KnitroNlp(GPM(model,25))
         #planner = SlpNlp(MSMext(model,25))
         #planner = SqpPlanner(model,25)
@@ -2179,7 +2181,7 @@ class TestsPP(unittest.TestCase):
 
     def test_gpm(self):
         N = 15
-        td = GPM(Cartpole(),N)
+        td = GPMext(Cartpole(),N)
         _,D,_ = td.quadrature(td.l)
 
         np.testing.assert_almost_equal(-np.linalg.solve(D[:,1:],D[:,0]),
@@ -2195,13 +2197,19 @@ class TestsPP(unittest.TestCase):
         z_ = z+ dz
         
         f  = td.ccol(z) 
-        j  = td.ccol_jacobian(z) 
+
+        d   = td.ccol_jacobian(z) 
+        i,j = td.ccol_jacobian_inds()
+        j = np.array(coo_matrix((d,(i,j)),shape=(td.nc,td.nv)).todense())
         f_ = td.ccol(z+dz) 
         
         r  = (f_- f)/eps
         r_ =  np.dot(j.reshape(f.size,-1),dz)/eps
 
         np.testing.assert_almost_equal(r,r_,4)
+        
+        al = np.linspace(0,1,10)
+        td.line_search(z,1e8*dz,al)
 
     def test_mpgpm(self):
         k,p = 3, 2
@@ -2344,8 +2352,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_iter'
-    tests = TestsPendubot
+    single_test = 'test_pp_iter'
+    tests = TestsCartDoublePole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))
