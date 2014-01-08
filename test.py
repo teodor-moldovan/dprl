@@ -1782,6 +1782,8 @@ class TestsPendubot(unittest.TestCase):
         #planner = SlpNlp(MSMext(model,25))
         #planner = SqpPlanner(model,25)
 
+        planner.nlp.interp_coefficients(-1.0)
+
         env = Pendubot(noise = .01)
         s0 = env.state.copy()
         trj = env.step(ZeroPolicy(env.nu), 150, random_control=True) 
@@ -1827,8 +1829,8 @@ class TestsPendubot(unittest.TestCase):
             model.plot_draw()
 
 
-            #trj = env.step(pi,5)
-            trj = env.step(pi,2)
+            trj = env.step(pi,5)
+            #trj = env.step(pi,2)
 
 
 
@@ -2352,13 +2354,12 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_pp'
-    tests = TestsCartDoublePole
+    single_test = 'test_iter'
+    tests = TestsPendubot
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))
         unittest.TextTestRunner().run(dev_suite)
     else:
         unittest.main()
-
 

@@ -7,7 +7,7 @@ from sys import stdout
 import math
 
 import matplotlib as mpl
-#mpl.use('pdf')
+mpl.use('pdf')
 import matplotlib.pyplot as plt
 
 import mosek
@@ -1865,9 +1865,6 @@ class GPMcompact():
         jac[:,self.iv_slack[0]] = -np.eye(self.nc)
         jac[:,self.iv_slack[1]] =  np.eye(self.nc)
 
-        _,ojac,_,_ = self.linearize_cache
-        p = self.
-        
         # cache computation
 
         rj = np.zeros((l+2,nx,self.iv_u.size+1))
@@ -1907,7 +1904,6 @@ class GPMcompact():
         nx,nu,l = self.ds.nx,self.ds.nu,self.l
         
         A,w = self.int_formulation(self.l)
-        A = np.vstack((A,w))
         
         hi = z[:,self.iv_h]
         
@@ -1916,7 +1912,7 @@ class GPMcompact():
 
         accs =  self.ds.f_sp(to_gpu(arg.reshape(-1,nx+nu))).get().reshape(arg.shape[0],arg.shape[1],-1)
 
-        df = (z[:,self.iv_x[1:]] - z[:,self.iv_x[0]][:,np.newaxis,:] - .5 * np.einsum('ktj,it->kij',accs,A) )
+        df = (z[:,self.iv_x[-1]] - z[:,self.iv_x[0]] - .5 * np.einsum('ktj,t->kj',accs,w) )
         
         obj = self.slack_cost*np.sum(np.abs(df.reshape(df.shape[0],-1)),1) - hi
         return obj
@@ -3833,8 +3829,8 @@ class SlpNlp():
                 ret_x = self.ret_x
             dz = ret_x-z 
 
-            if True:
-                al = np.exp(np.linspace(-5,0,20))
+            if False:
+                al = np.concatenate((np.exp(np.linspace(-6,0,20)),))
                 a = self.nlp.line_search(z,dz,al)
                 # find first local minimum
                 #ae = np.concatenate(([float('inf')],a,[float('inf')]))
@@ -3843,9 +3839,12 @@ class SlpNlp():
                 i = np.argmin(a)
                 cost = a[i]
                 r = al[i]
+                if i==0:
+                    break
             else:
-                r = 1.0/np.sqrt(20.0+i)
-                cost = float('inf')
+                #r = 1.0/np.sqrt(2.0+i)
+                r = 1.0/(1.0+i)
+                cost = -(z+r*dz)[self.nlp.iv_h]
 
             p = r*dz
             self.nlp.prev_step = p
@@ -3854,10 +3853,10 @@ class SlpNlp():
 
             print ('{:9.5f} '*2).format( z[self.nlp.iv_h], cost)
 
-        return -z[self.nlp.iv_h], z 
+        return cost, z 
 
         
-    def solve(self):
+    def solve_(self):
         
         zi = self.nlp.initialization()
 
@@ -3868,7 +3867,7 @@ class SlpNlp():
         return self.nlp.get_policy(z)
         
 
-    def solve_(self):
+    def solve(self):
         
         s0 = np.array(self.nlp.ds.target)+0.0
         
@@ -3886,7 +3885,7 @@ class SlpNlp():
                 #except:
                 #    pass
 
-                obj, z = self.iterate(zi,15)
+                obj, z = self.iterate(zi,20)
                 
                 if obj < sm[0]:
                     sm = (obj,z, s)
@@ -3894,7 +3893,7 @@ class SlpNlp():
         obj,z,s = sm
         self.nlp.ds.target = s
         
-        obj, z = self.iterate(z,50)
+        obj, z = self.iterate(z,100)
         self.nlp.ds.target = s0
         self.last_z = z
         
