@@ -79,14 +79,14 @@ class Pendubot(DynamicalSystem, Environment):
 
         return s
 
-    def step_(self,*args,**kwargs):
+    def step(self,*args,**kwargs):
         rt = Environment.step(self,*args,**kwargs)
 
         self.state[2] =  np.mod(self.state[2] + np.pi,2*np.pi)-np.pi
         self.state[3] =  np.mod(self.state[3] + np.pi,2*np.pi)-np.pi
         return rt
 
-    def step(self,*args,**kwargs):
+    def step_(self,*args,**kwargs):
         rt = Environment.step(self,*args,**kwargs)
 
         self.state[2] =  np.mod(self.state[2] + 2*np.pi,4*np.pi)-2*np.pi

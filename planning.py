@@ -1410,6 +1410,544 @@ class GPMext_int():
         
             return z 
 
+class GPMext_int_fslack():
+    """ Gauss Pseudospectral Method
+    http://vdol.mae.ufl.edu/SubmittedJournalPublications/Integral-Costate-August-2013.pdf
+    http://vdol.mae.ufl.edu/JournalPublications/AIAA-20478.pdf
+    """
+    def __init__(self, ds, l):
+
+        self.ds = ds
+        self.l = l
+        
+        self.slack_cost = 1000.0
+        self.no_slack = False
+        
+        nx,nu = self.ds.nx, self.ds.nu
+        self.nv = 1 + (l+ 2)*nx + l*nu + l*nx  + 2*nx
+        self.nc = nx*(l+1)+ nx*l + 2*nx 
+        
+        self.iv_h = 0
+
+        self.iv = np.arange(self.nv)
+        self.ic = np.arange(self.nc)
+
+        self.iv_xi = 1 + np.arange(nx)
+        self.iv_xf = 1 + nx + np.arange(nx)
+
+        self.iv_xuc  = 1 + 2*nx + np.arange(l*(nx+nu)).reshape(l,nx+nu)
+        self.iv_x = np.vstack((self.iv_xi, self.iv_xuc[:,:nx], self.iv_xf))
+        self.iv_u = self.iv_xuc[:,nx:]
+        self.iv_xa = 1 + (l+ 2)*nx + l*nu + np.arange(l*nx).reshape(l,nx)
+
+        self.iv_slack = 1 + (l+ 2)*nx + l*(nu+nx) + np.arange(2*nx) 
+        self.iv_slack = self.iv_slack.reshape(2,nx)
+
+        self.ic_col = np.arange(nx*l+nx).reshape(-1,nx) 
+        self.ic_dyn = nx*(l+1) + np.arange(l*nx).reshape(-1,nx) 
+        
+        self.ic_o = nx*(2*l+1) + np.arange(nx)
+        self.ic_f = nx*(2*l+1) + nx+ np.arange(nx)
+
+        # cached jacobian elements
+
+        j = []
+
+        j.append(-np.ones(self.ic_dyn.shape))
+        j.append(np.ones(self.iv_slack.shape)
+                    *np.array([1,-1])[:,np.newaxis])
+
+        j.append(-.5*np.tile(
+                self.int_formulation(self.l)[:,:,np.newaxis],
+                (1,1,nx)))
+
+        j.append( np.ones(self.ic_col.shape))
+        j.append(-np.ones(self.ic_col.shape))
+        j.append( np.ones(2*nx))
+
+        self.j_cache = np.concatenate([ji.reshape(-1) for ji in j ])
+        
+        ## 
+
+        i = []
+
+        c = np.tile(self.ic_dyn[:,np.newaxis,:],(1,self.iv_xuc.shape[1],1))
+        v = np.tile(self.iv_xuc[:,:,np.newaxis],(1,1,self.ic_dyn.shape[1])) 
+        i.append((c,v))
+        
+        i.append((self.ic_dyn, self.iv_h*np.ones(self.ic_dyn.shape)))
+
+        i.append((self.ic_o,self.iv_h*np.ones(self.ic_o.size)))
+        i.append((self.ic_f,self.iv_h*np.ones(self.ic_o.size)))
+
+        i.append((self.ic_dyn, self.iv_xa))
+
+        i.append((self.ic_f, self.iv_slack[0]  ))
+        i.append((self.ic_f, self.iv_slack[1]  ))
+
+
+        c = np.tile(self.ic_col[:,np.newaxis,:],(1,self.iv_xa.shape[0],1))
+        v = np.tile(self.iv_xa[np.newaxis,:,:],(self.ic_col.shape[0],1,1)) 
+        i.append((c,v))
+
+        i.append((self.ic_col, self.iv_x[1:]  ))
+        i.append((self.ic_col, np.tile(self.iv_x[:1],(self.ic_col.shape[0],1))))
+
+        i.append((self.ic_o,self.iv_x[0]))
+        i.append((self.ic_f,self.iv_x[-1]))
+
+
+        self.jac_c = np.concatenate([ii[0].reshape(-1) for ii in i ])
+        self.jac_v = np.concatenate([ii[1].reshape(-1) for ii in i ])
+        
+        self.jac_c = self.jac_c.astype(int)
+        self.jac_v = self.jac_v.astype(int)
+
+
+    def obj(self,z):
+        return -z[self.iv_h]+ self.slack_cost*np.sum(z[self.iv_slack].reshape(-1))
+
+    def obj_grad_inds(self):
+        return np.concatenate(([self.iv_h,], self.iv_slack.reshape(-1)))
+
+    def obj_grad(self,z=None):
+        return np.concatenate(([-1.0,], self.slack_cost*np.ones(self.iv_slack.size)))
+        
+    def bounds(self):
+        l,nx,nu = self.l, self.ds.nx, self.ds.nu
+        
+        b = float('inf')*np.ones(self.nv)
+        b[self.iv_u] = 1.0
+        
+        bl = -b
+        bu = b
+        
+        bl[self.iv_h] = .1
+        bu[self.iv_h] = 100.0
+
+        bl[self.iv_slack] = 0.0
+        #bu[self.iv_slack[:,:,nx/2:]] = 0.0
+        #bu[self.iv_slack] = 0.0
+        if self.no_slack:
+            bu[self.iv_slack] = 0.0
+
+        return bl, bu
+
+    @classmethod
+    @memoize
+    def quadrature(cls,N):
+
+        P = legendre.Legendre.basis
+        tauk = P(N).roots()
+
+        vs = P(N).deriv()(tauk)
+        int_w = 2.0/(vs*vs)/(1.0- tauk*tauk)
+
+        taui = np.hstack(([-1.0],tauk))
+        
+        wx = np.newaxis
+        
+        dn = taui[:,wx] - taui[wx,:]
+        dd = tauk[:,wx] - taui[wx,:]
+        dn[dn==0] = float('inf')
+
+        dd = dd[wx,:,:] + np.zeros(taui.size)[:,wx,wx]
+        dd[np.arange(taui.size),:,np.arange(taui.size)] = 1.0
+        
+        l = dd[:,:,wx,:]/dn[wx,wx,:,:]
+        l[:,:,np.arange(taui.size),np.arange(taui.size)] = 1.0
+        
+        l = np.prod(l,axis=3)
+        l[np.arange(taui.size),:,np.arange(taui.size)] = 0.0
+        D = np.sum(l,axis=0)
+
+        return tauk, D, int_w
+
+    @classmethod
+    @memoize
+    def __lagrange_poly_u_cache(cls,l):
+        tau,_ , __ = cls.quadrature(l)
+
+        rcp = 1.0/(tau[:,np.newaxis] - tau[np.newaxis,:]+np.eye(tau.size)) - np.eye(tau.size)
+
+        return rcp,tau
+
+    def lagrange_poly_u(self,r):
+        rcp,nds = self.__lagrange_poly_u_cache(self.l)
+
+        if r < -1 or r > 1:
+            raise TypeError
+
+        df = ((r - nds)[np.newaxis,:]*rcp) + np.eye(nds.size)
+        w = df.prod(axis=1)
+
+        return w
+
+    interp_coefficients = lagrange_poly_u
+    @classmethod
+    @memoize
+    def int_formulation(cls,N):
+        _, D, w = cls.quadrature(N)
+        A = np.linalg.inv(D[:,1:])
+        
+        return np.vstack((A,w))
+        
+    def ccol(self,z):
+        """ collocation constraint violations """
+
+        nx,nu,l = self.ds.nx,self.ds.nu,self.l
+        
+        A = self.int_formulation(self.l)
+        
+        hi = z[self.iv_h]
+        
+        arg = z[self.iv_xuc]
+        arg[:,:nx]/= hi
+        buff = to_gpu(arg)
+
+        accs =  self.ds.f_sp(buff).get()
+        
+        df = np.zeros(self.nc)
+        df[self.ic_col] = (z[self.iv_x[1:]] - z[self.iv_x[0]] 
+                        - .5 * np.dot(A,z[self.iv_xa]) )
+        
+        df[self.ic_dyn] = (-z[self.iv_xa] + accs)
+
+        df[self.ic_o] = z[self.iv_x[ 0]] - np.array(self.ds.state) * hi
+        df[self.ic_f] = z[self.iv_x[-1]] - np.array(self.ds.target) * hi + z[self.iv_slack[0]] - z[self.iv_slack[1]]
+        
+        return  df
+
+    def ccol_jacobian(self,z):
+
+        nx,nu,l = self.ds.nx,self.ds.nu,self.l
+        
+        hi = z[self.iv_h]
+
+        arg = z[self.iv_xuc]
+        arg[:,:nx]/= hi
+        buff = to_gpu(arg)
+        df =  self.ds.f_sp_diff(buff).get()
+        
+        df[:,:nx,:] /= hi
+
+        j = []
+        j.append(df)
+        j.append(-np.einsum('ijk,ij->ik',df[:,:nx,:],arg[:,:nx]))
+        
+        j.append(- np.array(self.ds.state))
+        j.append(- np.array(self.ds.target))
+
+        j = np.concatenate([ji.reshape(-1) for ji in j ] + [self.j_cache])
+
+        return j
+
+
+    def ccol_jacobian_inds(self):
+        return self.jac_c, self.jac_v
+
+
+    def line_search(self,z0,dz,al):
+
+        z = z0[np.newaxis,:] + al[:,np.newaxis]*dz[np.newaxis,:]
+
+        nx,nu,l = self.ds.nx,self.ds.nu,self.l
+        
+        A = self.int_formulation(self.l)
+        
+        hi = z[:,self.iv_h]
+        
+        arg = z[:,self.iv_xuc]
+        arg[:,:,:nx]/= hi[:,np.newaxis,np.newaxis]
+
+        accs =  self.ds.f_sp(to_gpu(arg.reshape(-1,nx+nu))).get().reshape(arg.shape[0],arg.shape[1],-1)
+
+        df = (z[:,self.iv_x[1:]] - z[:,self.iv_x[0]][:,np.newaxis,:] - .5 * np.einsum('ktj,it->kij',accs,A) )
+        
+        costs = np.sum(np.abs(df.reshape(df.shape[0],-1)),1) - hi
+        return costs
+
+
+    # hack (not elegant, bug prone)
+    def get_policy(self,z):
+        try:
+            us = z[self.iv_u[:,:-self.ds.nxi]].copy()
+        except:
+            us = z[self.iv_u].copy()
+
+        hi = z[self.iv_h]
+        pi =  CollocationPolicy(self,us,1.0/hi)
+        pi.x = z[self.iv_x]/hi
+        pi.uxi = z[self.iv_u].copy()
+        return pi
+
+    def initialization(self):
+        for h,w in self.ds.initializations():
+            tau = np.concatenate(([-1.0],self.quadrature(self.l)[0],[1.0])) 
+            xu =  w((tau+1.0)/2.0)
+            #xu = w(np.linspace(0,1.0,self.l+2))
+            z = np.zeros(self.nv)
+
+            z[self.iv_x] = xu[:,:self.ds.nx]*np.exp(-h)
+            z[self.iv_u] = xu[1:-1,self.ds.nx:]
+            z[self.iv_h] = np.exp(-h)
+        
+            return z 
+
+class GPMcompact():
+    """ Gauss Pseudospectral Method
+    http://vdol.mae.ufl.edu/SubmittedJournalPublications/Integral-Costate-August-2013.pdf
+    http://vdol.mae.ufl.edu/JournalPublications/AIAA-20478.pdf
+    """
+    def __init__(self, ds, l):
+
+        self.ds = ds
+        self.l = l
+        
+        self.slack_cost = 100.0
+        self.no_slack = False
+        
+        nx,nu = self.ds.nx, self.ds.nu
+        self.nv = 1 + l*nu + 2*nx
+        self.nc = nx 
+        self.nv_full = self.nv + (l+2)*nx 
+        
+        self.iv = np.arange(self.nv)
+        self.ic = np.arange(self.nc)
+
+        self.iv_h = 0
+        self.iv_u = 1 + np.arange(l*nu).reshape(l,nu)
+        self.iv_slack = 1+l*nu + np.arange(2*nx).reshape(2,nx)
+        
+        self.iv_x = 1+l*nu + 2*nx + np.arange((l+2)*nx).reshape(l+2,nx)
+        
+        self.iv_xuc = np.hstack((self.iv_x[1:-1],self.iv_u))
+
+        
+        # bfgs_init
+        self.B = np.eye(l*nu+1)
+
+        self.iv_h = 0
+
+    def obj(self,z):
+        return -z[self.iv_h]+ self.slack_cost*np.sum(z[self.iv_slack].reshape(-1))
+
+    def obj_grad_inds(self):
+        return np.concatenate(([self.iv_h,], self.iv_slack.reshape(-1)))
+
+    def obj_grad(self,z=None):
+        return np.concatenate(([-1.0,], self.slack_cost*np.ones(self.iv_slack.size)))
+        
+    def bounds(self):
+        l,nx,nu = self.l, self.ds.nx, self.ds.nu
+        
+        b = float('inf')*np.ones(self.nv)
+        b[self.iv_u] = 1.0
+        
+        bl = -b
+        bu = b
+        
+        bl[self.iv_h] = .1
+        bu[self.iv_h] = 100.0
+
+        bl[self.iv_slack] = 0.0
+        #bu[self.iv_slack[:,:,nx/2:]] = 0.0
+        #bu[self.iv_slack] = 0.0
+        if self.no_slack:
+            bu[self.iv_slack] = 0.0
+
+        return bl, bu
+
+    @classmethod
+    @memoize
+    def quadrature(cls,N):
+
+        P = legendre.Legendre.basis
+        tauk = P(N).roots()
+
+        vs = P(N).deriv()(tauk)
+        int_w = 2.0/(vs*vs)/(1.0- tauk*tauk)
+
+        taui = np.hstack(([-1.0],tauk))
+        
+        wx = np.newaxis
+        
+        dn = taui[:,wx] - taui[wx,:]
+        dd = tauk[:,wx] - taui[wx,:]
+        dn[dn==0] = float('inf')
+
+        dd = dd[wx,:,:] + np.zeros(taui.size)[:,wx,wx]
+        dd[np.arange(taui.size),:,np.arange(taui.size)] = 1.0
+        
+        l = dd[:,:,wx,:]/dn[wx,wx,:,:]
+        l[:,:,np.arange(taui.size),np.arange(taui.size)] = 1.0
+        
+        l = np.prod(l,axis=3)
+        l[np.arange(taui.size),:,np.arange(taui.size)] = 0.0
+        D = np.sum(l,axis=0)
+
+        return tauk, D, int_w
+
+    @classmethod
+    @memoize
+    def __lagrange_poly_u_cache(cls,l):
+        tau,_ , __ = cls.quadrature(l)
+
+        rcp = 1.0/(tau[:,np.newaxis] - tau[np.newaxis,:]+np.eye(tau.size)) - np.eye(tau.size)
+
+        return rcp,tau
+
+    def lagrange_poly_u(self,r):
+        rcp,nds = self.__lagrange_poly_u_cache(self.l)
+
+        if r < -1 or r > 1:
+            raise TypeError
+
+        df = ((r - nds)[np.newaxis,:]*rcp) + np.eye(nds.size)
+        w = df.prod(axis=1)
+
+        return w
+
+    interp_coefficients = lagrange_poly_u
+    @classmethod
+    @memoize
+    def int_formulation(cls,N):
+        _, D, w = cls.quadrature(N)
+        A = np.linalg.inv(D[:,1:])
+        
+        return A,w
+        
+    def linearize(self,z):
+        """ collocation constraint violations """
+
+        nx,nu,l = self.ds.nx,self.ds.nu,self.l
+        
+        hi = z[self.iv_h]
+        
+        arg = z[self.iv_xuc]
+        arg[:,:nx]/= hi
+        buff = to_gpu(arg)
+
+        f0 =  .5*self.ds.f_sp(buff).get()
+        df =  .5*self.ds.f_sp_diff(buff).get()
+        df[:,:nx,:] /= hi
+
+        j = np.zeros((l,nx,nx+nu+1))
+        
+        jh = -np.einsum('ijk,ij->ik',df[:,:nx,:],arg[:,:nx]) 
+        jxu =  df.swapaxes(1,2)
+
+        f = f0 - jh*hi - np.einsum('ijk,ik->ij',jxu, z[self.iv_xuc])
+        fx = jxu[:,:,:nx]
+        fu = jxu[:,:,nx:nx+nu]
+        fh = jh
+        
+        ## done linearizing dynamics
+
+        A,w = self.int_formulation(self.l)
+        
+        m  = fx[:,:,np.newaxis,:]*A[:,np.newaxis,:,np.newaxis]
+        mi = np.linalg.inv(np.eye(l*nx) - m.reshape(l*nx,l*nx))
+        mi = mi.reshape(l,nx,l,nx)
+
+        fh += np.einsum('tij,j->ti',fx,np.array(self.ds.state))
+
+        mfu = np.einsum('tisj,sjk->tisk',mi,fu)
+        mfh = np.einsum('tisj,sj -> ti ',mi,fh)
+        mf  = np.einsum('tisj,sj -> ti ',mi, f)
+
+        jac = np.zeros((self.nc,self.nv))
+        jac[:,self.iv_h] = np.einsum('t,ti->i',w,mfh)
+        jac[:,self.iv_u] = np.einsum('t,tisk->isk',w,mfu)
+        cc = np.einsum('t,ti->i',w,mf)  
+        jac[:,self.iv_h] -= np.array(self.ds.target) - np.array(self.ds.state) 
+
+        jac[:,self.iv_slack[0]] = -np.eye(self.nc)
+        jac[:,self.iv_slack[1]] =  np.eye(self.nc)
+
+        _,ojac,_,_ = self.linearize_cache
+        p = self.
+        
+        # cache computation
+
+        rj = np.zeros((l+2,nx,self.iv_u.size+1))
+        rf = np.zeros((l+2,nx))
+
+        th = np.einsum('tp,pi->ti',A,mfh).reshape(-1,1)
+        tu = np.einsum('tp,pisk->tisk',A,mfu).reshape(-1,self.iv_u.size)
+        tf = np.einsum('tp,pi->ti',A,mf) 
+        
+        rj[1:-1,:,:] = np.hstack((th,tu)).reshape(l,nx,-1)
+        rj[ :,:,0] += np.array( self.ds.state)
+        rj[-1,:,0] = np.array(self.ds.target)
+        
+        rf[1:-1,:] = tf 
+
+        self.linearize_cache = (cc,jac, rj,rf)
+
+        return  cc, jac
+
+    def post_proc(self,z):
+        _,_, df,f = self.linearize_cache
+        
+        x = np.einsum('tij,j->ti',df,z[:(1+self.iv_u.size)]) + f
+        #x /= z[self.iv_h]
+        
+        r = np.zeros(self.nv_full)
+        
+        r[:z.size] = z
+        r[z.size:] = x.reshape(-1)
+        return r
+
+
+    def line_search(self,z0,dz,al):
+
+        z = z0[np.newaxis,:] + al[:,np.newaxis]*dz[np.newaxis,:]
+
+        nx,nu,l = self.ds.nx,self.ds.nu,self.l
+        
+        A,w = self.int_formulation(self.l)
+        A = np.vstack((A,w))
+        
+        hi = z[:,self.iv_h]
+        
+        arg = z[:,self.iv_xuc]
+        arg[:,:,:nx]/= hi[:,np.newaxis,np.newaxis]
+
+        accs =  self.ds.f_sp(to_gpu(arg.reshape(-1,nx+nu))).get().reshape(arg.shape[0],arg.shape[1],-1)
+
+        df = (z[:,self.iv_x[1:]] - z[:,self.iv_x[0]][:,np.newaxis,:] - .5 * np.einsum('ktj,it->kij',accs,A) )
+        
+        obj = self.slack_cost*np.sum(np.abs(df.reshape(df.shape[0],-1)),1) - hi
+        return obj
+
+
+    # hack (not elegant, bug prone)
+    def get_policy(self,z):
+        try:
+            us = z[self.iv_u[:,:-self.ds.nxi]].copy()
+        except:
+            us = z[self.iv_u].copy()
+
+        hi = z[self.iv_h]
+        pi =  CollocationPolicy(self,us,1.0/hi)
+        pi.x = z[self.iv_x]/hi
+        pi.uxi = z[self.iv_u].copy()
+        return pi
+
+    def initialization(self):
+        for h,w in self.ds.initializations():
+            tau = np.concatenate(([-1.0],self.quadrature(self.l)[0],[1.0])) 
+            xu =  w((tau+1.0)/2.0)
+            #xu = w(np.linspace(0,1.0,self.l+2))
+            z = np.zeros(self.nv_full)
+
+            z[self.iv_x] = xu[:,:self.ds.nx]*np.exp(-h)
+            z[self.iv_u] = xu[1:-1,self.ds.nx:]
+            z[self.iv_h] = np.exp(-h)
+        
+            return z 
+
 class GPMext_diff():
     """ Gauss Pseudospectral Method
     http://vdol.mae.ufl.edu/SubmittedJournalPublications/Integral-Costate-August-2013.pdf
@@ -3217,19 +3755,30 @@ class SlpNlp():
     def solve_task(self,z):
 
         task = self.task
-        c = self.nlp.ccol(z) 
-        i,j = self.nlp.ccol_jacobian_inds()
-        d = self.nlp.ccol_jacobian(z)
         
-        tmp = coo_matrix((d,(i,j)),
-                shape=[self.nlp.nc,self.nlp.nv])*np.matrix(z).T
-        c = -c + np.array(tmp).reshape(-1)
-        ic =  self.nlp.ic.reshape(-1)
-        #ic =  self.nlp.ic_eq.reshape(-1)
+        if hasattr(self.nlp,'linearize'):
+            c,jac = self.nlp.linearize(z)
+
+            tmp = coo_matrix(jac)
+            i,j,d = tmp.row, tmp.col, tmp.data
+            c = -c
+            ic = self.nlp.ic
+            
+        else:
+            c = self.nlp.ccol(z) 
+            i,j = self.nlp.ccol_jacobian_inds()
+            d = self.nlp.ccol_jacobian(z)
+            
+            tmp = coo_matrix((d,(i,j)),
+                    shape=[self.nlp.nc,self.nlp.nv])*np.matrix(z).T
+            c = -c + np.array(tmp).reshape(-1)
+            ic =  self.nlp.ic.reshape(-1)
+            #ic =  self.nlp.ic_eq.reshape(-1)
 
         
         task.putaijlist(i,j,d)
         
+
         task.putboundlist(mosek.accmode.con,ic, 
                     [mosek.boundkey.fx]*ic.size ,c,c )
         self.put_var_bounds()
@@ -3264,8 +3813,6 @@ class SlpNlp():
 
 
         return ret
-
-           
         
         
     def iterate(self,z,n_iters=1000):
@@ -3279,25 +3826,35 @@ class SlpNlp():
                 #self.nlp.no_slack = False
                 #self.solve_task(z)
 
-            dz = self.ret_x-z 
 
+            if hasattr(self.nlp,'post_proc'):
+                ret_x = self.nlp.post_proc(self.ret_x)
+            else:
+                ret_x = self.ret_x
+            dz = ret_x-z 
+
+            if True:
+                al = np.exp(np.linspace(-5,0,20))
+                a = self.nlp.line_search(z,dz,al)
+                # find first local minimum
+                #ae = np.concatenate(([float('inf')],a,[float('inf')]))
+                #inds  = np.where(np.logical_and(a<ae[2:],a<ae[:-2] ) )[0]
+                
+                i = np.argmin(a)
+                cost = a[i]
+                r = al[i]
+            else:
+                r = 1.0/np.sqrt(20.0+i)
+                cost = float('inf')
+
+            p = r*dz
+            self.nlp.prev_step = p
             
-            al = np.exp(np.linspace(-5,0,20))
-            a = self.nlp.line_search(z,dz,al)
-            # find first local minimum
-            #ae = np.concatenate(([float('inf')],a,[float('inf')]))
-            #inds  = np.where( np.logical_and(a<a[0], np.logical_and(a<ae[2:],a<ae[:-2] )) )[0]
-            
-            i = np.argmin(a)
-            cost = a[i]
-
-            z = z + al[i]*dz
-
-            z[self.nlp.iv_slack] = self.ret_x[self.nlp.iv_slack]
+            z = z + p
 
             print ('{:9.5f} '*2).format( z[self.nlp.iv_h], cost)
 
-        return cost, z 
+        return -z[self.nlp.iv_h], z 
 
         
     def solve(self):

@@ -1703,7 +1703,7 @@ class TestsCartDoublePole(unittest.TestCase):
         env = CartDoublePole(noise = 0)
         #env.state = np.array([-2.513, -11.849,    2.121,   2.059 ,   3.458,  -0.069])
 
-        pp = KnitroNlp(GPMext(env,25))
+        pp = SlpNlp(GPMcompact(env,25))
         plt.show()
         plt.ion()
 
@@ -1740,16 +1740,16 @@ class TestsCartDoublePole(unittest.TestCase):
 
         env = CartDoublePole()
 
-        pp = KnitroNlp(
-            MSMext(env,35)
+        pp = SlpNlp(
+            GPMcompact(env,25)
             )
 
         pi = pp.solve()
 
-        tmp = pi.x
 
         if False:
         
+            tmp = pi.x
             plt.sca(plt.subplot(2,1,1))
 
             plt.xlim([-2*np.pi,2*np.pi])
@@ -1776,7 +1776,7 @@ class TestsPendubot(unittest.TestCase):
         learner = BatchVDP(Mixture(SBP(k),NIW(p,k)),w=.1)
         model = OptimisticPendubot(learner)
 
-        planner = SlpNlp(GPMext(model,25))
+        planner = SlpNlp(GPMcompact(model,25))
         #planner = SlpNlp(GPMext(model,25))
         #planner = KnitroNlp(GPM(model,25))
         #planner = SlpNlp(MSMext(model,25))
@@ -1827,8 +1827,8 @@ class TestsPendubot(unittest.TestCase):
             model.plot_draw()
 
 
-            trj = env.step(pi,5)
-            #trj = env.step(pi,2)
+            #trj = env.step(pi,5)
+            trj = env.step(pi,2)
 
 
 
@@ -2352,7 +2352,7 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_pp_iter'
+    single_test = 'test_pp'
     tests = TestsCartDoublePole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
