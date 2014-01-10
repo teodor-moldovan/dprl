@@ -7,7 +7,7 @@ from sys import stdout
 import math
 
 import matplotlib as mpl
-mpl.use('pdf')
+#mpl.use('pdf')
 import matplotlib.pyplot as plt
 
 import mosek
@@ -205,7 +205,8 @@ class PiecewiseConstantPolicy:
 
 class Environment:
     def __init__(self, state, dt = .01, noise = 0.0):
-        self.state = state
+        self.state = np.array(state)
+        self.home_state = self.state.copy()
         self.dt = dt
         self.t = 0
         self.noise = noise
@@ -358,7 +359,8 @@ class OptimisticDynamicalSystem(DynamicalSystem):
 
         DynamicalSystem.__init__(self,nx,nu+nxi, **kwargs)
         
-        self.state = start
+        self.state = np.array(start)
+        self.home_state = self.state.copy()
 
         self.xi_scale = xi_scale
         self.nxi = nxi
@@ -1704,16 +1706,20 @@ class GPMcompact():
         self.ds = ds
         self.l = l
         
-        self.slack_cost = 100.0
+        self.slack_cost = 1000.0
         self.no_slack = False
         
         nx,nu = self.ds.nx, self.ds.nu
         self.nv = 1 + l*nu + 2*nx
-        self.nc = nx 
+        self.nc = nx + l
         self.nv_full = self.nv + (l+2)*nx 
         
         self.iv = np.arange(self.nv)
+        
         self.ic = np.arange(self.nc)
+        
+        self.ic_qcon = nx+ np.arange(l)
+        self.ic_eq = np.arange(nx)
 
         self.iv_h = 0
         self.iv_u = 1 + np.arange(l*nu).reshape(l,nu)
@@ -1722,6 +1728,13 @@ class GPMcompact():
         self.iv_x = 1+l*nu + 2*nx + np.arange((l+2)*nx).reshape(l+2,nx)
         
         self.iv_xuc = np.hstack((self.iv_x[1:-1],self.iv_u))
+
+        if hasattr(self.ds, 'nxi'):
+            self.iv_qcon = self.iv_u[:,-self.ds.nxi:]
+            self.iv_linf = self.iv_u[:,:-self.ds.nxi]
+        else:   
+            self.iv_qcon = None
+            self.iv_linf = self.iv_u
 
         
         # bfgs_init
@@ -1738,11 +1751,13 @@ class GPMcompact():
     def obj_grad(self,z=None):
         return np.concatenate(([-1.0,], self.slack_cost*np.ones(self.iv_slack.size)))
         
-    def bounds(self):
+    def bounds(self,z, r):
         l,nx,nu = self.l, self.ds.nx, self.ds.nu
         
         b = float('inf')*np.ones(self.nv)
-        b[self.iv_u] = 1.0
+        b[self.iv_linf] = 1.0
+        # hack
+        #b[self.iv_u[-1]] = 0
         
         bl = -b
         bu = b
@@ -1750,11 +1765,22 @@ class GPMcompact():
         bl[self.iv_h] = .1
         bu[self.iv_h] = 100.0
 
+        #hack
+        #bu[self.iv_h] = 1.0
+
         bl[self.iv_slack] = 0.0
         #bu[self.iv_slack[:,:,nx/2:]] = 0.0
         #bu[self.iv_slack] = 0.0
         if self.no_slack:
             bu[self.iv_slack] = 0.0
+
+        if False:
+            ind  = 1+self.l*self.ds.nu
+            dz = r*np.ones(ind)
+            dz/=2.0
+            dz[0] /= 5.0
+            bl[:ind] = np.maximum(bl[:ind], z[:ind]-dz)
+            bu[:ind] = np.minimum(bu[:ind], z[:ind]+dz)
 
         return bl, bu
 
@@ -1845,27 +1871,31 @@ class GPMcompact():
         ## done linearizing dynamics
 
         A,w = self.int_formulation(self.l)
+
+        xref = np.array(self.ds.state)
+
         
         m  = fx[:,:,np.newaxis,:]*A[:,np.newaxis,:,np.newaxis]
         mi = np.linalg.inv(np.eye(l*nx) - m.reshape(l*nx,l*nx))
         mi = mi.reshape(l,nx,l,nx)
 
-        fh += np.einsum('tij,j->ti',fx,np.array(self.ds.state))
+        fh += np.einsum('tij,j->ti',fx,xref)
 
         mfu = np.einsum('tisj,sjk->tisk',mi,fu)
         mfh = np.einsum('tisj,sj -> ti ',mi,fh)
         mf  = np.einsum('tisj,sj -> ti ',mi, f)
 
-        jac = np.zeros((self.nc,self.nv))
+        jac = np.zeros((nx,1+l*nu+2*nx))
         jac[:,self.iv_h] = np.einsum('t,ti->i',w,mfh)
         jac[:,self.iv_u] = np.einsum('t,tisk->isk',w,mfu)
         cc = np.einsum('t,ti->i',w,mf)  
         jac[:,self.iv_h] -= np.array(self.ds.target) - np.array(self.ds.state) 
 
-        jac[:,self.iv_slack[0]] = -np.eye(self.nc)
-        jac[:,self.iv_slack[1]] =  np.eye(self.nc)
+        jac[:,self.iv_slack[0]] = -np.eye(nx)
+        jac[:,self.iv_slack[1]] =  np.eye(nx)
 
         # cache computation
+
 
         rj = np.zeros((l+2,nx,self.iv_u.size+1))
         rf = np.zeros((l+2,nx))
@@ -1875,7 +1905,7 @@ class GPMcompact():
         tf = np.einsum('tp,pi->ti',A,mf) 
         
         rj[1:-1,:,:] = np.hstack((th,tu)).reshape(l,nx,-1)
-        rj[ :,:,0] += np.array( self.ds.state)
+        rj[ :,:,0] += xref
         rj[-1,:,0] = np.array(self.ds.target)
         
         rf[1:-1,:] = tf 
@@ -3705,21 +3735,25 @@ class SlpNlp():
         
 
 
-        j,c =  self.nlp.obj_grad_inds(),self.nlp.obj_grad()
-        task.putclist(j,c)
+
+
+
         
         # hack
-        if False:
-            i = self.nlp.iv_qcon
-            k = self.nlp.ic_qcon
+
+        i = self.nlp.iv_qcon
+        k = self.nlp.ic_qcon
+        # weird values:
+        #i = np.array([0,25])
+
+        if not i is None:
+
             task.putboundlist(mosek.accmode.con, k, [mosek.boundkey.up]*k.size,[.5]*k.size,[.5]*k.size )
             k = (k[:,np.newaxis] + 0*i).reshape(-1)
-            nxi = i.shape[1]
             i = i.reshape(-1)
             task.putqcon(k, i, i, np.ones(i.size))
+
         if False:
-            i = self.nlp.iv_qcon
-            k = self.nlp.ic_qcon
             task.putboundlist(mosek.accmode.con, k, [mosek.boundkey.up]*k.size,[.5]*k.size,[.5]*k.size )
             k = (k[:,np.newaxis] + 0*i).reshape(-1)
             nxi = i.shape[1]
@@ -3729,16 +3763,13 @@ class SlpNlp():
         # end hack
 
         
-        #j = self.nlp.iv_x.reshape(-1)
-        #task.putqobj(j,j,.001*np.ones(j.size))
+        #j = self.nlp.iv_u.reshape(-1)
+        #task.putqobj(j,j,.01*np.ones(j.size))
         
-
         self.task = task
 
-        self.put_var_bounds()
-
-    def put_var_bounds(self):
-        l,u = self.nlp.bounds()
+    def put_var_bounds(self,z,r):
+        l,u = self.nlp.bounds(z,r)
         i = self.nlp.iv
         bm = self.bm
         bm[np.logical_and(np.isinf(l), np.isinf(u))] = mosek.boundkey.fr
@@ -3748,7 +3779,7 @@ class SlpNlp():
 
         self.task.putboundlist(mosek.accmode.var,i,bm,l,u )
 
-    def solve_task(self,z):
+    def solve_task(self,z,r):
 
         task = self.task
         
@@ -3758,7 +3789,7 @@ class SlpNlp():
             tmp = coo_matrix(jac)
             i,j,d = tmp.row, tmp.col, tmp.data
             c = -c
-            ic = self.nlp.ic
+            ic = self.nlp.ic_eq
             
         else:
             c = self.nlp.ccol(z) 
@@ -3773,12 +3804,14 @@ class SlpNlp():
 
         
         task.putaijlist(i,j,d)
-        
 
         task.putboundlist(mosek.accmode.con,ic, 
                     [mosek.boundkey.fx]*ic.size ,c,c )
-        self.put_var_bounds()
 
+        self.put_var_bounds(z,r)
+
+        j,c =  self.nlp.obj_grad_inds(),self.nlp.obj_grad(z)
+        task.putclist(j,c)
 
         task.optimize()
         prosta = task.getprosta(mosek.soltype.itr) 
@@ -3813,10 +3846,9 @@ class SlpNlp():
         
     def iterate(self,z,n_iters=1000):
 
-
         for i in range(n_iters):  
             #self.nlp.no_slack = True
-            if not self.solve_task(z):
+            if not self.solve_task(z,float("inf")):
                 pass
                 #print "Attempting second solve"
                 #self.nlp.no_slack = False
@@ -3842,9 +3874,12 @@ class SlpNlp():
                 if i==0:
                     break
             else:
-                #r = 1.0/np.sqrt(2.0+i)
-                r = 1.0/(1.0+i)
-                cost = -(z+r*dz)[self.nlp.iv_h]
+                r = 1.0/np.sqrt(2.0+i)
+                #r = 1.0/(2.0+i)
+
+                a = self.nlp.line_search(z,dz,np.array([r]))
+                cost = a[0]
+
 
             p = r*dz
             self.nlp.prev_step = p
@@ -3856,18 +3891,18 @@ class SlpNlp():
         return cost, z 
 
         
-    def solve_(self):
+    def solve(self):
         
         zi = self.nlp.initialization()
 
-        obj, z = self.iterate(zi,150)
+        obj, z = self.iterate(zi,250)
         
         self.last_z = z
         
         return self.nlp.get_policy(z)
         
 
-    def solve(self):
+    def solve_(self):
         
         s0 = np.array(self.nlp.ds.target)+0.0
         

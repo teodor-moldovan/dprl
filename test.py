@@ -1814,8 +1814,8 @@ class TestsPendubot(unittest.TestCase):
                 x = to_gpu(pi.x[1:-1])
                 dx1  = env.f(x, to_gpu(us)).get()
                 us_ = np.hstack((us,np.zeros((us.shape[0],model.nxi))))
-                dx2 = model.f(x, to_gpu(us_)).get()
-                #dx2 = model.f(x, to_gpu(pi.uxi)).get()
+                #dx2 = model.f(x, to_gpu(us_)).get()
+                dx2 = model.f(x, to_gpu(pi.uxi)).get()
                 
                 a = dx1[:,:2]
                 b = dx2[:,:2]
@@ -2354,8 +2354,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_iter'
-    tests = TestsPendubot
+    single_test = 'test_pp'
+    tests = TestsCartDoublePole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))
