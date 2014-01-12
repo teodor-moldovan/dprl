@@ -1706,11 +1706,11 @@ class GPMcompact():
         self.ds = ds
         self.l = l
         
-        self.slack_cost = 1000.0
+        self.slack_cost = 100.0
         self.no_slack = False
         
         nx,nu = self.ds.nx, self.ds.nu
-        self.nv = 1 + l*nu + 2*nx
+        self.nv = 1 + l*nu + 2*l*nx
         self.nc = nx + l
         self.nv_full = self.nv + (l+2)*nx 
         
@@ -1723,9 +1723,9 @@ class GPMcompact():
 
         self.iv_h = 0
         self.iv_u = 1 + np.arange(l*nu).reshape(l,nu)
-        self.iv_slack = 1+l*nu + np.arange(2*nx).reshape(2,nx)
+        self.iv_slack = 1+l*nu + np.arange(2*l*nx).reshape(2,l,nx)
         
-        self.iv_x = 1+l*nu + 2*nx + np.arange((l+2)*nx).reshape(l+2,nx)
+        self.iv_x = 1+l*nu + 2*l*nx + np.arange((l+2)*nx).reshape(l+2,nx)
         
         self.iv_xuc = np.hstack((self.iv_x[1:-1],self.iv_u))
 
@@ -1737,9 +1737,6 @@ class GPMcompact():
             self.iv_linf = self.iv_u
 
         
-        # bfgs_init
-        self.B = np.eye(l*nu+1)
-
         self.iv_h = 0
 
     def obj(self,z):
@@ -1863,7 +1860,9 @@ class GPMcompact():
         jh = -np.einsum('ijk,ij->ik',df[:,:nx,:],arg[:,:nx]) 
         jxu =  df.swapaxes(1,2)
 
-        f = f0 - jh*hi - np.einsum('ijk,ik->ij',jxu, z[self.iv_xuc])
+
+        slack = z[self.iv_slack[0]] - z[self.iv_slack[1]]
+        f = f0 - jh*hi - np.einsum('ijk,ik->ij',jxu, z[self.iv_xuc]) - slack
         fx = jxu[:,:,:nx]
         fu = jxu[:,:,nx:nx+nu]
         fh = jh
@@ -1872,58 +1871,47 @@ class GPMcompact():
 
         A,w = self.int_formulation(self.l)
 
-        xref = np.array(self.ds.state)
-
         
         m  = fx[:,:,np.newaxis,:]*A[:,np.newaxis,:,np.newaxis]
         mi = np.linalg.inv(np.eye(l*nx) - m.reshape(l*nx,l*nx))
         mi = mi.reshape(l,nx,l,nx)
 
-        fh += np.einsum('tij,j->ti',fx,xref)
+        fh += np.einsum('tij,j->ti',fx,np.array(self.ds.state))
 
         mfu = np.einsum('tisj,sjk->tisk',mi,fu)
         mfh = np.einsum('tisj,sj -> ti ',mi,fh)
         mf  = np.einsum('tisj,sj -> ti ',mi, f)
 
-        jac = np.zeros((nx,1+l*nu+2*nx))
+        self.linearize_cache = mf,mfu,mfh,mi
+
+        jac = np.zeros((nx,self.nv))
         jac[:,self.iv_h] = np.einsum('t,ti->i',w,mfh)
         jac[:,self.iv_u] = np.einsum('t,tisk->isk',w,mfu)
         cc = np.einsum('t,ti->i',w,mf)  
         jac[:,self.iv_h] -= np.array(self.ds.target) - np.array(self.ds.state) 
 
-        jac[:,self.iv_slack[0]] = -np.eye(nx)
-        jac[:,self.iv_slack[1]] =  np.eye(nx)
+        tmp = np.einsum('t,tisj->isj',w,mi)
 
-        # cache computation
-
-
-        rj = np.zeros((l+2,nx,self.iv_u.size+1))
-        rf = np.zeros((l+2,nx))
-
-        th = np.einsum('tp,pi->ti',A,mfh).reshape(-1,1)
-        tu = np.einsum('tp,pisk->tisk',A,mfu).reshape(-1,self.iv_u.size)
-        tf = np.einsum('tp,pi->ti',A,mf) 
-        
-        rj[1:-1,:,:] = np.hstack((th,tu)).reshape(l,nx,-1)
-        rj[ :,:,0] += xref
-        rj[-1,:,0] = np.array(self.ds.target)
-        
-        rf[1:-1,:] = tf 
-
-        self.linearize_cache = (cc,jac, rj,rf)
+        jac[:,self.iv_slack[0]] =  tmp
+        jac[:,self.iv_slack[1]] = -tmp
 
         return  cc, jac
 
     def post_proc(self,z):
-        _,_, df,f = self.linearize_cache
+        mf, mfu, mfh, mi = self.linearize_cache 
         
-        x = np.einsum('tij,j->ti',df,z[:(1+self.iv_u.size)]) + f
-        #x /= z[self.iv_h]
-        
+        A,w = self.int_formulation(self.l)
+        a = np.einsum('tisj,sj->ti',mfu,z[self.iv_u]) + mfh*z[self.iv_h] + mf
+        slack = z[self.iv_slack[0]] - z[self.iv_slack[1]]
+        a += np.einsum('tisj,sj->ti',mi,slack)
+
         r = np.zeros(self.nv_full)
         
         r[:z.size] = z
-        r[z.size:] = x.reshape(-1)
+        r[self.iv_x[0 ]] = np.array(self.ds.state )*z[self.iv_h]
+        r[self.iv_x[-1]] = np.array(self.ds.target)*z[self.iv_h]
+        r[self.iv_x[1:-1]] = r[self.iv_x[0]] + np.dot(A,a) 
+        
         return r
 
 
@@ -3874,8 +3862,8 @@ class SlpNlp():
                 if i==0:
                     break
             else:
-                r = 1.0/np.sqrt(2.0+i)
-                #r = 1.0/(2.0+i)
+                #r = 1.0/np.sqrt(2.0+i)
+                r = 1.0/(2.0+i)
 
                 a = self.nlp.line_search(z,dz,np.array([r]))
                 cost = a[0]

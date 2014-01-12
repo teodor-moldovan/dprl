@@ -2354,7 +2354,7 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_pp'
+    single_test = 'test_pp_iter'
     tests = TestsCartDoublePole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
