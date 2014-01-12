@@ -7,7 +7,7 @@ from sys import stdout
 import math
 
 import matplotlib as mpl
-#mpl.use('pdf')
+mpl.use('pdf')
 import matplotlib.pyplot as plt
 
 import mosek
@@ -1862,7 +1862,7 @@ class GPMcompact():
 
 
         slack = z[self.iv_slack[0]] - z[self.iv_slack[1]]
-        f = f0 - jh*hi - np.einsum('ijk,ik->ij',jxu, z[self.iv_xuc]) - slack
+        f = f0 - jh*hi - np.einsum('ijk,ik->ij',jxu, z[self.iv_xuc]) #- slack
         fx = jxu[:,:,:nx]
         fu = jxu[:,:,nx:nx+nu]
         fh = jh
