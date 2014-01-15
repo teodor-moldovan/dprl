@@ -109,7 +109,9 @@ class array(GPUArray):
         
 
     def set(self,s,**kwargs):
-        GPUArray.set(self,np.ascontiguousarray(s,dtype=self.dtype),**kwargs)
+        GPUArray.set(self,
+            np.ascontiguousarray(s.copy(order="C") ,dtype=self.dtype),**kwargs)
+
         self.newhash()
 
     def __getitem__(self,slc):

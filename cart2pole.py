@@ -96,7 +96,7 @@ class OptimisticCartDoublePole(OptimisticDynamicalSystem):
 
         OptimisticDynamicalSystem.__init__(self,6,1,3, 
                  np.array([0,0,0,np.pi,np.pi,0]),
-                 predictor,xi_scale=4.0, **kwargs)
+                 predictor,xi_scale=.5, **kwargs)
 
         self.target = [0,0,0,0,0,0]
 

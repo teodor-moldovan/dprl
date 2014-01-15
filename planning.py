@@ -7,7 +7,7 @@ from sys import stdout
 import math
 
 import matplotlib as mpl
-mpl.use('pdf')
+#mpl.use('pdf')
 import matplotlib.pyplot as plt
 
 import mosek
@@ -162,7 +162,7 @@ class NumDiff(object):
         df.shape = (l,n,m) 
 
         #hack
-        ufunc('x = abs(x) < 1e-10 ? 0 : x')(df)
+        #ufunc('x = abs(x) < 1e-10 ? 0 : x')(df)
         return df
 
 
@@ -1696,17 +1696,13 @@ class GPMext_int_fslack():
         
             return z 
 
-class GPMcompact():
-    """ Gauss Pseudospectral Method
-    http://vdol.mae.ufl.edu/SubmittedJournalPublications/Integral-Costate-August-2013.pdf
-    http://vdol.mae.ufl.edu/JournalPublications/AIAA-20478.pdf
-    """
+class GPMcompactshared():
     def __init__(self, ds, l):
 
         self.ds = ds
         self.l = l
         
-        self.slack_cost = 100.0
+        self.slack_cost = 10000.0
         self.no_slack = False
         
         nx,nu = self.ds.nx, self.ds.nu
@@ -1729,57 +1725,10 @@ class GPMcompact():
         
         self.iv_xuc = np.hstack((self.iv_x[1:-1],self.iv_u))
 
-        if hasattr(self.ds, 'nxi'):
-            self.iv_qcon = self.iv_u[:,-self.ds.nxi:]
-            self.iv_linf = self.iv_u[:,:-self.ds.nxi]
-        else:   
-            self.iv_qcon = None
-            self.iv_linf = self.iv_u
+        self.iv_linf = self.iv_u
 
         
         self.iv_h = 0
-
-    def obj(self,z):
-        return -z[self.iv_h]+ self.slack_cost*np.sum(z[self.iv_slack].reshape(-1))
-
-    def obj_grad_inds(self):
-        return np.concatenate(([self.iv_h,], self.iv_slack.reshape(-1)))
-
-    def obj_grad(self,z=None):
-        return np.concatenate(([-1.0,], self.slack_cost*np.ones(self.iv_slack.size)))
-        
-    def bounds(self,z, r):
-        l,nx,nu = self.l, self.ds.nx, self.ds.nu
-        
-        b = float('inf')*np.ones(self.nv)
-        b[self.iv_linf] = 1.0
-        # hack
-        #b[self.iv_u[-1]] = 0
-        
-        bl = -b
-        bu = b
-        
-        bl[self.iv_h] = .1
-        bu[self.iv_h] = 100.0
-
-        #hack
-        #bu[self.iv_h] = 1.0
-
-        bl[self.iv_slack] = 0.0
-        #bu[self.iv_slack[:,:,nx/2:]] = 0.0
-        #bu[self.iv_slack] = 0.0
-        if self.no_slack:
-            bu[self.iv_slack] = 0.0
-
-        if False:
-            ind  = 1+self.l*self.ds.nu
-            dz = r*np.ones(ind)
-            dz/=2.0
-            dz[0] /= 5.0
-            bl[:ind] = np.maximum(bl[:ind], z[:ind]-dz)
-            bu[:ind] = np.minimum(bu[:ind], z[:ind]+dz)
-
-        return bl, bu
 
     @classmethod
     @memoize
@@ -1840,80 +1789,6 @@ class GPMcompact():
         
         return A,w
         
-    def linearize(self,z):
-        """ collocation constraint violations """
-
-        nx,nu,l = self.ds.nx,self.ds.nu,self.l
-        
-        hi = z[self.iv_h]
-        
-        arg = z[self.iv_xuc]
-        arg[:,:nx]/= hi
-        buff = to_gpu(arg)
-
-        f0 =  .5*self.ds.f_sp(buff).get()
-        df =  .5*self.ds.f_sp_diff(buff).get()
-        df[:,:nx,:] /= hi
-
-        j = np.zeros((l,nx,nx+nu+1))
-        
-        jh = -np.einsum('ijk,ij->ik',df[:,:nx,:],arg[:,:nx]) 
-        jxu =  df.swapaxes(1,2)
-
-
-        slack = z[self.iv_slack[0]] - z[self.iv_slack[1]]
-        f = f0 - jh*hi - np.einsum('ijk,ik->ij',jxu, z[self.iv_xuc]) #- slack
-        fx = jxu[:,:,:nx]
-        fu = jxu[:,:,nx:nx+nu]
-        fh = jh
-        
-        ## done linearizing dynamics
-
-        A,w = self.int_formulation(self.l)
-
-        
-        m  = fx[:,:,np.newaxis,:]*A[:,np.newaxis,:,np.newaxis]
-        mi = np.linalg.inv(np.eye(l*nx) - m.reshape(l*nx,l*nx))
-        mi = mi.reshape(l,nx,l,nx)
-
-        fh += np.einsum('tij,j->ti',fx,np.array(self.ds.state))
-
-        mfu = np.einsum('tisj,sjk->tisk',mi,fu)
-        mfh = np.einsum('tisj,sj -> ti ',mi,fh)
-        mf  = np.einsum('tisj,sj -> ti ',mi, f)
-
-        self.linearize_cache = mf,mfu,mfh,mi
-
-        jac = np.zeros((nx,self.nv))
-        jac[:,self.iv_h] = np.einsum('t,ti->i',w,mfh)
-        jac[:,self.iv_u] = np.einsum('t,tisk->isk',w,mfu)
-        cc = np.einsum('t,ti->i',w,mf)  
-        jac[:,self.iv_h] -= np.array(self.ds.target) - np.array(self.ds.state) 
-
-        tmp = np.einsum('t,tisj->isj',w,mi)
-
-        jac[:,self.iv_slack[0]] =  tmp
-        jac[:,self.iv_slack[1]] = -tmp
-
-        return  cc, jac
-
-    def post_proc(self,z):
-        mf, mfu, mfh, mi = self.linearize_cache 
-        
-        A,w = self.int_formulation(self.l)
-        a = np.einsum('tisj,sj->ti',mfu,z[self.iv_u]) + mfh*z[self.iv_h] + mf
-        slack = z[self.iv_slack[0]] - z[self.iv_slack[1]]
-        a += np.einsum('tisj,sj->ti',mi,slack)
-
-        r = np.zeros(self.nv_full)
-        
-        r[:z.size] = z
-        r[self.iv_x[0 ]] = np.array(self.ds.state )*z[self.iv_h]
-        r[self.iv_x[-1]] = np.array(self.ds.target)*z[self.iv_h]
-        r[self.iv_x[1:-1]] = r[self.iv_x[0]] + np.dot(A,a) 
-        
-        return r
-
 
     def line_search(self,z0,dz,al):
 
@@ -1930,9 +1805,12 @@ class GPMcompact():
 
         accs =  self.ds.f_sp(to_gpu(arg.reshape(-1,nx+nu))).get().reshape(arg.shape[0],arg.shape[1],-1)
 
-        df = (z[:,self.iv_x[-1]] - z[:,self.iv_x[0]] - .5 * np.einsum('ktj,t->kj',accs,w) )
+        _, D, w = self.quadrature(self.l)
+
+        df = np.einsum('ts, ksj->ktj', D,z[:,self.iv_x[:-1]])- .5*accs
+        tmp = np.einsum('kti,t->k', np.abs(df), w )
         
-        obj = self.slack_cost*np.sum(np.abs(df.reshape(df.shape[0],-1)),1) - hi
+        obj = self.slack_cost*tmp - hi
         return obj
 
 
@@ -1959,8 +1837,235 @@ class GPMcompact():
             z[self.iv_x] = xu[:,:self.ds.nx]*np.exp(-h)
             z[self.iv_u] = xu[1:-1,self.ds.nx:]
             z[self.iv_h] = np.exp(-h)
+            return z
         
-            return z 
+
+    def feas_proj(self,z):
+                
+        z = z.copy()
+        z[self.iv_x[ 0]] = np.array(self.ds.state) * z[self.iv_h]
+        z[self.iv_x[-1]] = np.array(self.ds.target) * z[self.iv_h]
+        arg = z[self.iv_xuc]
+        arg[:,:self.ds.nx]/= z[self.iv_h]
+        buff = to_gpu(arg)
+
+        _, D, _ = self.quadrature(self.l)
+        f0 =  np.dot(D,z[self.iv_x[:-1]]) -.5*self.ds.f_sp(buff).get()
+
+        z[self.iv_slack[0]] = np.maximum(0,f0)
+        z[self.iv_slack[1]] = np.maximum(0,-f0)
+            
+        return z 
+
+
+    def post_proc(self,z):
+        mf, mfu, mfh, mi = self.linearize_cache 
+        
+        A,w = self.int_formulation(self.l)
+        a = np.einsum('tisj,sj->ti',mfu,z[self.iv_u]) + mfh*z[self.iv_h] + mf
+        slack = z[self.iv_slack[0]] - z[self.iv_slack[1]]
+        a += np.einsum('tisj,sj->ti',mi,slack)
+
+        r = np.zeros(self.nv_full)
+        
+        r[:z.size] = z
+        r[self.iv_x[0 ]] = np.array(self.ds.state )*z[self.iv_h]
+        r[self.iv_x[-1]] = np.array(self.ds.target)*z[self.iv_h]
+        r[self.iv_x[1:-1]] = r[self.iv_x[0]] + np.dot(A,a) 
+        
+        return r
+
+
+    def obj_grad(self,z=None):
+        
+        _, D, w = self.quadrature(self.l)
+        rt = np.zeros(self.nv)
+        rt[self.iv_h] = -1.0
+        rt[self.iv_slack] = self.slack_cost*w[np.newaxis,:,np.newaxis]
+        return rt
+        
+        
+
+class GPMcdiff(GPMcompactshared):
+    """ Gauss Pseudospectral Method
+    http://vdol.mae.ufl.edu/SubmittedJournalPublications/Integral-Costate-August-2013.pdf
+    http://vdol.mae.ufl.edu/JournalPublications/AIAA-20478.pdf
+    """
+    def bounds(self,z, r):
+        l,nx,nu = self.l, self.ds.nx, self.ds.nu
+        
+        b = float('inf')*np.ones(self.nv)
+        b[self.iv_linf] = 1.0
+        
+        bl = -b
+        bu = b
+        
+        bl[self.iv_h] = .1
+        bu[self.iv_h] = 100.0
+
+
+        bl[self.iv_slack] = 0.0
+        if self.no_slack:
+            bu[self.iv_slack] = 0.0
+        
+
+        bl -= z[:self.nv]
+        bu -= z[:self.nv]
+
+        if True:
+            dz = r*np.ones(self.nv)
+            #dz[self.iv_h] *= z[self.iv_h]
+        
+            bl = np.maximum(bl,-dz)
+            bu = np.minimum(bu, dz)
+
+        return bl, bu
+
+    def linearize(self,z):
+        """ collocation constraint violations """
+        nx,nu,l = self.ds.nx,self.ds.nu,self.l
+        self.z0 = z.copy()
+        
+        hi = z[self.iv_h]
+        
+        arg = z[self.iv_xuc]
+        arg[:,:nx]/= hi
+        buff = to_gpu(arg)
+
+        f0 =  .5*self.ds.f_sp(buff).get()
+        df =  .5*self.ds.f_sp_diff(buff).get()
+        df[:,:nx,:] /= hi
+
+        j = np.zeros((l,nx,nx+nu+1))
+        
+        jh = -np.einsum('ijk,ij->ik',df[:,:nx,:],arg[:,:nx]) 
+        jxu =  df.swapaxes(1,2)
+
+        _, D, _ = self.quadrature(self.l)
+        slack = z[self.iv_slack[0]] - z[self.iv_slack[1]]
+        a0 = np.dot(D,z[self.iv_x[:-1]])         
+
+        f = f0 - a0 + slack
+        #f*=0
+        fx = jxu[:,:,:nx]
+        fu = jxu[:,:,nx:nx+nu]
+        fh = jh
+        
+        ## done linearizing dynamics
+
+        A,w = self.int_formulation(self.l)
+        
+        m  = fx[:,:,np.newaxis,:]*A[:,np.newaxis,:,np.newaxis]
+        mi = np.linalg.inv(np.eye(l*nx) - m.reshape(l*nx,l*nx))
+        mi = mi.reshape(l,nx,l,nx)
+
+        fh += np.einsum('tij,j->ti',fx,np.array(self.ds.state))
+
+        mfu = np.einsum('tisj,sjk->tisk',mi,fu)
+        mfh = np.einsum('tisj,sj -> ti ',mi,fh)
+        mf  = np.einsum('tisj,sj -> ti ',mi, f)
+
+        self.linearize_cache = mf,mfu,mfh,mi
+
+        jac = np.zeros((nx,self.nv))
+        jac[:,self.iv_h] = np.einsum('t,ti->i',w,mfh)
+        jac[:,self.iv_u] = np.einsum('t,tisk->isk',w,mfu)
+        cc = np.einsum('t,ti->i',w,mf)  
+        jac[:,self.iv_h] -= np.array(self.ds.target) - np.array(self.ds.state) 
+
+        tmp = np.einsum('t,tisj->isj',w,mi)
+
+        jac[:,self.iv_slack[0]] =  tmp
+        jac[:,self.iv_slack[1]] = -tmp
+        
+        #print 'Jac eigenvalues: ', np.linalg.svd(jac[:,:1+l*nu])[1]
+
+        return  cc, jac
+
+class GPMcompact(GPMcompactshared):
+    """ Gauss Pseudospectral Method
+    http://vdol.mae.ufl.edu/SubmittedJournalPublications/Integral-Costate-August-2013.pdf
+    http://vdol.mae.ufl.edu/JournalPublications/AIAA-20478.pdf
+    """
+    def bounds(self,z, r):
+        l,nx,nu = self.l, self.ds.nx, self.ds.nu
+        
+        b = float('inf')*np.ones(self.nv)
+        b[self.iv_linf] = 1.0
+        # hack
+        #b[self.iv_u[-1]] = 0
+        
+        bl = -b
+        bu = b
+        
+        bl[self.iv_h] = .1
+        bu[self.iv_h] = 100.0
+
+        #hack
+        #bu[self.iv_h] = 1.0
+
+        bl[self.iv_slack] = 0.0
+        #bu[self.iv_slack[:,:,nx/2:]] = 0.0
+        #bu[self.iv_slack] = 0.0
+        if self.no_slack:
+            bu[self.iv_slack] = 0.0
+
+        return bl, bu
+
+    def linearize(self,z):
+        """ collocation constraint violations """
+        nx,nu,l = self.ds.nx,self.ds.nu,self.l
+        
+        hi = z[self.iv_h]
+        
+        arg = z[self.iv_xuc]
+        arg[:,:nx]/= hi
+        buff = to_gpu(arg)
+
+        f0 =  .5*self.ds.f_sp(buff).get()
+        df =  .5*self.ds.f_sp_diff(buff).get()
+        df[:,:nx,:] /= hi
+
+        j = np.zeros((l,nx,nx+nu+1))
+        
+        jh = -np.einsum('ijk,ij->ik',df[:,:nx,:],arg[:,:nx]) 
+        jxu =  df.swapaxes(1,2)
+
+        slack = z[self.iv_slack[0]] - z[self.iv_slack[1]]
+        f = f0 - jh*hi - np.einsum('ijk,ik->ij',jxu, z[self.iv_xuc]) #- slack
+        fx = jxu[:,:,:nx]
+        fu = jxu[:,:,nx:nx+nu]
+        fh = jh
+        
+        ## done linearizing dynamics
+
+        A,w = self.int_formulation(self.l)
+        
+        m  = fx[:,:,np.newaxis,:]*A[:,np.newaxis,:,np.newaxis]
+        mi = np.linalg.inv(np.eye(l*nx) - m.reshape(l*nx,l*nx))
+        mi = mi.reshape(l,nx,l,nx)
+
+        fh += np.einsum('tij,j->ti',fx,np.array(self.ds.state))
+
+        mfu = np.einsum('tisj,sjk->tisk',mi,fu)
+        mfh = np.einsum('tisj,sj -> ti ',mi,fh)
+        mf  = np.einsum('tisj,sj -> ti ',mi, f)
+        
+
+        self.linearize_cache = mf,mfu,mfh,mi
+
+        jac = np.zeros((nx,self.nv))
+        jac[:,self.iv_h] = np.einsum('t,ti->i',w,mfh)
+        jac[:,self.iv_u] = np.einsum('t,tisk->isk',w,mfu)
+        cc = np.einsum('t,ti->i',w,mf)  
+        jac[:,self.iv_h] -= np.array(self.ds.target) - np.array(self.ds.state) 
+
+        tmp = np.einsum('t,tisj->isj',w,mi)
+
+        jac[:,self.iv_slack[0]] =  tmp
+        jac[:,self.iv_slack[1]] = -tmp
+
+        return  cc, jac
 
 class GPMext_diff():
     """ Gauss Pseudospectral Method
@@ -2793,105 +2898,6 @@ class GPMext_bck():
             return z 
 
 GPMext = GPMext_int
-# wip
-class MPGPM():
-    """ Multi-phase Gauss Pseudospectral Method
-    http://vdol.mae.ufl.edu/SubmittedJournalPublications/Integral-Costate-August-2013.pdf
-    http://vdol.mae.ufl.edu/JournalPublications/AIAA-20478.pdf
-    """
-    def __init__(self, ds, k, p ):
-
-        self.ds = ds
-        self.p = p
-        self.k = k
-        
-        self.slack_cost = 100.0
-        
-        nx,nu = self.ds.nx, self.ds.nu
-        
-        nv = 0
-        self.iv_x  = np.arange((k*p + k + 1)*nx).reshape(-1,nx)
-        nv += self.iv_x.size
-        self.iv_xc = self.iv_x[:-1,:].reshape(k,p+1,nx)[:,1:,:]
-        self.iv_x_dyn = self.iv_xc.reshape(-1,nx)
-        self.iv_xw = self.iv_x[::p+1,:]
-        self.iv_xwl = self.iv_xw[:-1,:]
-        self.iv_xwr = self.iv_xw[1:,:]
-        self.iv_u  = nv + np.arange(k*p*nu).reshape(k*p,nu)
-        nv += self.iv_u.size
-        self.iv_dx = nv + np.arange(k*p*nx).reshape(k,p,nx)
-        self.iv_dx_dyn = self.iv_dx.reshape(-1,nx)
-        nv += self.iv_dx.size
-
-        self.iv_xu_dyn = np.hstack((self.iv_x_dyn,self.iv_u))
-
-        self.iv_h = nv
-        nv += 1
-            
-        nc = 0
-        self.ic_col = np.arange(k*p*nx).reshape(k,p,nx)
-        nc += self.ic_col.size
-        self.ic_colw = np.arange(k*nx).reshape(k,nx)
-        nc += self.ic_colw.size
-        self.ic_dyn = np.arange(k*p*nx).reshape(k*p,nx)
-        nc += self.ic_dyn.size
-        self.ic_edge = np.arange(2*nx).reshape(2,nx)
-        nc += self.ic_edge.size
-
-        self.nv = nv
-        self.iv = np.arange(nv)
-        self.nc = nc
-        self.ic = np.arange(nc)
-
-    @classmethod
-    @memoize
-    def quadrature(cls,N):
-
-        P = legendre.Legendre.basis
-        tauk = P(N).roots()
-
-        vs = P(N).deriv()(tauk)
-        int_w = 2.0/(vs*vs)/(1.0- tauk*tauk)
-
-        taui = np.hstack(([-1.0],tauk))
-        
-        wx = np.newaxis
-        
-        dn = taui[:,wx] - taui[wx,:]
-        dd = tauk[:,wx] - taui[wx,:]
-        dn[dn==0] = float('inf')
-
-        dd = dd[wx,:,:] + np.zeros(taui.size)[:,wx,wx]
-        dd[np.arange(taui.size),:,np.arange(taui.size)] = 1.0
-        
-        l = dd[:,:,wx,:]/dn[wx,wx,:,:]
-        l[:,:,np.arange(taui.size),np.arange(taui.size)] = 1.0
-        
-        l = np.prod(l,axis=3)
-        l[np.arange(taui.size),:,np.arange(taui.size)] = 0.0
-        D = np.sum(l,axis=0)
-
-        return tauk, D, int_w
-
-    @staticmethod
-    @memoize
-    def __buff(l,n):
-        return array((l,n))
-
-    def ccol(self,z):
-        """ collocation constraint violations """
-
-        _,D,w =  self.quadrature(self.p)
-
-
-        buff = self.__buff(*self.iv_xu_dyn.shape)
-        buff.set(z[self.iv_xu_dyn])
-
-        accs =  self.ds.f_sp(buff).get()
-        
-        df = np.zeros(self.ic.shape)
-        return  df
-
 class MSM():
     def __init__(self, ds, l):
         self.ds = ds
@@ -3721,39 +3727,6 @@ class SlpNlp():
         
         task.putobjsense(mosek.objsense.minimize)
         
-
-
-
-
-
-        
-        # hack
-
-        i = self.nlp.iv_qcon
-        k = self.nlp.ic_qcon
-        # weird values:
-        #i = np.array([0,25])
-
-        if not i is None:
-
-            task.putboundlist(mosek.accmode.con, k, [mosek.boundkey.up]*k.size,[.5]*k.size,[.5]*k.size )
-            k = (k[:,np.newaxis] + 0*i).reshape(-1)
-            i = i.reshape(-1)
-            task.putqcon(k, i, i, np.ones(i.size))
-
-        if False:
-            task.putboundlist(mosek.accmode.con, k, [mosek.boundkey.up]*k.size,[.5]*k.size,[.5]*k.size )
-            k = (k[:,np.newaxis] + 0*i).reshape(-1)
-            nxi = i.shape[1]
-            i = i.reshape(-1)
-            task.putqconk(k[0], i, i, np.ones(i.size)/i.size)
-
-        # end hack
-
-        
-        #j = self.nlp.iv_u.reshape(-1)
-        #task.putqobj(j,j,.01*np.ones(j.size))
-        
         self.task = task
 
     def put_var_bounds(self,z,r):
@@ -3791,6 +3764,7 @@ class SlpNlp():
             #ic =  self.nlp.ic_eq.reshape(-1)
 
         
+        #d[np.abs(d)<1e-6]=0
         task.putaijlist(i,j,d)
 
         task.putboundlist(mosek.accmode.con,ic, 
@@ -3798,12 +3772,13 @@ class SlpNlp():
 
         self.put_var_bounds(z,r)
 
-        j,c =  self.nlp.obj_grad_inds(),self.nlp.obj_grad(z)
-        task.putclist(j,c)
+        c =  self.nlp.obj_grad(z)
+        task.putclist(self.nlp.iv,c)
+        soltype = mosek.soltype.bas
 
         task.optimize()
-        prosta = task.getprosta(mosek.soltype.itr) 
-        solsta = task.getsolsta(mosek.soltype.itr) 
+        prosta = task.getprosta(soltype) 
+        solsta = task.getsolsta(soltype) 
 
         task._Task__progress_cb=None
         task._Task__stream_cb=None
@@ -3818,11 +3793,11 @@ class SlpNlp():
         nv,nc = self.nlp.nv,self.nlp.nc
 
         warnings.simplefilter("ignore", RuntimeWarning)
-        task.getsolutionslice(mosek.soltype.itr,
+        task.getsolutionslice(soltype,
                             mosek.solitem.xx,
                             0,nv, self.ret_x)
 
-        task.getsolutionslice(mosek.soltype.itr,
+        task.getsolutionslice(soltype,
                             mosek.solitem.y,
                             0,nc, self.ret_y)
 
@@ -3834,20 +3809,19 @@ class SlpNlp():
         
     def iterate(self,z,n_iters=1000):
 
+        #step_size = .01
+        step_size = float('inf')
         for i in range(n_iters):  
             #self.nlp.no_slack = True
-            if not self.solve_task(z,float("inf")):
-                pass
-                #print "Attempting second solve"
-                #self.nlp.no_slack = False
-                #self.solve_task(z)
 
+        
+            z = self.nlp.feas_proj(z)
+            if not self.solve_task(z,step_size):
+                break
 
-            if hasattr(self.nlp,'post_proc'):
-                ret_x = self.nlp.post_proc(self.ret_x)
-            else:
-                ret_x = self.ret_x
-            dz = ret_x-z 
+            ret_x = self.nlp.post_proc(self.ret_x)
+            #dz = ret_x-z 
+            dz = ret_x
 
             if False:
                 al = np.concatenate((np.exp(np.linspace(-6,0,20)),))
@@ -3859,8 +3833,8 @@ class SlpNlp():
                 i = np.argmin(a)
                 cost = a[i]
                 r = al[i]
-                if i==0:
-                    break
+                #if i==0:
+                #    break
             else:
                 #r = 1.0/np.sqrt(2.0+i)
                 r = 1.0/(2.0+i)
@@ -3869,21 +3843,24 @@ class SlpNlp():
                 cost = a[0]
 
 
+            #print step_size, r
+            step_size *= r*2.0
             p = r*dz
             self.nlp.prev_step = p
             
             z = z + p
 
-            print ('{:9.5f} '*2).format( z[self.nlp.iv_h], cost)
+            print ('{:9.5f} '*3).format( z[self.nlp.iv_h], cost, step_size)
 
         return cost, z 
 
         
     def solve(self):
         
+
         zi = self.nlp.initialization()
 
-        obj, z = self.iterate(zi,250)
+        obj, z = self.iterate(zi,350)
         
         self.last_z = z
         

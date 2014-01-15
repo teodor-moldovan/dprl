@@ -13,6 +13,25 @@ import cPickle
 #import dpcluster
 import cPickle
 
+def check_grad(func,n,eps=1e-8):
+    z = np.random.normal(size=n)
+    dz = eps*np.random.normal(size = n)
+    
+    z_ = z+ dz
+    
+    f ,j  = func(z ) 
+    f_,_  = func(z_) 
+    
+    r  = (f_- f)/eps
+    r_ =  np.dot(j.reshape(f.size,-1),dz)/eps
+        
+    if r_.shape == (1,):
+        r_ = r_[0]
+        
+    df = (r-r_)/np.maximum(r,r_)
+
+    np.testing.assert_almost_equal(df,np.zeros(df.shape),4)
+
 class TestsTools(unittest.TestCase):
     def test_array(self):
         lst = [ array((10,10)).ptr for it in range(10)]
@@ -1605,17 +1624,17 @@ class TestsCartDoublePole(unittest.TestCase):
         seed = 45 # 11,15,22
         np.random.seed(seed)
 
-        p,k = 11, 2*11*8
-        learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
+        p,k = 13, 2*11*8
+        learner = BatchVDP(Mixture(SBP(k),NIW(p,k)),w=.1)
         model = OptimisticCartDoublePole(learner)
 
         #pp = KnitroNlp(model,25)
-        planner = SlpNlp(MSMext(model,25))
+        planner = SlpNlp(GPMcompact(model,25))
 
-        env = CartDoublePole(noise = .1)
+        env = CartDoublePole(noise = 0.01)
         trj = env.step(ZeroPolicy(env.nu), 50, random_control=True) 
         
-        env.noise = 0.0
+        env.noise = 0.01
 
         model.plot_init()
 
@@ -1629,21 +1648,23 @@ class TestsCartDoublePole(unittest.TestCase):
             model.state = env.state
             pi = planner.solve()
 
-
             us = pi.us.reshape(pi.us.shape[0],-1).copy()
-            x = to_gpu(pi.x[:-1])
+            #x = to_gpu(pi.x)
+            x = to_gpu(pi.x[1:-1])
             dx1  = env.f(x, to_gpu(us)).get()
-            us = np.hstack((us,np.zeros((us.shape[0],model.nxi))))
+            us_ = np.hstack((us,np.zeros((us.shape[0],model.nxi))))
+            #dx2 = model.f(x, to_gpu(us_)).get()
             dx2 = model.f(x, to_gpu(pi.uxi)).get()
-            
+
             a = dx1[:,:3]
             b = dx2[:,:3]
+
             r =  np.sum(a*b,1) / np.sqrt(np.sum(a*a,1)*np.sum(b*b,1))
             r = np.insert(r,r.shape[0],0,axis=0)
+            r = np.insert(r,0,0,axis=0)
 
             model.plot_traj(pi.x,r)
             model.plot_draw()
-
 
             trj = env.step(pi,5)
             #trj = env.step(pi,5)
@@ -1703,7 +1724,7 @@ class TestsCartDoublePole(unittest.TestCase):
         env = CartDoublePole(noise = 0)
         #env.state = np.array([-2.513, -11.849,    2.121,   2.059 ,   3.458,  -0.069])
 
-        pp = SlpNlp(GPMcompact(env,25))
+        pp = SlpNlp(GPMcdiff(env,25))
         plt.show()
         plt.ion()
 
@@ -1741,7 +1762,7 @@ class TestsCartDoublePole(unittest.TestCase):
         env = CartDoublePole()
 
         pp = SlpNlp(
-            GPMcompact(env,25)
+            GPMcdiff(env,35)
             )
 
         pi = pp.solve()
@@ -1772,19 +1793,17 @@ class TestsPendubot(unittest.TestCase):
         seed = 45 # 11,15,22
         np.random.seed(seed)
 
-        p,k = 9, 11*8
+        p,k = 9, 2*11*8
         learner = BatchVDP(Mixture(SBP(k),NIW(p,k)),w=.1)
         model = OptimisticPendubot(learner)
 
-        planner = SlpNlp(GPMcompact(model,25))
+        planner = SlpNlp(GPMcdiff(model,25))
         #planner = SlpNlp(GPMext(model,25))
         #planner = KnitroNlp(GPM(model,25))
         #planner = SlpNlp(MSMext(model,25))
         #planner = SqpPlanner(model,25)
 
-        planner.nlp.interp_coefficients(-1.0)
-
-        env = Pendubot(noise = .01)
+        env = Pendubot(noise = 1.0)
         s0 = env.state.copy()
         trj = env.step(ZeroPolicy(env.nu), 150, random_control=True) 
         
@@ -2213,29 +2232,37 @@ class TestsPP(unittest.TestCase):
         al = np.linspace(0,1,10)
         td.line_search(z,1e8*dz,al)
 
-    def test_mpgpm(self):
-        k,p = 3, 2
-        td = MPGPM(Cartpole(),k,p)
-        
-        #td.interp_coefficients(.3)
-        
-        np.random.seed(2)
-        eps = 1e-8
-        z = np.random.normal(size=td.nv)
-        dz = eps*np.random.normal(size = td.nv)
-        
-        z_ = z+ dz
-        
-        f  = td.ccol(z) 
-        return
+    def test_gpm_compact(self):
 
-        j  = td.ccol_jacobian(z) 
-        f_ = td.ccol(z+dz) 
-        
-        r  = (f_- f)/eps
-        r_ =  np.dot(j.reshape(f.size,-1),dz)/eps
+        seed = 45 # 11,15,22
+        np.random.seed(seed)
 
-        np.testing.assert_almost_equal(r,r_,4)
+        env = CartDoublePole()
+
+        pp = SlpNlp(
+            GPMcdiff(env,25)
+            )
+
+        z = pp.nlp.initialization()
+        pp.solve_task(z,float("inf"))
+        dz_ = pp.nlp.post_proc(pp.ret_x)
+
+        pp_ = SlpNlp(
+            GPMcompact(env,25)
+            )
+
+        pp_.solve_task(z,float("inf"))
+        dz = pp_.nlp.post_proc(pp_.ret_x) - z
+
+        
+        np.testing.assert_almost_equal(dz,dz_)
+
+        pp.solve_task(z,0.1)
+        dz = pp.nlp.post_proc(pp.ret_x)
+        
+        c = pp.nlp.line_search(z,dz,np.linspace(0,1,10))
+        self.assertTrue(np.argmin(c) == len(c)-1)
+
 
     def test_lpm(self):
         N = 15
@@ -2354,8 +2381,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_iter'
-    tests = TestsPendubot
+    single_test = 'test_pp_iter'
+    tests = TestsCartDoublePole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))
