@@ -1532,8 +1532,7 @@ class TestsCartpole(unittest.TestCase):
 
         end = np.zeros(4)
 
-        pp = KnitroNlp(MSM(env,35))
-        #pp = SlpNlp(GPM(env,25))
+        pp = SlpNlp(GPMcompact(env,55))
         plt.show()
         plt.ion()
         
@@ -1724,7 +1723,7 @@ class TestsCartDoublePole(unittest.TestCase):
         env = CartDoublePole(noise = 0)
         #env.state = np.array([-2.513, -11.849,    2.121,   2.059 ,   3.458,  -0.069])
 
-        pp = SlpNlp(GPMcdiff(env,25))
+        pp = SlpNlp(GPMcompact(env,55))
         plt.show()
         plt.ion()
 
@@ -1761,14 +1760,16 @@ class TestsCartDoublePole(unittest.TestCase):
 
         env = CartDoublePole()
 
+        #env.state = np.array([-2.513, -11.849,    2.121,   2.059 ,   3.458,  -0.069])
+
         pp = SlpNlp(
-            GPMcdiff(env,35)
+            GPMcompact(env,55)
             )
 
         pi = pp.solve()
 
 
-        if False:
+        if True:
         
             tmp = pi.x
             plt.sca(plt.subplot(2,1,1))
@@ -1795,15 +1796,11 @@ class TestsPendubot(unittest.TestCase):
 
         p,k = 9, 2*11*8
         learner = BatchVDP(Mixture(SBP(k),NIW(p,k)),w=.1)
-        model = OptimisticPendubot(learner)
+        model = OptimisticPendubotDiff(learner)
 
-        planner = SlpNlp(GPMcdiff(model,25))
-        #planner = SlpNlp(GPMext(model,25))
-        #planner = KnitroNlp(GPM(model,25))
-        #planner = SlpNlp(MSMext(model,25))
-        #planner = SqpPlanner(model,25)
+        planner = SlpNlp(GPMcompact(model,55))
 
-        env = Pendubot(noise = 1.0)
+        env = PendubotDiff(noise = 1.0)
         s0 = env.state.copy()
         trj = env.step(ZeroPolicy(env.nu), 150, random_control=True) 
         
@@ -1955,6 +1952,46 @@ class TestsPendubot(unittest.TestCase):
         
             print r
         
+
+    def test_pp_iter(self):
+
+        seed = 45 # 11,15,22
+        np.random.seed(seed)
+
+        p,k = 11, 11*8
+
+        env = PendubotDiff(noise = 0)
+        #env.state = np.array([-2.513, -11.849,    2.121,   2.059 ,   3.458,  -0.069])
+
+        pp = SlpNlp(GPMcompact(env,55))
+        plt.show()
+        plt.ion()
+
+        for t in range(10000):
+            s = env.state
+            print 't: ',('{:4.2f} ').format(env.t),' state: ',('{:9.3f} '*4).format(*s)
+            pi = pp.solve()
+
+            trj = env.step(pi,10)
+
+            tmp = pi.x
+            
+            plt.clf()
+
+            plt.sca(plt.subplot(2,1,1))
+
+            plt.xlim([-2*np.pi,2*np.pi])
+            plt.ylim([-40,40])
+            plt.plot(tmp[:,2],tmp[:,0])
+
+            plt.sca(plt.subplot(2,1,2))
+
+            plt.xlim([-2*np.pi,2*np.pi])
+            plt.ylim([-40,40])
+            plt.plot(tmp[:,3],tmp[:,1])
+
+            plt.draw()
+
 
 class TestsHeli(unittest.TestCase):
     def test_f(self):
@@ -2381,8 +2418,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_pp_iter'
-    tests = TestsCartDoublePole
+    single_test = 'test_iter'
+    tests = TestsPendubot
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))
