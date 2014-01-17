@@ -162,7 +162,7 @@ class NumDiff(object):
         df.shape = (l,n,m) 
 
         #hack
-        #ufunc('x = abs(x) < 1e-10 ? 0 : x')(df)
+        ufunc('x = abs(x) < 1e-10 ? 0 : x')(df)
         return df
 
 
@@ -230,7 +230,7 @@ class Environment:
 
             nz = self.noise*np.random.normal(size=self.nx/2)
             # hack
-            #dx[:self.nx/2] += nz
+            dx[:self.nx/2] += nz
 
             return dx,u #.get().reshape(-1)
 
@@ -1862,12 +1862,12 @@ class GPMcompact():
 
 
     def post_proc(self,z):
-        mf, mfu, mfh, mi = self.linearize_cache 
+        mf, mfu, mfh, mfs = self.linearize_cache 
         
         A,w = self.int_formulation(self.l)
         a = np.einsum('tisj,sj->ti',mfu,z[self.iv_u]) + mfh*z[self.iv_h] + mf
         slack = z[self.iv_slack]
-        a += np.einsum('tisj,sj->ti',mi,slack)
+        a += np.einsum('tisj,sj->ti',mfs,slack)
 
         r = np.zeros(self.nv_full)
         
@@ -1934,6 +1934,14 @@ class GPMcompact():
         fu = jxu[:,:,nx:nx+nu]
         fh = jh
         
+        #fs = np.zeros((l,nx*nx))
+        #fs[:, np.arange(nx)*(nx+1)] = np.max(np.abs(fu),axis=2)
+        #fs = fs.reshape((l,nx,nx))
+        
+        fs = np.tile(np.eye(nx),(l,1,1))
+            
+        
+        
         ## done linearizing dynamics
 
         A,w = self.int_formulation(self.l)
@@ -1945,11 +1953,11 @@ class GPMcompact():
         fh += np.einsum('tij,j->ti',fx,np.array(self.ds.state))
 
         mfu = np.einsum('tisj,sjk->tisk',mi,fu)
+        mfs = np.einsum('tisj,sjk->tisk',mi,fs)
         mfh = np.einsum('tisj,sj -> ti ',mi,fh)
         mf  = np.einsum('tisj,sj -> ti ',mi, f)
-        
 
-        self.linearize_cache = mf,mfu,mfh,mi
+        self.linearize_cache = mf,mfu,mfh,mfs
 
         jac = np.zeros((nx,self.nv))
         jac[:,self.iv_h] = np.einsum('t,ti->i',w,mfh)
@@ -1957,10 +1965,10 @@ class GPMcompact():
         cc = -np.einsum('t,ti->i',w,mf)  
         jac[:,self.iv_h] -= np.array(self.ds.target) - np.array(self.ds.state) 
 
-        tmp = np.einsum('t,tisj->isj',w,mi)
+        jac[:,self.iv_slack] = np.einsum('t,tisj->isj',w,mfs)
+            
+        # concatenate with rest of jacobian
 
-        jac[:,self.iv_slack] =  tmp
-        
         jac = np.vstack((jac,np.zeros((self.nc- nx, self.nv)) ))
         cc = np.concatenate((cc,np.zeros(self.nc- nx)))
         
@@ -3810,11 +3818,12 @@ class SlpNlp():
 
         #step_size = .01
         step_size = float('inf')
+        cost = float('inf')
         for i in range(n_iters):  
             #self.nlp.no_slack = True
 
         
-            z = self.nlp.feas_proj(z)
+            #z = self.nlp.feas_proj(z)
             if not self.solve_task(z,step_size):
                 break
 
@@ -3839,9 +3848,8 @@ class SlpNlp():
                 if i==0:
                     break
             else:
-                #r = 1.0/np.sqrt(2.0+i)
+                
                 r = 1.0/(2.0+i)
-
                 a = self.nlp.line_search(z,dz,np.array([r]))
                 cost = a[0]
 
@@ -3880,10 +3888,10 @@ class SlpNlp():
     def solve(self):
         
 
-        zi = self.nlp.initialization()
+        z = self.nlp.initialization()
 
-        obj, z = self.iterate(zi,350)
-        
+        obj, z = self.iterate(z,200)
+
         self.last_z = z
         
         return self.nlp.get_policy(z)

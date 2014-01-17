@@ -1796,11 +1796,11 @@ class TestsPendubot(unittest.TestCase):
 
         p,k = 9, 2*11*8
         learner = BatchVDP(Mixture(SBP(k),NIW(p,k)),w=.1)
-        model = OptimisticPendubotDiff(learner)
+        model = OptimisticPendubot(learner)
 
         planner = SlpNlp(GPMcompact(model,55))
 
-        env = PendubotDiff(noise = 1.0)
+        env = Pendubot(noise = 1.0)
         s0 = env.state.copy()
         trj = env.step(ZeroPolicy(env.nu), 150, random_control=True) 
         
@@ -1811,7 +1811,7 @@ class TestsPendubot(unittest.TestCase):
 
         for t in range(10000):
             
-            if env.t > 2.0 and False:
+            if env.t > 2.0 and True:
                 env.t -= 2.0
                 env.state = s0.copy()
 
@@ -1960,8 +1960,11 @@ class TestsPendubot(unittest.TestCase):
 
         p,k = 11, 11*8
 
-        env = PendubotDiff(noise = 0)
-        #env.state = np.array([-2.513, -11.849,    2.121,   2.059 ,   3.458,  -0.069])
+        env = PendubotPilco(noise = 0)
+        #env.state = np.array([-2.513, 11.849,   2.059 ,   3.458])
+
+
+        env.noise = 0.1
 
         pp = SlpNlp(GPMcompact(env,55))
         plt.show()
