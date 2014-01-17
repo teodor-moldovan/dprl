@@ -95,7 +95,7 @@ class ExplicitRK(object):
 
 
 class NumDiff(object):
-    def __init__(self, h= 1e-8, order = 4):
+    def __init__(self, h= 1e-6, order = 4):
         self.h = h
         self.order = order
 
@@ -162,7 +162,7 @@ class NumDiff(object):
         df.shape = (l,n,m) 
 
         #hack
-        ufunc('x = abs(x) < 1e-10 ? 0 : x')(df)
+        #ufunc('x = abs(x) < 1e-10 ? 0 : x')(df)
         return df
 
 
