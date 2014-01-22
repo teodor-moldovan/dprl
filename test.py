@@ -1568,6 +1568,21 @@ class TestsCartpole(unittest.TestCase):
         
 
 class TestsCartDoublePole(unittest.TestCase):
+    def test_f(self):
+        l = 32*11*8
+        c = CartDoublePole()
+        
+        np.random.seed(1)
+
+        xn = np.random.random(size=l*(c.nx)).reshape(l,c.nx)
+        x = to_gpu(xn)
+
+        un = np.random.random(size=l*(c.nu)).reshape(l,c.nu)
+        u = to_gpu(un)
+        
+        dx = c.f(x,u)
+        
+         
     def test_impl_model(self):
 
         ds = CartDoublePole()
@@ -2434,8 +2449,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_f'
-    tests = TestsUnicycle
+    single_test = 'test_pp_iter'
+    tests = TestsCartDoublePole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))
