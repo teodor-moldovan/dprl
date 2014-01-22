@@ -3,6 +3,7 @@ from clustering import *
 from cartpole import *
 from cart2pole import *
 from pendubot import *
+from unicycle import *
 from heli import *
 import time
 import scipy.linalg
@@ -1769,7 +1770,7 @@ class TestsCartDoublePole(unittest.TestCase):
         pi = pp.solve()
 
 
-        if True:
+        if False:
         
             tmp = pi.x
             plt.sca(plt.subplot(2,1,1))
@@ -2139,6 +2140,18 @@ class TestsHeli(unittest.TestCase):
         print rs
         print rs_
         
+class TestsUnicycle(unittest.TestCase):
+    def test_f(self):
+        
+        l = 100
+
+        c = Unicycle()
+
+        z = np.random.normal(size = l*c.d).reshape(l,c.d)
+        
+        c.f(to_gpu(z))
+
+         
 class TestsPP(unittest.TestCase):
     def test_pcw_policy(self):
 
@@ -2421,8 +2434,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_pp_iter'
-    tests = TestsPendubot
+    single_test = 'test_f'
+    tests = TestsUnicycle
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))

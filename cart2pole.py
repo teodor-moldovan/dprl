@@ -12,7 +12,6 @@ class CartDoublePole(DynamicalSystem, Environment):
         self.target = np.array([0,0,0,0,0,0])
 
         m1,m2,m3,l2,l3,b,g,um = (.5,.5,.5,.6,.6,.1,9.82, 20.0)
-        #m1,m2,m3,l2,l3,b,g,um = (.5,.5,.5,.6,.6,.1,9.82, 20.0)
         s = self.codegen( m1,m2,m3,l2,l3,b,g,um  )        
 
         tpl = Template( s +
