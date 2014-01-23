@@ -1706,10 +1706,15 @@ class GPMcompact():
         self.ds = ds
         self.l = l
         
+        
         self.slack_cost = 100.0
         self.no_slack = False
         
         nx,nu = self.ds.nx, self.ds.nu
+
+        self.slack_scale = np.ones(nx)
+        #self.slack_scale = np.array([1,1,1,1,2,2])
+
         self.nv = 1 + l*nu + 2*l*nx
         self.nc = nx 
         self.nv_full = self.nv + (l+2)*nx 
@@ -1729,48 +1734,17 @@ class GPMcompact():
         self.iv_xuc = np.hstack((self.iv_x[1:-1],self.iv_u))
 
         self.iv_linf = self.iv_u
-
         
         self.iv_h = 0
 
-    def obj_grad_inds(self):
-        return np.concatenate(([self.iv_h,], self.iv_slack.reshape(-1)))
-
-    def obj_grad(self,z=None):
+    def obj(self,z=None):
         _, D, w = self.quadrature(self.l)
+        c = np.zeros(self.nv)
+        c[self.iv_h] = -1.0
         tmp=np.tile(w[np.newaxis:,np.newaxis],(2,1,self.iv_slack.shape[2]))
-        return np.concatenate(([-1.0,], self.slack_cost*tmp.reshape(-1)))
+        c[self.iv_slack] = self.slack_cost*self.slack_scale[np.newaxis,np.newaxis,:]*tmp
+        return np.arange(self.nv), c
         
-    def bounds(self,z, r):
-        l,nx,nu = self.l, self.ds.nx, self.ds.nu
-        
-        b = float('inf')*np.ones(self.nv)
-        b[self.iv_linf] = 1.0
-        # hack
-        #b[self.iv_u[-1]] = 0
-        
-        bl = -b
-        bu = b
-        
-        bl[self.iv_h] = .1
-        #bu[self.iv_h] = 100.0
-
-        bl[self.iv_slack] = 0.0
-        #bu[self.iv_slack[:,:,nx/2:]] = 0.0
-        #bu[self.iv_slack] = 0.0
-        if self.no_slack:
-            bu[self.iv_slack] = 0.0
-
-        if False:
-            ind  = 1+self.l*self.ds.nu
-            dz = r*np.ones(ind)
-            dz/=2.0
-            dz[0] /= 5.0
-            bl[:ind] = np.maximum(bl[:ind], z[:ind]-dz)
-            bu[:ind] = np.minimum(bu[:ind], z[:ind]+dz)
-
-        return bl, bu
-
     @classmethod
     @memoize
     def quadrature(cls,N):
@@ -1830,9 +1804,31 @@ class GPMcompact():
         
         return A,w
         
-    def linearize(self,z):
-        """ collocation constraint violations """
+    def bounds(self,z, r):
+        l,nx,nu = self.l, self.ds.nx, self.ds.nu
+        
+        b = float('inf')*np.ones(self.nv)
+        b[self.iv_linf] = 1.0
+        
+        bl = -b
+        bu = b
+        
+        bl[self.iv_h] = .1
+        bl[self.iv_slack] = 0.0
+        #bu[self.iv_slack[:,:,:nx/2]] = 0.0
 
+
+        bl -= z[:self.nv]
+        bu -= z[:self.nv]
+        
+        i = self.iv_u
+        bl[i] = np.maximum(bl[i],-r)
+        bu[i] = np.minimum(bu[i], r)
+
+        return bl, bu
+
+    def jacobian(self,z):
+        """ collocation constraint violations """
         nx,nu,l = self.ds.nx,self.ds.nu,self.l
         
         hi = z[self.iv_h]
@@ -1841,7 +1837,6 @@ class GPMcompact():
         arg[:,:nx]/= hi
         buff = to_gpu(arg)
 
-        f0 =  .5*self.ds.f_sp(buff).get()
         df =  .5*self.ds.f_sp_diff(buff).get()
         df[:,:nx,:] /= hi
 
@@ -1850,34 +1845,27 @@ class GPMcompact():
         jh = -np.einsum('ijk,ij->ik',df[:,:nx,:],arg[:,:nx]) 
         jxu =  df.swapaxes(1,2)
 
-
         slack = z[self.iv_slack[0]] - z[self.iv_slack[1]]
-        f = f0 - jh*hi - np.einsum('ijk,ik->ij',jxu, z[self.iv_xuc]) #- slack
         fx = jxu[:,:,:nx]
         fu = jxu[:,:,nx:nx+nu]
-        fh = jh
+        fh = jh + np.einsum('tij,j->ti',jxu[:,:,:nx],np.array(self.ds.state))
         
         ## done linearizing dynamics
 
         A,w = self.int_formulation(self.l)
-
         
         m  = fx[:,:,np.newaxis,:]*A[:,np.newaxis,:,np.newaxis]
         mi = np.linalg.inv(np.eye(l*nx) - m.reshape(l*nx,l*nx))
         mi = mi.reshape(l,nx,l,nx)
 
-        fh += np.einsum('tij,j->ti',fx,np.array(self.ds.state))
-
         mfu = np.einsum('tisj,sjk->tisk',mi,fu)
         mfh = np.einsum('tisj,sj -> ti ',mi,fh)
-        mf  = np.einsum('tisj,sj -> ti ',mi, f)
 
-        self.linearize_cache = mf,mfu,mfh,mi
+        self.linearize_cache = mfu,mfh,mi
 
         jac = np.zeros((nx,self.nv))
         jac[:,self.iv_h] = np.einsum('t,ti->i',w,mfh)
         jac[:,self.iv_u] = np.einsum('t,tisk->isk',w,mfu)
-        cc = np.einsum('t,ti->i',w,mf)  
         jac[:,self.iv_h] -= np.array(self.ds.target) - np.array(self.ds.state) 
 
         tmp = np.einsum('t,tisj->isj',w,mi)
@@ -1885,13 +1873,13 @@ class GPMcompact():
         jac[:,self.iv_slack[0]] =  tmp
         jac[:,self.iv_slack[1]] = -tmp
 
-        return  cc, jac
+        return  jac
 
     def post_proc(self,z):
-        mf, mfu, mfh, mi = self.linearize_cache 
+        mfu, mfh, mi = self.linearize_cache 
         
         A,w = self.int_formulation(self.l)
-        a = np.einsum('tisj,sj->ti',mfu,z[self.iv_u]) + mfh*z[self.iv_h] + mf
+        a = np.einsum('tisj,sj->ti',mfu,z[self.iv_u]) + mfh*z[self.iv_h] 
         slack = z[self.iv_slack[0]] - z[self.iv_slack[1]]
         a += np.einsum('tisj,sj->ti',mi,slack)
 
@@ -1904,10 +1892,10 @@ class GPMcompact():
         
         return r
 
+    def feas_proj(self,z):
 
-    def line_search(self,z0,dz,al):
-
-        z = z0[np.newaxis,:] + al[:,np.newaxis]*dz[np.newaxis,:]
+        if not len(z.shape)==2:
+            z = z[np.newaxis,:]
 
         nx,nu,l = self.ds.nx,self.ds.nu,self.l
         
@@ -1921,10 +1909,22 @@ class GPMcompact():
         accs =  .5*self.ds.f_sp(to_gpu(arg.reshape(-1,nx+nu))).get().reshape(arg.shape[0],arg.shape[1],-1)
 
         xa = np.einsum('ts,jsk->jtk',D,z[:,self.iv_x][:,:-1,:])
+        df = xa-accs
         
-        costs = self.slack_cost*np.dot(np.sum(np.abs(xa-accs),2),w)
-        obj = costs - hi
-        return obj
+        z[:,self.iv_slack[0]] = np.maximum(0, df)
+        z[:,self.iv_slack[1]] = np.maximum(0,-df)
+
+        return z
+
+
+    def line_search(self,z0,dz,al):
+
+        z = z0[np.newaxis,:] + al[:,np.newaxis]*dz[np.newaxis,:]
+        
+        z = self.feas_proj(z)
+        _, c = self.obj()
+        
+        return np.dot(z[:,:self.nv],c)
 
 
     # hack (not elegant, bug prone)
@@ -3630,34 +3630,17 @@ class SlpNlp():
 
         task = self.task
         
-        if hasattr(self.nlp,'linearize'):
-            c,jac = self.nlp.linearize(z)
+        jac = self.nlp.jacobian(z)
 
-            tmp = coo_matrix(jac)
-            i,j,d = tmp.row, tmp.col, tmp.data
-            c = -c
-            ic = self.nlp.ic_eq
-            
-        else:
-            c = self.nlp.ccol(z) 
-            i,j = self.nlp.ccol_jacobian_inds()
-            d = self.nlp.ccol_jacobian(z)
-            
-            tmp = coo_matrix((d,(i,j)),
-                    shape=[self.nlp.nc,self.nlp.nv])*np.matrix(z).T
-            c = -c + np.array(tmp).reshape(-1)
-            ic =  self.nlp.ic.reshape(-1)
-            #ic =  self.nlp.ic_eq.reshape(-1)
-
+        tmp = coo_matrix(jac)
+        i,j,d = tmp.row, tmp.col, tmp.data
+        ic = self.nlp.ic_eq
         
         task.putaijlist(i,j,d)
 
-        task.putboundlist(mosek.accmode.con,ic, 
-                    [mosek.boundkey.fx]*ic.size ,c,c )
-
         self.put_var_bounds(z,r)
 
-        j,c =  self.nlp.obj_grad_inds(),self.nlp.obj_grad(z)
+        j,c =  self.nlp.obj(z)
         task.putclist(j,c)
 
         task.optimize()
@@ -3695,50 +3678,57 @@ class SlpNlp():
         return ret
         
         
-    def iterate(self,z,n_iters=1000):
+    def iterate(self,z,n_iters=10000):
 
         cost = float('inf')
-        for i in range(n_iters):  
-            #self.nlp.no_slack = True
-            if not self.solve_task(z,float("inf")):
+        step_size = float('inf') 
+        old_cost = cost
+
+        for it in range(n_iters):  
+
+            z = self.nlp.feas_proj(z)[0]
+
+            slack = z[self.nlp.iv_slack[0]] + z[self.nlp.iv_slack[1]] 
+            #print np.max(slack,0)
+
+            if not self.solve_task(z,step_size):
                 break
-                #print "Attempting second solve"
-                #self.nlp.no_slack = False
-                #self.solve_task(z)
 
+            ret_x = self.nlp.post_proc(self.ret_x)
+            dz = ret_x
 
-            if hasattr(self.nlp,'post_proc'):
-                ret_x = self.nlp.post_proc(self.ret_x)
-            else:
-                ret_x = self.ret_x
-            dz = ret_x-z 
+            # line search
 
-            if True:
-                al = np.concatenate((np.exp(np.linspace(-6,0,20)),))
+            if False:
+                al = np.concatenate((np.exp(np.linspace(-6,0,50)),))
                 a = self.nlp.line_search(z,dz,al)
                 # find first local minimum
                 #ae = np.concatenate(([float('inf')],a,[float('inf')]))
-                #inds  = np.where(np.logical_and(a<ae[2:],a<ae[:-2] ) )[0]
+                #inds  = np.where(np.logical_and(a<=ae[2:],a<ae[:-2] ) )[0]
                 
                 i = np.argmin(a)
+                #i = inds[0]
                 cost = a[i]
                 r = al[i]
-                if i==0:
+
+                if i==0 or np.abs(z[self.nlp.iv_h] + cost)<1e-5:
                     break
             else:
-                #r = 1.0/np.sqrt(2.0+i)
-                r = 1.0/(2.0+i)
+                r = 1.0/(it + 2.0)
 
-                a = self.nlp.line_search(z,dz,np.array([r]))
-                cost = a[0]
+                _, c = self.nlp.obj()
+                cost =  np.dot(z[:self.nlp.nv],c)
+                
+            if np.abs(old_cost - z[self.nlp.iv_h])<1e-4:
+                break
+            old_cost = z[self.nlp.iv_h]
+
+            step_size *= r*2
+
+            z = z + r*dz
 
 
-            p = r*dz
-            self.nlp.prev_step = p
-            
-            z = z + p
-
-            print ('{:9.5f} '*2).format( z[self.nlp.iv_h], cost)
+            print ('{:9.5f} '*4).format( z[self.nlp.iv_h], cost, step_size, r)
 
         return cost, z 
 
@@ -3749,7 +3739,7 @@ class SlpNlp():
 
         self.nlp.slack_cost = .001
         while self.nlp.slack_cost < 1000:
-            obj, z = self.iterate(z,250)
+            obj, z = self.iterate(z)
             self.nlp.slack_cost*=2
         
         self.last_z = z

@@ -1820,14 +1820,14 @@ class TestsPendubot(unittest.TestCase):
         s0 = env.state.copy()
         trj = env.step(ZeroPolicy(env.nu), 150, random_control=True) 
         
-        env.noise = 0.01
+        env.noise = 0.1
 
         model.plot_init()
 
 
         for t in range(10000):
             
-            if env.t > 2.0 and True:
+            if env.t > 2.0 and False:
                 env.t -= 2.0
                 env.state = s0.copy()
 
@@ -2449,8 +2449,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_pp_iter'
-    tests = TestsCartDoublePole
+    single_test = 'test_iter'
+    tests = TestsPendubot
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))
