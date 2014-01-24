@@ -1719,7 +1719,7 @@ class GPMcompact():
         self.slack_scale = np.ones(nx)
         #self.slack_scale = np.array([1,1,1,1,2,2])
 
-        self.nv = 1 + l*nu + 2*l*nx
+        self.nv = 1 + l*nu + 2*l*nx 
         self.nc = nx 
         self.nv_full = self.nv + (l+2)*nx 
         
@@ -1733,7 +1733,7 @@ class GPMcompact():
         self.iv_u = 1 + np.arange(l*nu).reshape(l,nu)
         self.iv_slack = 1+l*nu + np.arange(2*l*nx).reshape(2,l,nx)
         
-        self.iv_x = 1+l*nu + 2*l*nx + np.arange((l+2)*nx).reshape(l+2,nx)
+        self.iv_x = 1+l*nu + 2*l*nx  + np.arange((l+2)*nx).reshape(l+2,nx)
         
         self.iv_xuc = np.hstack((self.iv_x[1:-1],self.iv_u))
 
@@ -3703,20 +3703,18 @@ class SlpNlp():
 
             # line search
 
-            if False:
-                al = np.concatenate((np.exp(np.linspace(-6,0,50)),))
+            if True:
+                al = np.concatenate((np.exp(np.linspace(-10,0,100)),))
                 a = self.nlp.line_search(z,dz,al)
                 # find first local minimum
-                #ae = np.concatenate(([float('inf')],a,[float('inf')]))
-                #inds  = np.where(np.logical_and(a<=ae[2:],a<ae[:-2] ) )[0]
+                ae = np.concatenate(([float('inf')],a,[float('inf')]))
+                inds  = np.where(np.logical_and(a<=ae[2:],a<ae[:-2] ) )[0]
                 
-                i = np.argmin(a)
-                #i = inds[0]
+                #i = np.argmin(a)
+                i = inds[0]
                 cost = a[i]
                 r = al[i]
 
-                if i==0 or np.abs(z[self.nlp.iv_h] + cost)<1e-5:
-                    break
             else:
                 r = 1.0/(it + 2.0)
 
@@ -3724,9 +3722,9 @@ class SlpNlp():
                 cost =  np.dot(z[:self.nlp.nv],c)
                 
             hi = z[self.nlp.iv_h]
-            if np.abs(old_cost - hi)/min(old_cost,hi)<1e-4:
+            if np.abs(old_cost - cost)/min(np.abs(old_cost),np.abs(cost))<1e-3:
                 break
-            old_cost = z[self.nlp.iv_h]
+            old_cost = cost
 
             step_size *= r*2
 
@@ -3742,10 +3740,10 @@ class SlpNlp():
         
         z = self.nlp.initialization()
 
-        self.nlp.slack_cost = .001
-        while self.nlp.slack_cost < 1000:
-            obj, z = self.iterate(z)
-            self.nlp.slack_cost*=2
+        #self.nlp.slack_cost = .001
+        #while self.nlp.slack_cost < 10000:
+        obj, z = self.iterate(z)
+        #    self.nlp.slack_cost *= 2.0
         
         self.last_z = z
         
