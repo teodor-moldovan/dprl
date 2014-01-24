@@ -227,9 +227,9 @@ class Environment:
             dx = self.f(to_gpu(x.reshape(1,x.size)),to_gpu(u.reshape(1,u.size)))
             dx = dx.get().reshape(-1)
 
-            nz = self.noise*np.random.normal(size=self.nx/2)
+            #nz = self.noise*np.random.normal(size=self.nx/2)
             # hack
-            dx[:self.nx/2] += nz
+            #dx[:self.nx/2] += nz
 
             return dx,u #.get().reshape(-1)
 
@@ -355,22 +355,20 @@ class DynamicalSystem(object):
 
         
 class OptimisticDynamicalSystem(DynamicalSystem):
-    def __init__(self,nx,nu, start, pred,
-                boost_pred, boost_weight = 1.0, **kwargs):
+    def __init__(self,nx,nu, nxi, start, pred, xi_scale = 4.0, **kwargs):
 
-        self.bpred = to_gpu(np.array(boost_pred))[None,:]
-        self.nxi = self.bpred.size
-        DynamicalSystem.__init__(self,nx,nu+self.nxi, **kwargs)
+        DynamicalSystem.__init__(self,nx,nu+nxi, **kwargs)
         
         self.state = np.array(start)
         self.home_state = self.state.copy()
 
-        self.bw = boost_weight 
+        self.xi_scale = xi_scale
+        self.nxi = nxi
         self.predictor = pred
 
     @staticmethod
     def __pred_input_ws(l,n,m):
-        return array((l,n)), array((l,m)), array((l))
+        return array((l,n)), array((l,m))
 
     @staticmethod
     def __f_with_prediction_ws(l,nx):
@@ -378,18 +376,17 @@ class OptimisticDynamicalSystem(DynamicalSystem):
     def f(self,x,u):
 
         l = x.shape[0]
-        x0,xi,w = self.__pred_input_ws(l,
+        x0,xi = self.__pred_input_ws(l,
                    self.predictor.p-self.nxi,self.nxi)
         
         u0 = array((l,self.nu-self.nxi))
 
-        ufunc('a=b*s')(xi,u[:,self.nu-self.nxi:self.nu],self.bpred)
+        ufunc('a=b*'+str(self.xi_scale))(xi,u[:,self.nu-self.nxi:self.nu])
         ufunc('a=b')(u0,u[:,:self.nu-self.nxi])
 
         self.k_pred_in(x,u0,x0)
-        w.fill(self.bw)
 
-        y = self.predictor.predict(x0,xi,w)
+        y = self.predictor.predict(x0,xi)
         
         dx = self.__f_with_prediction_ws(l, self.nx)
         self.k_f(x,y,u,dx)
@@ -407,7 +404,6 @@ class OptimisticDynamicalSystem(DynamicalSystem):
 
         w = self.__update_input_ws(x.shape[0], self.predictor.p)
         self.k_update(dx,x,u,w)
-        #print dx.get()[:,:2]
 
         self.predictor.update(w)
 
@@ -3707,11 +3703,11 @@ class SlpNlp():
                 al = np.concatenate((np.exp(np.linspace(-10,0,100)),))
                 a = self.nlp.line_search(z,dz,al)
                 # find first local minimum
-                ae = np.concatenate(([float('inf')],a,[float('inf')]))
-                inds  = np.where(np.logical_and(a<=ae[2:],a<ae[:-2] ) )[0]
+                #ae = np.concatenate(([float('inf')],a,[float('inf')]))
+                #inds  = np.where(np.logical_and(a<=ae[2:],a<ae[:-2] ) )[0]
                 
-                #i = np.argmin(a)
-                i = inds[0]
+                i = np.argmin(a)
+                #i = inds[0]
                 cost = a[i]
                 r = al[i]
 

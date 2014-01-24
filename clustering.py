@@ -569,26 +569,69 @@ class NIW(object):
 
         return clr
 
-    @memoize_one
-    def predict(self,x,xi,w):
+    @staticmethod
+    @memoize
+    def __mean_plus_stdev_ws(k,p):
+        sg  = array((k,p,p))
+        psi = array((k,p,p))
+        out = array((k,p))
         
-        if x.shape[0] != self.l:
-            raise TypeError
+        return sg,psi,out
+
+
+    #todo: need to change this name
+    @memoize_one
+    def mean_plus_stdev_old(self,xi):
         
-        k,p,q = x.shape[0], x.shape[1]+xi.shape[1],x.shape[1]
+        k,p = xi.shape[0], self.p
 
-        cls = self.conditional(x)
-        ss = cls.get_nat()
-        ss_ = array(ss.shape)
-        boost = cls.sufficient_statistics(xi)
-        ufunc('a = b + c*d')(ss_,ss,boost,w[:,None] )
-        cls.from_nat(ss_)
+        sg,psi_tmp,out = self.__mean_plus_stdev_ws(k,p)
+        cls = self
+        mu,psi,n,nu = cls.mu,cls.psi,cls.n,cls.nu
 
-        return cls.mu
+        ufunc('a=b/n')(psi_tmp,psi,n[:,None,None])
+        ufunc('a=0')(sg)
+        chol_batched(psi_tmp,sg,bd=2)
 
+        orig_shape = xi.shape
+        xi.shape= xi.shape +(1,)
+        out.shape= out.shape +(1,)
+
+        batch_matrix_mult(sg,xi,out) 
+        out.shape= orig_shape
+        xi.shape = orig_shape
+        
+        ufunc('a= a/sqrt(u - ' +str(p) + ' + 1.0) + m ')(out,nu[:,None],mu)
+        
+        return out
 
     @memoize_one
-    def predict_old(self,x,xi):
+    def mean_plus_stdev(self,xi):
+        
+        k,p = xi.shape[0], self.p
+
+        sg,psi_tmp,out = self.__mean_plus_stdev_ws(k,p)
+        cls = self
+        mu,psi,n,nu = cls.mu,cls.psi,cls.n,cls.nu
+
+        ufunc('a=b*(n+1.0)/n/(u - ' +str(p) + ' + 1.0)')(psi_tmp,psi,n[:,None,None],nu[:,None,None])
+        ufunc('a=0')(sg)
+        chol_batched(psi_tmp,sg,bd=2)
+
+        orig_shape = xi.shape
+        xi.shape= xi.shape +(1,)
+        out.shape= out.shape +(1,)
+
+        batch_matrix_mult(sg,xi,out) 
+        out.shape= orig_shape
+        xi.shape = orig_shape
+        
+        ufunc('a= n/(n+1)*m + a/(n+1)')(out,n[:,None],mu)
+        
+        return out
+
+    @memoize_one
+    def predict(self,x,xi):
         
         if x.shape[0] != self.l:
             raise TypeError
@@ -762,7 +805,7 @@ class Mixture(object):
         return tau_,clusters_
 
     @memoize_one
-    def predict_joint(self,x,xi,w):
+    def predict_joint(self,x,xi):
 
         mix = self
         k,p,q = x.shape[0], x.shape[1]+xi.shape[1],x.shape[1]
@@ -777,11 +820,11 @@ class Mixture(object):
         matrix_mult(prob,tau,tau_) 
         clusters_.from_nat(tau_)
 
-        rt = clusters_.predict(x,xi,w)
+        rt = clusters_.predict(x,xi)
         return rt
 
     @memoize_one
-    def predict_kl(self,x,xi,w):
+    def predict_kl(self,x,xi):
 
         mix = self
         k,p,q = x.shape[0], x.shape[1]+xi.shape[1],x.shape[1]
@@ -791,22 +834,12 @@ class Mixture(object):
         xmix = Mixture(mix.sbp,xclusters)  
         prob = xmix.predictive_posterior_resps(x) 
         
-        cls = self.clusters.conditional_mix(prob,x)
+        clusters_ = self.clusters.conditional_mix(prob,x)
 
-        ss = cls.get_nat()
-        ss_ = array(ss.shape)
-        boost = cls.sufficient_statistics(xi)
-        ufunc('a = b + c*d')(ss_,ss,boost,w[:,None] )
-        cls.from_nat(ss_)
-
-        return cls.mu
-
-
-
-        rt = clusters_.mean_plus_stdev(xi,np)
+        rt = clusters_.mean_plus_stdev(xi)
         return rt
 
-    predict = predict_joint
+    predict = predict_kl
 class StreamingNIW(object):
     def __init__(self,p):
         self.niw = NIW(p,1)        

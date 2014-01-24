@@ -324,12 +324,9 @@ class PendubotPilco(DynamicalSystem, Environment):
 class OptimisticPendubotPilco(OptimisticDynamicalSystem):
     def __init__(self,predictor,**kwargs):
 
-        OptimisticDynamicalSystem.__init__(self,4,1, 
+        OptimisticDynamicalSystem.__init__(self,4,1,2, 
                  np.array([0,0,np.pi,np.pi]),
-                 predictor, 
-                 boost_pred = [60,100],
-                 boost_weight = 1.0, 
-                 **kwargs)
+                 predictor, xi_scale = 0.5, **kwargs)
 
         self.target = [0,0,0,0]
 
