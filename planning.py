@@ -7,7 +7,7 @@ from sys import stdout
 import math
 
 import matplotlib as mpl
-#mpl.use('pdf')
+mpl.use('pdf')
 import matplotlib.pyplot as plt
 
 import mosek
@@ -184,7 +184,6 @@ class CollocationPolicy:
         w = self.col.interp_coefficients(r)
         us = np.dot(w,self.us)
         #hack
-        us = np.maximum(-1.0, np.minimum(1.0,us) )
 
         return us
 
@@ -199,8 +198,6 @@ class PiecewiseConstantPolicy:
         u = self.us[np.int_(r)]
          
         #hack
-        u = np.maximum(-1.0, np.minimum(1.0,u) )
-
         return u
 
 class Environment:
@@ -224,6 +221,8 @@ class Environment:
             if random_control:
                 nz = self.noise*np.random.normal(size=self.nu)
                 u = u + nz
+
+            u = np.maximum(-1.0, np.minimum(1.0,u) )
 
             dx = self.f(to_gpu(x.reshape(1,x.size)),to_gpu(u.reshape(1,u.size)))
             dx = dx.get().reshape(-1)
@@ -260,9 +259,10 @@ class Environment:
         t,dx,x,u = np.vstack(t), np.vstack(dx), np.vstack(x), np.vstack(u)
 
 
-        nz = self.noise*np.random.normal(size=dx.shape[0]*self.nx/2)
+        nz = self.noise*np.random.normal(size=dx.shape[0]*self.nx)
         # hack
-        dx[:,:self.nx/2] += nz.reshape(dx.shape[0],self.nx/2)
+        #print np.max(np.abs(dx[:,:2]),0)
+        dx += nz.reshape(dx.shape[0],self.nx)
         x  += self.noise*np.random.normal(size= x.size).reshape( x.shape)
         u  += self.noise*np.random.normal(size= u.size).reshape( u.shape)
 
@@ -355,20 +355,22 @@ class DynamicalSystem(object):
 
         
 class OptimisticDynamicalSystem(DynamicalSystem):
-    def __init__(self,nx,nu, nxi, start, pred, xi_scale = 4.0, **kwargs):
+    def __init__(self,nx,nu, start, pred,
+                boost_pred, boost_weight = 1.0, **kwargs):
 
-        DynamicalSystem.__init__(self,nx,nu+nxi, **kwargs)
+        self.bpred = to_gpu(np.array(boost_pred))[None,:]
+        self.nxi = self.bpred.size
+        DynamicalSystem.__init__(self,nx,nu+self.nxi, **kwargs)
         
         self.state = np.array(start)
         self.home_state = self.state.copy()
 
-        self.xi_scale = xi_scale
-        self.nxi = nxi
+        self.bw = boost_weight 
         self.predictor = pred
 
     @staticmethod
     def __pred_input_ws(l,n,m):
-        return array((l,n)), array((l,m))
+        return array((l,n)), array((l,m)), array((l))
 
     @staticmethod
     def __f_with_prediction_ws(l,nx):
@@ -376,17 +378,18 @@ class OptimisticDynamicalSystem(DynamicalSystem):
     def f(self,x,u):
 
         l = x.shape[0]
-        x0,xi = self.__pred_input_ws(l,
+        x0,xi,w = self.__pred_input_ws(l,
                    self.predictor.p-self.nxi,self.nxi)
         
         u0 = array((l,self.nu-self.nxi))
 
-        ufunc('a=b*'+str(self.xi_scale))(xi,u[:,self.nu-self.nxi:self.nu])
+        ufunc('a=b*s')(xi,u[:,self.nu-self.nxi:self.nu],self.bpred)
         ufunc('a=b')(u0,u[:,:self.nu-self.nxi])
 
         self.k_pred_in(x,u0,x0)
+        w.fill(self.bw)
 
-        y = self.predictor.predict(x0,xi)
+        y = self.predictor.predict(x0,xi,w)
         
         dx = self.__f_with_prediction_ws(l, self.nx)
         self.k_f(x,y,u,dx)
@@ -404,6 +407,7 @@ class OptimisticDynamicalSystem(DynamicalSystem):
 
         w = self.__update_input_ws(x.shape[0], self.predictor.p)
         self.k_update(dx,x,u,w)
+        #print dx.get()[:,:2]
 
         self.predictor.update(w)
 
@@ -3719,7 +3723,8 @@ class SlpNlp():
                 _, c = self.nlp.obj()
                 cost =  np.dot(z[:self.nlp.nv],c)
                 
-            if np.abs(old_cost - z[self.nlp.iv_h])<1e-4:
+            hi = z[self.nlp.iv_h]
+            if np.abs(old_cost - hi)/min(old_cost,hi)<1e-4:
                 break
             old_cost = z[self.nlp.iv_h]
 
@@ -3728,7 +3733,7 @@ class SlpNlp():
             z = z + r*dz
 
 
-            print ('{:9.5f} '*4).format( z[self.nlp.iv_h], cost, step_size, r)
+            print ('{:9.5f} '*4).format( hi, cost, step_size, r)
 
         return cost, z 
 
