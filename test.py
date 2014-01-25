@@ -1664,8 +1664,7 @@ class TestsCartDoublePole(unittest.TestCase):
             pi = planner.solve()
 
             us = pi.us.reshape(pi.us.shape[0],-1).copy()
-            #x = to_gpu(pi.x)
-            x = to_gpu(pi.x[1:-1])
+            x = to_gpu(pi.x)
             dx1  = env.f(x, to_gpu(us)).get()
             us_ = np.hstack((us,np.zeros((us.shape[0],model.nxi))))
             #dx2 = model.f(x, to_gpu(us_)).get()
@@ -1675,8 +1674,6 @@ class TestsCartDoublePole(unittest.TestCase):
             b = dx2[:,:3]
 
             r =  np.sum(a*b,1) / np.sqrt(np.sum(a*a,1)*np.sum(b*b,1))
-            r = np.insert(r,r.shape[0],0,axis=0)
-            r = np.insert(r,0,0,axis=0)
 
             model.plot_traj(pi.x,r)
             model.plot_draw()
@@ -1842,18 +1839,15 @@ class TestsPendubot(unittest.TestCase):
 
             if True:
                 us = pi.us.reshape(pi.us.shape[0],-1).copy()
-                #x = to_gpu(pi.x)
-                x = to_gpu(pi.x[1:-1])
+                x = to_gpu(pi.x)
                 dx1  = env.f(x, to_gpu(us)).get()
-                us_ = np.hstack((us,np.zeros((us.shape[0],model.nxi))))
+                #us_ = np.hstack((us,np.zeros((us.shape[0],model.nxi))))
                 #dx2 = model.f(x, to_gpu(us_)).get()
                 dx2 = model.f(x, to_gpu(pi.uxi)).get()
                 
                 a = dx1[:,:2]
                 b = dx2[:,:2]
                 r =  np.sum(a*b,1) / np.sqrt(np.sum(a*a,1)*np.sum(b*b,1))
-                r = np.insert(r,r.shape[0],0,axis=0)
-                r = np.insert(r,0,0,axis=0)
             else:
                 r = None
 
@@ -2449,8 +2443,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_iter'
-    tests = TestsPendubot
+    single_test = 'test_pp'
+    tests = TestsCartDoublePole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))

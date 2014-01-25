@@ -326,7 +326,7 @@ class OptimisticPendubotPilco(OptimisticDynamicalSystem):
 
         OptimisticDynamicalSystem.__init__(self,4,1,2, 
                  np.array([0,0,np.pi,np.pi]),
-                 predictor, xi_scale = 0.5, **kwargs)
+                 predictor, xi_scale = 2.0, **kwargs)
 
         self.target = [0,0,0,0]
 
@@ -421,7 +421,6 @@ class OptimisticPendubotPilco(OptimisticDynamicalSystem):
         fig = plt.figure(1, figsize=(10, 15))
 
     def plot_traj(self, tmp,r=None, u=None):
-
 
         plt.sca(plt.subplot(3,1,1))
 
