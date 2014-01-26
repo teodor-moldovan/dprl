@@ -1807,17 +1807,16 @@ class TestsPendubot(unittest.TestCase):
         seed = 45 # 11,15,22
         np.random.seed(seed)
 
-        p,k = 9, 2*11*8
+        p,k = 9, 11*8
         learner = BatchVDP(Mixture(SBP(k),NIW(p,k)),w=.1)
         model = OptimisticPendubot(learner)
 
         planner = SlpNlp(GPMcompact(model,55))
 
-        env = Pendubot(noise = 1.0)
+        env = Pendubot(noise = 0.1)
         s0 = env.state.copy()
         trj = env.step(ZeroPolicy(env.nu), 150, random_control=True) 
         
-        env.noise = 0.1
 
         model.plot_init()
 
@@ -2443,8 +2442,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_pp'
-    tests = TestsCartDoublePole
+    single_test = 'test_pp_iter'
+    tests = TestsPendubot
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))

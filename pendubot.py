@@ -326,7 +326,7 @@ class OptimisticPendubotPilco(OptimisticDynamicalSystem):
 
         OptimisticDynamicalSystem.__init__(self,4,1,2, 
                  np.array([0,0,np.pi,np.pi]),
-                 predictor, xi_scale = 2.0, **kwargs)
+                 predictor, xi_scale = 0.5, **kwargs)
 
         self.target = [0,0,0,0]
 

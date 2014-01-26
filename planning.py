@@ -3739,11 +3739,11 @@ class SlpNlp():
                 al = np.concatenate((np.exp(np.linspace(-8,0,50)),))
                 a = self.nlp.line_search(z,dz,al)
                 # find first local minimum
-                ae = np.concatenate(([float('inf')],a,[float('inf')]))
-                inds  = np.where(np.logical_and(a<=ae[2:],a<ae[:-2] ) )[0]
+                #ae = np.concatenate(([float('inf')],a,[float('inf')]))
+                #inds  = np.where(np.logical_and(a<=ae[2:],a<ae[:-2] ) )[0]
                 
-                #i = np.argmin(a)
-                i = inds[0]
+                i = np.argmin(a)
+                #i = inds[0]
                 cost = a[i]
                 r = al[i]
 
@@ -3754,7 +3754,7 @@ class SlpNlp():
                 cost =  np.dot(z[:self.nlp.nv],c)
                 
             hi = z[self.nlp.iv_h]
-            if np.abs(old_cost - cost)/min(np.abs(old_cost),np.abs(cost))<1e-3:
+            if np.abs(old_cost - cost)/min(np.abs(old_cost),np.abs(cost))<1e-4:
                 break
             old_cost = cost
 
@@ -3773,7 +3773,7 @@ class SlpNlp():
         z = self.nlp.initialization()
 
         self.nlp.slack_cost = 10000
-        while self.nlp.slack_cost > 0.001:
+        while self.nlp.slack_cost > 100:
             obj, z = self.iterate(z)
             self.nlp.slack_cost /= 2.0
         
