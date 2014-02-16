@@ -7,7 +7,7 @@ from sys import stdout
 import math
 
 import matplotlib as mpl
-#mpl.use('pdf')
+mpl.use('pdf')
 import matplotlib.pyplot as plt
 
 import mosek
@@ -95,7 +95,7 @@ class ExplicitRK(object):
 
 
 class NumDiff(object):
-    def __init__(self, h= 1e-6, order = 4):
+    def __init__(self, h= 1e-8, order = 4):
         self.h = h
         self.order = order
 
@@ -162,7 +162,7 @@ class NumDiff(object):
         df.shape = (l,n,m) 
 
         #hack
-        #ufunc('x = abs(x) < 1e-8 ? 0 : x')(df)
+        ufunc('x = abs(x) < 1e-10 ? 0 : x')(df)
         return df
 
 
@@ -1707,7 +1707,6 @@ class GPMcompact():
         self.l = l
         
         
-        self.slack_cost = 100.0
         self.no_slack = False
         self.diff_slack = True
         
@@ -1737,14 +1736,26 @@ class GPMcompact():
         self.iv_h = 0
 
     def obj(self,z=None):
+        if self.no_slack:
+            c = self.obj_cost(z)
+        else:
+            c = self.obj_feas(z)
+        return np.arange(self.nv), c
+        
+    def obj_cost(self,z=None):
         A,w = self.int_formulation(self.l)
         c = np.zeros(self.nv)
-        c[self.iv_h] = -1.0
+        c[self.iv_h] = -1
+        return c
+        
+    def obj_feas(self,z=None):
+        A,w = self.int_formulation(self.l)
+        c = np.zeros(self.nv)
         tmp=np.tile(w[np.newaxis:,np.newaxis],(2,1,self.iv_slack.shape[2]))
         if not self.diff_slack:
             tmp = np.ones(tmp.shape)
-        c[self.iv_slack] = self.slack_cost*self.slack_scale[np.newaxis,np.newaxis,:]*tmp
-        return np.arange(self.nv), c
+        c[self.iv_slack] = self.slack_scale[np.newaxis,np.newaxis,:]*tmp
+        return c
         
     @classmethod
     @memoize
@@ -1816,13 +1827,17 @@ class GPMcompact():
         
         bl[self.iv_h] = .1
         bl[self.iv_slack] = 0.0
+        if self.no_slack:
+            bu[self.iv_slack] = 0.0
+            
 
         bl -= z[:self.nv]
         bu -= z[:self.nv]
         
-        i = self.iv_u
-        bl[i] = np.maximum(bl[i],-r)
-        bu[i] = np.minimum(bu[i], r)
+        if not r is None:
+            i = self.iv_u
+            bl[i] = np.maximum(bl[i],-r[i])
+            bu[i] = np.minimum(bu[i], r[i])
 
         return bl, bu
 
@@ -1923,9 +1938,10 @@ class GPMcompact():
         z = z0[np.newaxis,:] + al[:,np.newaxis]*dz[np.newaxis,:]
         
         z = self.feas_proj(z)
-        _, c = self.obj()
+        a = self.obj_cost()
+        b = self.obj_feas()
         
-        return np.dot(z[:,:self.nv],c)
+        return np.dot(z[:,:self.nv],a), np.dot(z[:,:self.nv],b)
 
 
     def get_policy(self,z):
@@ -3693,8 +3709,7 @@ class SlpNlp():
         if (solsta!=mosek.solsta.optimal 
                 and solsta!=mosek.solsta.near_optimal):
             # mosek bug fix 
-            print str(solsta)+", "+str(prosta)
-            ret = False
+            ret = str(solsta)+", "+str(prosta)
             #raise TypeError
 
         nv,nc = self.nlp.nv,self.nlp.nc
@@ -3717,34 +3732,38 @@ class SlpNlp():
     def iterate(self,z,n_iters=10000):
 
         cost = float('inf')
-        step_size = float('inf') 
         old_cost = cost
 
+        p = None
         for it in range(n_iters):  
 
             z = self.nlp.feas_proj(z)[0]
 
-            slack = z[self.nlp.iv_slack[0]] + z[self.nlp.iv_slack[1]] 
-            #print np.max(slack,0)
-
-            if not self.solve_task(z,step_size):
-                break
+            self.nlp.no_slack = True
+            ret = self.solve_task(z,p)
+            if not ret == True:
+                ret = "Second solve"
+                self.nlp.no_slack = False
+                self.solve_task(z,p)
+            else:
+                ret = ""
 
             ret_x = self.nlp.post_proc(self.ret_x)
             dz = ret_x
-
+            
             # line search
 
             if True:
-                al = np.concatenate((np.exp(np.linspace(-8,0,50)),))
-                a = self.nlp.line_search(z,dz,al)
+                al = np.concatenate(([0],np.exp(np.linspace(-8,0,50)),))
+                a,b = self.nlp.line_search(z,dz,al)
+                
                 # find first local minimum
                 #ae = np.concatenate(([float('inf')],a,[float('inf')]))
                 #inds  = np.where(np.logical_and(a<=ae[2:],a<ae[:-2] ) )[0]
                 
-                i = np.argmin(a)
+                i = np.argmin(b)
                 #i = inds[0]
-                cost = a[i]
+                cost = b[i]
                 r = al[i]
 
             else:
@@ -3754,16 +3773,15 @@ class SlpNlp():
                 cost =  np.dot(z[:self.nlp.nv],c)
                 
             hi = z[self.nlp.iv_h]
-            if np.abs(old_cost - cost)/min(np.abs(old_cost),np.abs(cost))<1e-4:
+            if np.abs(old_cost - cost)<1e-4:
                 break
             old_cost = cost
 
-            step_size *= r*2
-
             z = z + r*dz
+            
+            #p = 2*np.abs(r*dz)
 
-
-            print ('{:9.5f} '*4).format( hi, cost, step_size, r)
+            print ('{:9.5f} '*3).format( hi, cost, r) + ret
 
         return cost, z 
 
@@ -3772,10 +3790,10 @@ class SlpNlp():
         
         z = self.nlp.initialization()
 
-        self.nlp.slack_cost = 10000
-        while self.nlp.slack_cost > 100:
-            obj, z = self.iterate(z)
-            self.nlp.slack_cost /= 2.0
+        #self.nlp.slack_cost = 10000
+        #while self.nlp.slack_cost > 100:
+        obj, z = self.iterate(z)
+        #self.nlp.slack_cost /= 2.0
         
         self.last_z = z
         

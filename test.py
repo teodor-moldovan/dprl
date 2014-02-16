@@ -1808,10 +1808,10 @@ class TestsPendubot(unittest.TestCase):
         np.random.seed(seed)
 
         p,k = 9, 11*8
-        learner = BatchVDP(Mixture(SBP(k),NIW(p,k)),w=.1)
+        learner = BatchVDP(Mixture(SBP(k),NIW(p,k)),w=1.0)
         model = OptimisticPendubot(learner)
 
-        planner = SlpNlp(GPMcompact(model,55))
+        planner = SlpNlp(EMcompact(model,155))
 
         env = Pendubot(noise = 0.1)
         s0 = env.state.copy()
@@ -1823,6 +1823,7 @@ class TestsPendubot(unittest.TestCase):
 
         for t in range(10000):
             
+            # restarts?
             if env.t > 2.0 and False:
                 env.t -= 2.0
                 env.state = s0.copy()
@@ -2442,7 +2443,7 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_pp_iter'
+    single_test = 'test_iter'
     tests = TestsPendubot
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()

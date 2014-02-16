@@ -581,7 +581,7 @@ class NIW(object):
 
     #todo: need to change this name
     @memoize_one
-    def mean_plus_stdev_old(self,xi):
+    def mean_plus_stdev(self,xi):
         
         k,p = xi.shape[0], self.p
 
@@ -606,7 +606,7 @@ class NIW(object):
         return out
 
     @memoize_one
-    def mean_plus_stdev(self,xi):
+    def mean_plus_stdev_n_inv(self,xi):
         
         k,p = xi.shape[0], self.p
 
@@ -839,7 +839,7 @@ class Mixture(object):
         rt = clusters_.mean_plus_stdev(xi)
         return rt
 
-    predict = predict_kl
+    predict = predict_joint
 class StreamingNIW(object):
     def __init__(self,p):
         self.niw = NIW(p,1)        
@@ -973,9 +973,9 @@ class BatchVDP(object):
         
         ex_alpha = to_gpu(np.array([1.0]))
         
-        #phinp = np.random.random(size=n*k).reshape((n,k))
-        #phi = to_gpu(phinp)
-        phi = to_gpu(self.phi0)
+        phinp = np.random.random(size=n*k).reshape((n,k))
+        phi = to_gpu(phinp)
+        #phi = to_gpu(self.phi0)
         w.shape = (w.size,)
         row_sum(phi,w)
         w.shape = (w.size,1)
