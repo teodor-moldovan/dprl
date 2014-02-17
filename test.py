@@ -1802,6 +1802,28 @@ class TestsCartDoublePole(unittest.TestCase):
 
 
 class TestsPendubot(unittest.TestCase):
+    def test_implicit(self):
+        ds = PendubotImplicit()
+        
+        l,n = 1000, ds.nz
+        zn = np.random.random(l*n).reshape(l,n)
+        z = to_gpu(zn)
+        
+        ds.features(z)
+        ds.features_jacobian(z)
+        
+        ds.implf(z)
+        ds.implf_jac(z)
+
+        x,u = zn[:,4:-1],zn[:,-1:]
+        r = ds.explf(x,u)
+
+        ds_ = PendubotPilco()
+        r_ = ds_.f(to_gpu(x),to_gpu(u)).get()
+
+        np.testing.assert_array_almost_equal(r,r_)
+
+
     def test_iter(self):
 
         seed = 45 # 11,15,22
@@ -1966,15 +1988,11 @@ class TestsPendubot(unittest.TestCase):
     def test_pp_iter(self):
 
         seed = 45 # 11,15,22
-        np.random.seed(seed)
+        #np.random.seed(seed)
 
-        p,k = 11, 11*8
+        env = PendubotImplicit(noise = 0.0)
 
-        env = PendubotPilco(noise = 0)
-        #env.state = np.array([-2.513, 11.849,   2.059 ,   3.458])
-
-
-        env.noise = 0.1
+        env.state = 2*np.pi*(np.random.random(4)-0.5)
 
         pp = SlpNlp(GPMcompact(env,55))
         plt.show()
@@ -2004,6 +2022,15 @@ class TestsPendubot(unittest.TestCase):
             plt.plot(tmp[:,3],tmp[:,1])
 
             plt.draw()
+
+
+    def test_step(self):
+
+        seed = 45 # 11,15,22
+        np.random.seed(seed)
+
+        env = PendubotImplicit(noise = 0.1)
+        trj = env.step(ZeroPolicy(env.nu), 10, random_control=True) 
 
 
 class TestsHeli(unittest.TestCase):
@@ -2151,14 +2178,17 @@ class TestsHeli(unittest.TestCase):
         
 class TestsUnicycle(unittest.TestCase):
     def test_f(self):
-        
-        l = 100
+        ds = Unicycle()
 
-        c = Unicycle()
-
-        z = np.random.normal(size = l*c.d).reshape(l,c.d)
+        l,n = 1000, ds.nz
+        zn = np.random.random(l*n).reshape(l,n)
+        z = to_gpu(zn)
         
-        c.f(to_gpu(z))
+        f = ds.features(z)
+        ds.features_jacobian(z)
+            
+        ds.implf(z)
+        ds.implf_jac(z)
 
          
 class TestsPP(unittest.TestCase):
@@ -2443,7 +2473,7 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_iter'
+    single_test = 'test_pp_iter'
     tests = TestsPendubot
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
