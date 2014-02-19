@@ -1824,24 +1824,38 @@ class TestsPendubot(unittest.TestCase):
         np.testing.assert_array_almost_equal(r,r_)
 
 
+    def test_cca(self):
+        ds = PendubotImplicit()
+        np.random.seed(10)
+        
+        l,n = 100, ds.nz
+        zn = np.random.random(l*n).reshape(l,n)
+        z = to_gpu(zn)
+        
+        x,u = zn[:,4:-1],zn[:,-1:]
+        a = ds.explf(x,u)
+        
+        a += np.random.normal(size=a.size).reshape(a.shape)
+        trj =  (None,a,x,u)
+        
+        ds.update(trj)
+
+
     def test_iter(self):
 
         seed = 45 # 11,15,22
         np.random.seed(seed)
 
-        p,k = 9, 11*8
-        learner = BatchVDP(Mixture(SBP(k),NIW(p,k)),w=1.0)
-        model = OptimisticPendubot(learner)
+        model = PendubotImplicit()
 
-        planner = SlpNlp(EMcompact(model,155))
+        planner = SlpNlp(GPMcompact(model,55))
 
-        env = Pendubot(noise = 0.1)
+        env = PendubotImplicit(noise = 0.1)
         s0 = env.state.copy()
-        trj = env.step(ZeroPolicy(env.nu), 150, random_control=True) 
+        trj = env.step(ZeroPolicy(env.nu), 15, random_control=True) 
         
 
         model.plot_init()
-
 
         for t in range(10000):
             
@@ -1858,28 +1872,11 @@ class TestsPendubot(unittest.TestCase):
             model.state = env.state
             pi = planner.solve()
 
-
-            if True:
-                us = pi.us.reshape(pi.us.shape[0],-1).copy()
-                x = to_gpu(pi.x)
-                dx1  = env.f(x, to_gpu(us)).get()
-                #us_ = np.hstack((us,np.zeros((us.shape[0],model.nxi))))
-                #dx2 = model.f(x, to_gpu(us_)).get()
-                dx2 = model.f(x, to_gpu(pi.uxi)).get()
-                
-                a = dx1[:,:2]
-                b = dx2[:,:2]
-                r =  np.sum(a*b,1) / np.sqrt(np.sum(a*a,1)*np.sum(b*b,1))
-            else:
-                r = None
-
-            model.plot_traj(pi.x,r)
+            model.plot_traj(pi.x)
             model.plot_draw()
 
 
             trj = env.step(pi,5)
-            #trj = env.step(pi,2)
-
 
 
     def test_rand_pp(self):
@@ -2071,9 +2068,6 @@ class TestsHeli(unittest.TestCase):
         
         np.testing.assert_almost_equal( rs,rs_)
 
-
-
-         
          
     def test_pp(selff):
 
@@ -2177,7 +2171,7 @@ class TestsHeli(unittest.TestCase):
         print rs_
         
 class TestsUnicycle(unittest.TestCase):
-    def test_f(self):
+    def test_implicit(self):
         ds = Unicycle()
 
         l,n = 1000, ds.nz
@@ -2473,7 +2467,7 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_pp_iter'
+    single_test = 'test_iter'
     tests = TestsPendubot
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()

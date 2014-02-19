@@ -442,7 +442,16 @@ class ImplicitDynamicalSystem:
 
         exprs = [smp(smp(e)).as_coefficients_dict().items() for e in exprs]
 
-        features = tuple(set(zip(*sum(exprs,[]))[0]))
+        features = set(zip(*sum(exprs,[]))[0])
+        
+        accs = set(symbols[:self.nx])
+        f1 = set((f for f in features 
+                if len(f.free_symbols.intersection(accs))>0 ))
+        f2 = features.difference(f1)
+        features = sorted(tuple(f1))+sorted(tuple(f2))
+        
+        nf, nfa = len(features), len(f1)
+
         feat_ind =  dict(zip(features,range(len(features))))
         
         weights = [(i,feat_ind[c],float(d)) 
@@ -456,7 +465,6 @@ class ImplicitDynamicalSystem:
         
         # codegen for features
 
-        nf = len(features)
         
         jac = [sympy.diff(f,s) for s in symbols for f in features]
         
@@ -489,8 +497,9 @@ class ImplicitDynamicalSystem:
         fn = tpl.render(dtype = cuda_dtype, fcode = jcode)
         k_features_jacobian = rowwise(fn,'features_jacobian')
         
-        ret =  nf, weights, k_features, k_features_jacobian
-        self.nf, self.weights, self.k_features, self.k_features_jacobian = ret
+        self.nf, self.nfa = nf,nfa
+        ret =  weights, k_features, k_features_jacobian
+        self.weights, self.k_features, self.k_features_jacobian = ret
 
     def features(self,x):
 
@@ -615,6 +624,44 @@ class ImplicitDynamicalSystem:
 
         return t,dx,x,u
 
+
+    def update(self,traj):
+        
+        n,k = self.nf,self.nfa
+
+        try:
+            self.sigma
+        except:
+            self.sigma = np.zeros((n,n))
+        s = self.sigma
+        
+        z = to_gpu(np.hstack((traj[1],traj[2],traj[3])))
+        f = self.features(z).get()
+        
+        s += np.dot(f.T,f)
+        
+        m,inv = np.matrix, np.linalg.inv
+        sqrt = lambda x: np.real(scipy.linalg.sqrtm(x))
+
+        s11, s12, s22 = m(s[:k,:k]), m(s[:k,k:]), m(s[k:,k:])
+        
+        q11 = sqrt(inv(s11))
+        q22 = sqrt(inv(s22))
+
+        r = q11*s12*q22
+        u,l,v = np.linalg.svd(r)
+        
+        km = min(s12.shape)
+        rs = np.vstack((q11*m(u)[:,:km], -q22*m(v.T)[:,:km]))
+        rs = np.array(rs.T)
+        
+        self.weights = to_gpu(rs[:self.nx,:])
+        #print l
+        
+    def print_state(self):
+        t,s = self.t, self.state
+        nx = self.nx
+        print 't: ',('{:4.2f} ').format(t),' state: ',('{:9.3f} '*nx).format(*s)
 
 class GPMcompact():
     """ Gauss Pseudospectral Method
@@ -743,6 +790,7 @@ class GPMcompact():
         
         bl[self.iv_h] = .01
         bl[self.iv_slack] = 0.0
+        #bu[self.iv_slack[:,2:]] = 0.0
         if self.no_slack:
             bu[self.iv_slack] = 0.0
             
@@ -1177,7 +1225,6 @@ class SlpNlp():
         ret = True
         if (solsta!=mosek.solsta.optimal 
                 and solsta!=mosek.solsta.near_optimal):
-            # mosek bug fix 
             ret = str(solsta)+", "+str(prosta)
             #raise TypeError
 

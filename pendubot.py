@@ -497,3 +497,43 @@ class PendubotImplicit(ImplicitDynamicalSystem):
         self.weights = to_gpu(wn)
 
 
+
+    def plot_init(self):
+        plt.ion()
+        fig = plt.figure(1, figsize=(10, 15))
+
+    def plot_traj(self, tmp,r=None, u=None):
+
+        plt.sca(plt.subplot(3,1,1))
+
+        plt.xlim([-2*np.pi,2*np.pi])
+        plt.ylim([-60,60])
+        plt.plot(tmp[:,2],tmp[:,0])
+        if not r is None:
+            plt.scatter(tmp[:,2],tmp[:,0],c=r,linewidth=0,vmin=-1,vmax=1,s=40)
+
+        plt.sca(plt.subplot(3,1,2))
+
+        plt.xlim([-2*np.pi,2*np.pi])
+        plt.ylim([-60,60])
+        plt.plot(tmp[:,3],tmp[:,1])
+        if not r is None:
+            plt.scatter(tmp[:,3],tmp[:,1],c=r,linewidth=0,vmin=-1,vmax=1,s=40)
+
+        plt.sca(plt.subplot(3,1,3))
+
+        plt.ylim([-1.2,1.2])
+        
+        if not u is None:
+            plt.plot(u)
+
+
+
+    def plot_draw(self):
+        
+        plt.draw()
+        plt.show()
+        fig = plt.gcf()
+        fig.savefig('out.pdf')
+        plt.clf()
+
