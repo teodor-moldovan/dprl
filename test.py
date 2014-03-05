@@ -1569,20 +1569,25 @@ class TestsCartpole(unittest.TestCase):
 
 class TestsCartDoublePole(unittest.TestCase):
     def test_f(self):
-        l = 32*11*8
+        l = 32*11*8 
         c = CartDoublePole()
         
         np.random.seed(1)
 
-        xn = np.random.random(size=l*(c.nx)).reshape(l,c.nx)
-        x = to_gpu(xn)
+        z = np.random.random(size=l*(c.nx+c.nu)).reshape(l,c.nx+c.nu)
+        z = to_gpu(z)
 
-        un = np.random.random(size=l*(c.nu)).reshape(l,c.nu)
-        u = to_gpu(un)
+        # state time derivatives
+        dx = c.f_sp(z).get()
         
-        dx = c.f(x,u)
+        #jacobian
+        dx_jac = c.f_sp_diff(z).get()
         
-         
+        t = tic()
+        dx = c.f_sp(z)
+        dx_jac = c.f_sp_diff(z)
+        toc(t)
+
     def test_impl_model(self):
 
         ds = CartDoublePole()
@@ -1843,7 +1848,7 @@ class TestsPendubot(unittest.TestCase):
 
     def test_iter(self):
 
-        seed = 45 # 11,15,22
+        seed = 46 # 11,15,22
         np.random.seed(seed)
 
         model = PendubotImplicit()
@@ -1851,9 +1856,9 @@ class TestsPendubot(unittest.TestCase):
         planner = SlpNlp(GPMcompact(model,55))
 
         env = PendubotImplicit(noise = 0.1)
+        env.state = 2*np.pi*2*(np.random.random(4)-0.5)
         s0 = env.state.copy()
-        trj = env.step(ZeroPolicy(env.nu), 15, random_control=True) 
-        
+        trj = env.step(ZeroPolicy(env.nu), 20) 
 
         model.plot_init()
 
@@ -1876,7 +1881,7 @@ class TestsPendubot(unittest.TestCase):
             model.plot_draw()
 
 
-            trj = env.step(pi,5)
+            trj = env.step(pi,10)
 
 
     def test_rand_pp(self):
@@ -1989,7 +1994,7 @@ class TestsPendubot(unittest.TestCase):
 
         env = PendubotImplicit(noise = 0.0)
 
-        env.state = 2*np.pi*(np.random.random(4)-0.5)
+        #env.state = 2*np.pi*(np.random.random(4)-0.5)
 
         pp = SlpNlp(GPMcompact(env,55))
         plt.show()
@@ -1997,7 +2002,7 @@ class TestsPendubot(unittest.TestCase):
 
         for t in range(10000):
             s = env.state
-            print 't: ',('{:4.2f} ').format(env.t),' state: ',('{:9.3f} '*4).format(*s)
+            env.print_state()
             pi = pp.solve()
 
             trj = env.step(pi,10)
@@ -2184,7 +2189,43 @@ class TestsUnicycle(unittest.TestCase):
         ds.implf(z)
         ds.implf_jac(z)
 
+    def test_cca(self):
+        ds = Unicycle()
+        np.random.seed(10)
+        
+        l,n = 1000, ds.nz
+        zn = 3+10*np.random.normal(size=l*n).reshape(l,n)
+        z = to_gpu(zn)
+        
+        x,u = zn[:,ds.nx:2*ds.nx],zn[:,2*ds.nx:]
+        a = ds.explf(x,u)
+        
+        a += 1e-3*np.random.normal(size=a.size).reshape(a.shape)
+        trj =  (None,a,x,u)
+        ds.update(trj)
+        
          
+    def test_pp_iter(self):
+
+        seed = 45 # 11,15,22
+        np.random.seed(seed)
+
+        env = Unicycle(noise = 0.001)
+        env.set_location(1.0,1.0)
+
+        #env.state = 2*np.pi*(np.random.random(4)-0.5)
+
+        pp = SlpNlp(GPMcompact(env,55))
+        
+
+        for t in range(10000):
+            s = env.state
+            env.print_state()
+            pi = pp.solve()
+
+            trj = env.step(pi,10)
+
+
 class TestsPP(unittest.TestCase):
     def test_pcw_policy(self):
 
@@ -2467,8 +2508,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_iter'
-    tests = TestsPendubot
+    single_test = 'test_f'
+    tests = TestsCartDoublePole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))

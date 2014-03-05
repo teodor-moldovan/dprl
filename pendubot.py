@@ -498,6 +498,15 @@ class PendubotImplicit(ImplicitDynamicalSystem):
 
 
 
+
+    def step(self,*args,**kwargs):
+        rt = ImplicitDynamicalSystem.step(self,*args,**kwargs)
+
+        self.state[2] =  np.mod(self.state[2] + 2*np.pi,4*np.pi)-2*np.pi
+        self.state[3] =  np.mod(self.state[3] + 2*np.pi,4*np.pi)-2*np.pi
+        return rt
+
+
     def plot_init(self):
         plt.ion()
         fig = plt.figure(1, figsize=(10, 15))
@@ -521,9 +530,13 @@ class PendubotImplicit(ImplicitDynamicalSystem):
             plt.scatter(tmp[:,3],tmp[:,1],c=r,linewidth=0,vmin=-1,vmax=1,s=40)
 
         plt.sca(plt.subplot(3,1,3))
+        plt.ylim([0.0,1.2])
 
-        plt.ylim([-1.2,1.2])
-        
+        try:
+            plt.plot(self.spectrum)
+        except:
+            pass
+
         if not u is None:
             plt.plot(u)
 

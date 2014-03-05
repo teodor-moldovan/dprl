@@ -1,5 +1,5 @@
 from tools import *
-from knitro import *
+#from knitro import *
 import numpy.polynomial.legendre as legendre
 import scipy.integrate 
 from  scipy.sparse import coo_matrix
@@ -14,9 +14,9 @@ import matplotlib as mpl
 #mpl.use('pdf')
 import matplotlib.pyplot as plt
 
-import mosek
-import warnings
-mosek_env = mosek.Env()
+#import mosek
+#import warnings
+#mosek_env = mosek.Env()
 #mosek_env.init()
 
 class ExplicitRK(object):    
@@ -414,7 +414,7 @@ class OptimisticDynamicalSystem(DynamicalSystem):
 
 class ImplicitDynamicalSystem:
     def __init__(self,nx,nu, state, target = None,
-                log_h_init = -1, 
+                log_h_init = -1.0, 
                 dt = 0.01, noise = 0.0):
 
         self.nx = nx
@@ -425,6 +425,9 @@ class ImplicitDynamicalSystem:
 
         if target is None:
             target = np.zeros(self.state.shape)
+
+        self.c_ignore = np.isnan(target) 
+        target[np.isnan(target)] = 0.0
         self.target = np.array(target)
 
         self.log_h_init = log_h_init
@@ -432,6 +435,7 @@ class ImplicitDynamicalSystem:
         self.dt = dt
         self.t = 0
         self.noise = noise
+        self.model_slack_bounds = 0.0*np.ones(nx)
 
 
     def codegen(self, exprs, symbols):
@@ -564,28 +568,16 @@ class ImplicitDynamicalSystem:
         return r
 
 
-    def step(self, policy, n = 1, random_control=False):
+    def step(self, policy, n = 1):
 
         seed = int(np.random.random()*1000)
 
         def f(t,x):
             u = policy.u(t,x).reshape(-1)[:self.nu]
-            
-            sd = seed+ int(t/self.dt)
-            np.random.seed(sd)
-
-            if random_control:
-                nz = self.noise*np.random.normal(size=self.nu)
-                u = u + nz
-
             u = np.maximum(-1.0, np.minimum(1.0,u) )
 
             dx = self.explf(x.reshape(1,x.size),u.reshape(1,u.size))
             dx = dx.reshape(-1)
-
-            #nz = self.noise*np.random.normal(size=self.nx/2)
-            # hack
-            #dx[:self.nx/2] += nz
 
             return dx,u 
 
@@ -618,45 +610,58 @@ class ImplicitDynamicalSystem:
         nz = self.noise*np.random.normal(size=dx.shape[0]*self.nx)
         # hack
         #print np.max(np.abs(dx[:,:2]),0)
-        dx += nz.reshape(dx.shape[0],self.nx)
+        dx += self.noise*np.random.normal(size= x.size).reshape( x.shape)
         x  += self.noise*np.random.normal(size= x.size).reshape( x.shape)
         u  += self.noise*np.random.normal(size= u.size).reshape( u.shape)
 
         return t,dx,x,u
 
 
-    def update(self,traj):
+    def update(self,traj,prior=0.0):
         
         n,k = self.nf,self.nfa
 
         try:
-            self.sigma
+            self.psi
         except:
-            self.sigma = np.zeros((n,n))
-        s = self.sigma
+            self.psi = prior*np.eye((n))
+            self.n_obs = prior
         
         z = to_gpu(np.hstack((traj[1],traj[2],traj[3])))
         f = self.features(z).get()
         
-        s += np.dot(f.T,f)
+        self.psi += np.dot(f.T,f)
+        self.n_obs += f.shape[0]
         
         m,inv = np.matrix, np.linalg.inv
         sqrt = lambda x: np.real(scipy.linalg.sqrtm(x))
 
-        s11, s12, s22 = m(s[:k,:k]), m(s[:k,k:]), m(s[k:,k:])
-        
-        q11 = sqrt(inv(s11))
-        q22 = sqrt(inv(s22))
+        s = self.psi/self.n_obs
 
-        r = q11*s12*q22
-        u,l,v = np.linalg.svd(r)
-        
-        km = min(s12.shape)
-        rs = np.vstack((q11*m(u)[:,:km], -q22*m(v.T)[:,:km]))
-        rs = np.array(rs.T)
-        
+        if True:
+            s11, s12, s22 = m(s[:k,:k]), m(s[:k,k:]), m(s[k:,k:])
+            
+            q11 = sqrt(inv(s11))
+            q22 = sqrt(inv(s22))
+
+            r = q11*s12*q22
+            u,l,v = np.linalg.svd(r)
+            
+            km = min(s12.shape)
+            rs = np.vstack((q11*m(u)[:,:km], -q22*m(v.T)[:,:km]))
+            rs = m(rs)*m(np.diag(np.sqrt(l)))
+            rs = np.array(rs.T)
+        else:
+            l,u = np.linalg.eigh(s)
+            ind = np.argsort(l)
+            l = l[ind]
+            rs = u.T[ind,:]
+            
         self.weights = to_gpu(rs[:self.nx,:])
-        #print l
+
+        self.model_slack_bounds = 1.0/self.n_obs
+        self.spectrum = l
+        
         
     def print_state(self):
         t,s = self.t, self.state
@@ -674,11 +679,10 @@ class GPMcompact():
         self.l = l
         
         self.no_slack = False
-        self.diff_slack = True
         
         nx,nu = self.ds.nx, self.ds.nu
 
-        self.nv = 1 + l*nu + 2*l*nx 
+        self.nv = 1 + l*nu + 2*l*nx + nx + nx 
         self.nc = nx 
         self.nv_full = self.nv + l*nx 
         
@@ -690,9 +694,10 @@ class GPMcompact():
 
         self.iv_h = 0
         self.iv_u = 1 + np.arange(l*nu).reshape(l,nu)
-        self.iv_slack = 1+l*nu + np.arange(2*l*nx).reshape(2,l,nx)
+        self.iv_slack = 1 + l*nu + np.arange(2*l*nx).reshape(2,l,nx)
+        self.iv_model_slack = 1 + l*nu + 2*l*nx + np.arange(nx).reshape(nx)
         
-        self.iv_a = 1+l*nu + 2*l*nx  + np.arange(l*nx).reshape(l,nx)
+        self.iv_a = 1+l*nu + 2*l*nx + nx + np.arange(l*nx).reshape(l,nx)
         
         self.iv_linf = self.iv_u
         
@@ -715,8 +720,6 @@ class GPMcompact():
         A,w = self.int_formulation(self.l)
         c = np.zeros(self.nv)
         tmp=np.tile(w[np.newaxis:,np.newaxis],(2,1,self.iv_slack.shape[2]))
-        if not self.diff_slack:
-            tmp = np.ones(tmp.shape)
         c[self.iv_slack] = tmp
         return c
         
@@ -784,6 +787,7 @@ class GPMcompact():
         
         b = float('inf')*np.ones(self.nv)
         b[self.iv_linf] = 1.0
+        b[self.iv_model_slack] = self.ds.model_slack_bounds
         
         bl = -b
         bu = b
@@ -824,10 +828,8 @@ class GPMcompact():
         fa = df[:,:,:nx]
 
         fa = -scipy.linalg.block_diag(*fa)
-        
 
         fh = -np.einsum('tij,tj->ti',fx,delta_x/hi)
-        
         ## done linearizing dynamics
 
         m  = fx[:,:,np.newaxis,:]*A[:,np.newaxis,:,np.newaxis]/hi
@@ -836,12 +838,7 @@ class GPMcompact():
 
         mfu = np.einsum('tisj,sjk->tisk',mi,fu)
         mfh = np.einsum('tisj,sj -> ti ',mi,fh)
-
-        if self.diff_slack:
-            mfs = mi
-        else:
-            _, D, w = self.quadrature(self.l)
-            mfs = np.einsum('tisj,so -> tioj ',mi,D[:,1:])
+        mfs = mi
 
         self.linearize_cache = mfu,mfh,mfs
 
@@ -854,6 +851,7 @@ class GPMcompact():
 
         jac[:,self.iv_slack[0]] =  tmp
         jac[:,self.iv_slack[1]] = -tmp
+        jac[:,self.iv_model_slack] = np.sum(tmp,1)
 
         return  jac
 
@@ -863,6 +861,7 @@ class GPMcompact():
         A,w = self.int_formulation(self.l)
         a = np.einsum('tisj,sj->ti',mfu,z[self.iv_u]) + mfh*z[self.iv_h] 
         slack = z[self.iv_slack[0]] - z[self.iv_slack[1]]
+        slack += z[self.iv_model_slack]
         a += np.einsum('tisj,sj->ti',mi,slack)
 
         r = np.zeros(self.nv_full)
@@ -890,11 +889,8 @@ class GPMcompact():
 
         df =  self.ds.implf(to_gpu(arg.reshape(-1,nx+nx+nu))).get()
         df =  -df.reshape(arg.shape[0],arg.shape[1],-1)
+        df -= z[:,self.iv_model_slack][:,np.newaxis,:] 
 
-        if not self.diff_slack:
-            df = np.einsum('ts,ksi->kti',A,df)
-            
-        
         z[:,self.iv_slack[0]] = np.maximum(0, df)
         z[:,self.iv_slack[1]] = np.maximum(0,-df)
 
@@ -934,7 +930,6 @@ class GPMcompact():
         A,w = self.int_formulation(self.l)
         ws = np.sum(w)
         z = np.zeros(self.nv_full)
-
         
         hi = np.exp(-self.ds.log_h_init)
 
@@ -1180,6 +1175,12 @@ class SlpNlp():
         b = [0]*nc
         task.putboundlist(mosek.accmode.con, range(nc), [bdk.fx]*nc,b,b )
         
+        # hack. 
+        i = np.where( self.nlp.ds.c_ignore)[0]
+        b = [0]*len(i)
+        task.putboundlist(mosek.accmode.con, i, [bdk.fr]*len(i),b,b )
+        # end hack
+        
         task.putobjsense(mosek.objsense.minimize)
         
         self.task = task
@@ -1274,19 +1275,21 @@ class SlpNlp():
                 a,b = self.nlp.line_search(z,dz,al)
                 
                 # find first local minimum
-                #ae = np.concatenate(([float('inf')],a,[float('inf')]))
-                #inds  = np.where(np.logical_and(a<=ae[2:],a<ae[:-2] ) )[0]
+                ae = np.concatenate(([float('inf')],b,[float('inf')]))
+                inds  = np.where(np.logical_and(b<=ae[2:],b<ae[:-2] ) )[0]
                 
-                i = np.argmin(b)
-                #i = inds[0]
+                #i = np.argmin(b)
+                i = inds[0]
                 cost = b[i]
                 r = al[i]
 
             else:
                 r = 1.0/(it + 2.0)
 
-                _, c = self.nlp.obj()
+                c = self.nlp.obj_feas()
                 cost =  np.dot(z[:self.nlp.nv],c)
+        
+            #print z[self.nlp.iv_model_slack]
                 
             hi = z[self.nlp.iv_h]
             if np.abs(old_cost - cost)<1e-4:
@@ -1303,50 +1306,9 @@ class SlpNlp():
 
         
     def solve(self):
-        
         z = self.nlp.initialization()
-
-        #self.nlp.slack_cost = 10000
-        #while self.nlp.slack_cost > 100:
         obj, z = self.iterate(z)
-        #self.nlp.slack_cost /= 2.0
-        
         self.last_z = z
         
         return self.nlp.get_policy(z)
         
-
-    def solve_(self):
-        
-        s0 = np.array(self.nlp.ds.target)+0.0
-        
-        sm = (float("inf"),None,None)
-        for i in (-1,0,1):
-            for j in (-1,0,1):
-                s = s0.copy()
-                s[2] += i*2*np.pi
-                s[3] += j*2*np.pi
-                
-                self.nlp.ds.target = s
-                zi = self.nlp.initialization()
-                #try:
-                #    zi[self.nlp.iv_u] = self.last_z[self.nlp.iv_u]
-                #except:
-                #    pass
-
-                obj, z = self.iterate(zi,20)
-                
-                if obj < sm[0]:
-                    sm = (obj,z, s)
-        
-        obj,z,s = sm
-        self.nlp.ds.target = s
-        
-        obj, z = self.iterate(z,100)
-        self.nlp.ds.target = s0
-        self.last_z = z
-        
-        return self.nlp.get_policy(z)
-        
-
-
