@@ -1569,23 +1569,42 @@ class TestsCartpole(unittest.TestCase):
 
 class TestsCartDoublePole(unittest.TestCase):
     def test_f(self):
+        # number of random states and controls 
+        # for which state derivatives are to be computed
         l = 32*11*8 
+        # choose dynamical system.
         c = CartDoublePole()
         
+        # fix random seed for repeatability
         np.random.seed(1)
 
+        # generate random states and controls
+        # results in numpy array of size (l, c.nx+ c.nu)
+        # c.nx number of dimensions in state space
+        # c.nu number of controls
         z = np.random.random(size=l*(c.nx+c.nu)).reshape(l,c.nx+c.nu)
+        # transfer array to gpu
         z = to_gpu(z)
 
-        # state time derivatives
+        # compute time derivatives of state
+        # and retrieve result from gpu.
+        # results in numpy array of size (l, nx)
         dx = c.f_sp(z).get()
+        print dx.shape
         
-        #jacobian
+        # compute jacobian of previous function
+        # and retrieve result from gpu.
+        # results in numpy array of size (l, nx+nu, nx)
         dx_jac = c.f_sp_diff(z).get()
+        print dx_jac.shape
         
+        # time the computation
+        # kernels should be cached in memory at this point. 
+        # calling the functions a second time is much faster
+        # also, we are not timing how long it takes to retrieve data from gpu.
         t = tic()
-        dx = c.f_sp(z)
-        dx_jac = c.f_sp_diff(z)
+        c.f_sp(z)
+        c.f_sp_diff(z)
         toc(t)
 
     def test_impl_model(self):
