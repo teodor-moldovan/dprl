@@ -12,6 +12,7 @@ import re
 import atexit
 import time
 import sympy
+import sympy.utilities.codegen
 from tempfile import gettempdir
 from os.path import join
 from inspect import getsourcelines

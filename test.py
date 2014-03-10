@@ -1,19 +1,11 @@
 import unittest
 from clustering import *
 from cartpole import *
-from cart2pole import *
-from pendubot import *
-from unicycle import *
-from swimmer import *
 from heli import *
 import time
 import scipy.linalg
 import scipy.special
-import pycuda.driver as drv
-import pycuda.scan
-import cPickle
 #import dpcluster
-import cPickle
 
 def check_grad(func,n,eps=1e-8):
     z = np.random.normal(size=n)
@@ -69,9 +61,6 @@ class TestsTools(unittest.TestCase):
         msecs = (time.time()-t)*1000
         print 'CPU ',msecs ,'ms'
 
-        start = drv.Event()
-        end = drv.Event()
-
         e = to_gpu(so)
         d = array((l,m,m))
 
@@ -79,16 +68,10 @@ class TestsTools(unittest.TestCase):
 
         chol_batched(e,d,2)
 
-        start.record()
-        start.synchronize()
+        t =tic()
         chol_batched(e,d,2)
-        end.record()
-        end.synchronize()
+        toc(t)
         
-        msecs_ = start.time_till(end)
-        print "GPU ", msecs_, 'ms'
-        print "Speedup: ", msecs/msecs_
-
         r = np.array(cc[-1].T)
         r_ = np.array(np.tril(d.get()[-1]))
         
@@ -109,9 +92,6 @@ class TestsTools(unittest.TestCase):
         msecs = (time.time()-t)*1000
         print 'CPU ',msecs ,'ms'
 
-        start = drv.Event()
-        end = drv.Event()
-
         e = to_gpu(so)
         d = array((l,))
 
@@ -119,17 +99,10 @@ class TestsTools(unittest.TestCase):
         chol2log_det(e,d)
         e = to_gpu(so)
 
-        start.record()
-        start.synchronize()
-
         chol_batched(e,e)
+        t = tic()
         chol2log_det(e,d)
-        end.record()
-        end.synchronize()
-        
-        msecs_ = start.time_till(end)
-        print "GPU ", msecs_, 'ms'
-        print "Speedup: ", msecs/msecs_
+        toc(t)
         
         np.testing.assert_almost_equal(cc/d.get(),1,4)
 
@@ -147,8 +120,6 @@ class TestsTools(unittest.TestCase):
         msecs = (time.time()-t)*1000
         print 'CPU ',msecs ,'ms'
 
-        start = drv.Event()
-        end = drv.Event()
 
         gl = to_gpu(l)
         gx = to_gpu(x)
@@ -157,16 +128,10 @@ class TestsTools(unittest.TestCase):
         gl = to_gpu(l)
         gx = to_gpu(x)
 
-        start.record()
-        start.synchronize()
+        t=tic()
         solve_triangular(gl,gx)
-        end.record()
-        end.synchronize()
+        toc(t)
         
-        msecs_ = start.time_till(end)
-        print "GPU ", msecs_, 'ms'
-        print "Speedup: ", msecs/msecs_
-
         r = np.array(cc[-1])
         r_ = np.array(gx.get()[-1])
         
@@ -188,8 +153,6 @@ class TestsTools(unittest.TestCase):
         msecs = (time.time()-t)*1000
         print 'CPU ',msecs ,'ms'
 
-        start = drv.Event()
-        end = drv.Event()
         x = array((k,m,m))
 
         gl = to_gpu(l)
@@ -198,24 +161,14 @@ class TestsTools(unittest.TestCase):
 
         gl = to_gpu(l)
 
-        start.record()
-        start.synchronize()
+        t = tic()
         solve_triangular(gl,x,back_substitution=False,identity=True,bd=2)
-        end.record()
-        end.synchronize()
+        toc(t)
         
-        msecs_ = start.time_till(end)
-        print "GPU ", msecs_, 'ms'
-        print "Speedup: ", msecs/msecs_
-
         r = np.matrix(cc[-1])+1e-5
         r_ = np.matrix(x.get()[-1])+1e-5
         
-        
         np.testing.assert_almost_equal(r/r_,1,4)
-
-        #print cc[0]
-
 
     def test_pinv(self):
         k,m,n = 32*8*11, 32, 5
@@ -265,18 +218,10 @@ class TestsTools(unittest.TestCase):
 
         outer_product(s, d )
 
-        start = drv.Event()
-        end = drv.Event()
-
-        start.record()
-        start.synchronize()
+        t = tic()
         outer_product(s, d )
-        end.record()
-        end.synchronize()
+        toc(t)
 
-        msecs_ = start.time_till(end)
-        print "GPU ", msecs_, 'ms'  
-        
         np.testing.assert_almost_equal(d.get(), rs,4)
         
         
@@ -348,19 +293,10 @@ class TestsTools(unittest.TestCase):
         matrix_mult(a,b,d) 
         matrix_mult(a,b,d) 
 
-        start = drv.Event()
-        end = drv.Event()
-
-        start.record()
-        start.synchronize()
+        t = tic()
         matrix_mult(a,b,d) 
-        end.record()
-        end.synchronize()
+        toc(t)
         
-        msecs_ = start.time_till(end)
-        print "GPU ", msecs_, 'ms'
-        print "Speedup: ", msecs/msecs_
-
         np.testing.assert_almost_equal( d.get(),rs,3)
 
 
@@ -386,19 +322,10 @@ class TestsTools(unittest.TestCase):
 
         batch_matrix_mult(a,b,d) 
 
-        start = drv.Event()
-        end = drv.Event()
-
-        start.record()
-        start.synchronize()
+        t = tic()
         batch_matrix_mult(a,b,d) 
-        end.record()
-        end.synchronize()
+        toc(t)
         
-        msecs_ = start.time_till(end)
-        print "GPU ", msecs_, 'ms'
-        print "Speedup: ", msecs/msecs_
-
         np.testing.assert_almost_equal( d.get(),rs,3)
         np.testing.assert_almost_equal( e.get(),rs_o,3)
 
@@ -478,21 +405,12 @@ class TestsTools(unittest.TestCase):
         
         fnc = row_reduction('a += b')
 
-        start = drv.Event()
-        end = drv.Event()
 
         fnc(a,e)
 
-        start.record()
-        start.synchronize()
+        t = tic()
         fnc(a,e)
-
-        end.record()
-        end.synchronize()
-        
-        msecs_ = start.time_till(end)
-        print "GPU ", msecs_, 'ms'
-        print "Speedup: ", msecs/msecs_
+        toc(t)
 
         np.testing.assert_almost_equal( e.get(),rs,3)
 
@@ -1419,707 +1337,6 @@ class TestsClustering(unittest.TestCase):
             toc(t)
             
          
-class TestsCartpole(unittest.TestCase):
-    def test_f(self):
-        l = 32*11*8
-        c = Cartpole()
-        
-        np.random.seed(1)
-
-        xn = np.random.random(size=l*(c.nx)).reshape(l,c.nx)
-        x = to_gpu(xn)
-
-        un = np.random.random(size=l*(c.nu)).reshape(l,c.nu)
-        u = to_gpu(un)
-        
-        
-        c.f(x,u)
-        c.f(x,u)
-
-        t = tic()
-        x.newhash()
-        c.f(x,u)
-        toc(t)
-        
-         
-    def test_pp(self):
-        
-        ds = Cartpole(state=(0,0,np.pi,0))
-        
-        pp = KnitroNlp(GPM(ds,15))
-        pi = pp.solve()
-
-    def test_model(self):
-
-        ds = Cartpole()
-        
-        l,p,k = 1000, 7,2*11*8
-
-        np.random.seed(5)
-
-        r = (np.random.random(size=l*5).reshape(l,-1) - .5)*2.0
-        
-        r[:,0] *= 30
-        r[:,1] *= 3
-        r[:,2] *= 2*np.pi
-        r[:,3] *= 1
-        r[:,4] *= 1
-        
-        x,u = r[:,:4], r[:,4:5]
-        uxi = np.insert(u,1,0,axis=1)
-        
-        dx = ds.f(to_gpu(x),to_gpu(u)).get()
-
-        for t in range(10):
-            learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
-            model = OptimisticCartpoleSC(learner)
-            
-            trj = (None,dx,x,u)
-
-            model.update(trj)
-
-            ind = np.where(np.logical_and(-np.pi<x[:,2], x[:,2]<np.pi))
-            dx_ = model.f(to_gpu(x),to_gpu(uxi)).get()
-                
-            r = np.sum(dx[ind]*dx_[ind],0)/np.sqrt(np.sum(dx[ind]*dx[ind],0)*np.sum(dx_[ind]*dx_[ind],0))
-            
-            cl = learner.mix.clusters
-        
-            print r
-        
-
-    def test_more(self): 
-
-        ds = Cartpole()
-        ds = OptimisticCartpole(Mixture.from_file('../../data/cartpole/batch_vdp.npy'))
-
-        pp = KnitroNlp(ds,15)
-
-        #pp.solve( [0,0,np.pi,0], [0,0,0,0])
-        #pp.solve(np.array([0,0,np.pi*1.1,0]), np.array([0,0,0,0]))
-
-        #pp.solve(np.array([0,0,np.pi*.4,0]), np.array([0,0,2*np.pi,0]))
-        #pp.solve(np.array([0,0,-np.pi*.4,2.0]), np.array([0,0,0,0]))
-
-        #pp.solve(np.array([0.0, 2.0, np.pi, 1.3]), 
-        #        np.array([[0.0,0.0,2*np.pi,0.0]]))
-
-        #pp.solve(np.array([0,0,np.pi*.1,0]), np.array([0,0,2*np.pi,0]))
-        #pp.solve(np.array([0,0,-np.pi*.01,0]), np.array([0,0,0,0]))
-        
-
-
-    def test_iter(self):
-
-        seed = 45 # 11,15,22
-        np.random.seed(seed)
-
-        p,k = 7, 11*8
-        learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
-        model = OptimisticCartpoleSC(learner)
-
-        planner = SlpNlp(MSMext(model,25))
-        #planner = SqpPlanner(model,25)
-
-        env = CartpolePilco(noise = 0.1)
-        trj = env.step(ZeroPolicy(env.nu), 50, random_control=True) 
-
-        env.noise = 0.0
-
-        model.plot_init()
-
-
-        for t in range(10000):
-            env.print_state()
-
-            if not trj is None:
-                model.update(trj)
-
-            model.state = env.state
-            pi = planner.solve()
-
-
-            if True:
-                us = pi.us.reshape(pi.us.shape[0],-1).copy()
-                x = to_gpu(pi.x[:-1])
-                dx1  = env.f(x, to_gpu(us)).get()
-                us = np.hstack((us,np.zeros((us.shape[0],model.nxi))))
-                dx2 = model.f(x, to_gpu(pi.uxi)).get()
-                
-                a = dx1[:,:3]
-                b = dx2[:,:3]
-                r =  np.sum(a*b,1) / np.sqrt(np.sum(a*a,1)*np.sum(b*b,1))
-                r = np.insert(r,r.shape[0],0,axis=0)
-            else:
-                r = None
-
-            model.plot_traj(pi.x,r)
-            model.plot_draw()
-
-
-            trj = env.step(pi,5)
-            #trj = env.step(pi,5)
-
-            
-
-
-    def test_pp_iter(self):
-
-        seed = 45 # 11,15,22
-        #seed = 29 # 11,15,22
-        np.random.seed(seed)
-
-        p,k = 7, 11*8
-        #learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
-        #model = OptimisticCartpoleSC(learner)
-
-
-        env = Cartpole()
-        #env.state[2] = 2*np.pi*np.random.uniform()
-        trj = env.step(ZeroPolicy(env.nu), 51, random_control=True) 
-
-        #env = Cartpole(noise = .01)
-
-        end = np.zeros(4)
-
-        pp = SlpNlp(GPMcompact(env,55))
-        plt.show()
-        plt.ion()
-        
-        for t in range(10000):
-            s = env.state
-            print 'time: ',env.t,'state: ',('{:9.3f} '*4).format(*s)
-            pi = pp.solve()
-
-            trj = env.step(pi,2)
-
-            tmp = pi.x
-            
-            plt.clf()
-            plt.plot(tmp[:,2],tmp[:,0])
-
-            plt.xlim([-2*np.pi,2*np.pi])
-            plt.ylim([-30,30])
-            plt.draw()
-
-    def test_compare_pred(self):
-        
-        l = 10
-        mix = Mixture.from_file('../../data/cartpole/batch_vdp.npy')
-        
-        np.random.seed(0)
-        x  = np.random.random(size=l*3).reshape(l,-1)
-        xi = np.zeros((l,2))
-        
-        
-        f = mix.predict(to_gpu(x),to_gpu(xi))
-        
-        
-
-class TestsCartDoublePole(unittest.TestCase):
-    def test_f(self):
-        # number of random states and controls 
-        # for which state derivatives are to be computed
-        l = 32*11*8 
-        # choose dynamical system.
-        c = CartDoublePole()
-        
-        # fix random seed for repeatability
-        np.random.seed(1)
-
-        # generate random states and controls
-        # results in numpy array of size (l, c.nx+ c.nu)
-        # c.nx number of dimensions in state space
-        # c.nu number of controls
-        z = np.random.random(size=l*(c.nx+c.nu)).reshape(l,c.nx+c.nu)
-        # transfer array to gpu
-        z = to_gpu(z)
-
-        # compute time derivatives of state
-        # and retrieve result from gpu.
-        # results in numpy array of size (l, nx)
-        dx = c.f_sp(z).get()
-        print dx.shape
-        
-        # compute jacobian of previous function
-        # and retrieve result from gpu.
-        # results in numpy array of size (l, nx+nu, nx)
-        dx_jac = c.f_sp_diff(z).get()
-        print dx_jac.shape
-        
-        # time the computation
-        # kernels should be cached in memory at this point. 
-        # calling the functions a second time is much faster
-        # also, we are not timing how long it takes to retrieve data from gpu.
-        t = tic()
-        c.f_sp(z)
-        c.f_sp_diff(z)
-        toc(t)
-
-    def test_impl_model(self):
-
-        ds = CartDoublePole()
-        
-        l = 1000
-
-        np.random.seed(5)
-
-        r = (np.random.random(size=l*7).reshape(l,-1) - .5)*2.0
-        
-        r[:,0] *= 30
-        r[:,1] *= 30
-        r[:,2] *= 3
-        r[:,3] *= 2*np.pi
-        r[:,4] *= 2*np.pi
-        r[:,5] *= 1
-        r[:,6] *= 1
-        
-        x,u = r[:,:-1], r[:,-1:]
-        
-        
-        dth1 = x[:,0]
-        dth2 = x[:,1]
-        dz = x[:,2]
-        th1 = x[:,3]
-        th2 = x[:,4]
-
-        dx = ds.f(to_gpu(x),to_gpu(u)).get()
-        dx += .001*np.random.normal(size=dx.size).reshape(dx.shape)
-
-        f = np.vstack(( 
-                dx[:,2], dx[:,0]*np.cos(th1), dx[:,1]*np.cos(th2), 
-                dx[:,2]*np.cos(th1), dx[:,0], dx[:,1]*np.cos(th1-th2), 
-                dx[:,2]*np.cos(th2), dx[:,0]*np.cos(th1-th2), dx[:,1],
-                dth1*dth1*np.sin(th1), dth2*dth2*np.sin(th2), dz, u[:,0],
-                dth2*dth2*np.sin(th1-th2), np.sin(th1),
-                dth1*dth1*np.sin(th1-th2), np.sin(th2),
-                #dth1*dth2*u[:,0], np.sin(th1)*np.sin(th2)
-            )).T
-
-        g = np.array([-3.0, +0.9, +0.3, -0.9, -0.3, -0.2, +40.0])
-        print g/np.sqrt(np.sum(g*g))
-
-        model = StreamingNIW(f.shape[1])
-        model.update(to_gpu(f.copy()))
-        
-        v,l = np.linalg.eig(model.niw.psi.get()[0])
-        i = np.argsort(np.abs(v))
-        print l[:,i[0:3]].T
-        print np.sort(v)
-
-    def test_iter(self):
-
-        seed = 45 # 11,15,22
-        np.random.seed(seed)
-
-        p,k = 13, 2*11*8
-        learner = BatchVDP(Mixture(SBP(k),NIW(p,k)),w=.1)
-        model = OptimisticCartDoublePole(learner)
-
-        #pp = KnitroNlp(model,25)
-        planner = SlpNlp(GPMcompact(model,25))
-
-        env = CartDoublePole(noise = 0.01)
-        trj = env.step(ZeroPolicy(env.nu), 50, random_control=True) 
-        
-        env.noise = 0.01
-
-        model.plot_init()
-
-
-        for t in range(10000):
-            env.print_state()
-
-            if not trj is None:
-                model.update(trj)
-
-            model.state = env.state
-            pi = planner.solve()
-
-            us = pi.us.reshape(pi.us.shape[0],-1).copy()
-            x = to_gpu(pi.x)
-            dx1  = env.f(x, to_gpu(us)).get()
-            us_ = np.hstack((us,np.zeros((us.shape[0],model.nxi))))
-            #dx2 = model.f(x, to_gpu(us_)).get()
-            dx2 = model.f(x, to_gpu(pi.uxi)).get()
-
-            a = dx1[:,:3]
-            b = dx2[:,:3]
-
-            r =  np.sum(a*b,1) / np.sqrt(np.sum(a*a,1)*np.sum(b*b,1))
-
-            model.plot_traj(pi.x,r)
-            model.plot_draw()
-
-            trj = env.step(pi,5)
-            #trj = env.step(pi,5)
-
-
-    def test_disp(self):
-
-        seed = 45 # 11,15,22
-        np.random.seed(seed)
-
-        p,k = 13, 2*11*8
-        learner = BatchVDP(Mixture(SBP(k),NIW(p,k)))
-        model = OptimisticCartDoublePole(learner)
-
-        #pp = KnitroNlp(GPM(model,25))
-        planner = SlpNlp(MSMext(model,25))
-
-        env = CartDoublePole(noise = 1.0)
-        trj = env.step(ZeroPolicy(env.nu), 50, random_control=True) 
-
-        model.update(trj)
-        model.plot_init()
-
-
-        model.state = env.state
-
-        zi = planner.nlp.initialization()
-        pi = planner.nlp.get_policy(zi)
-
-
-        us = pi.us.reshape(pi.us.shape[0],-1).copy()
-        x = to_gpu(pi.x[:-1])
-        dx1  = env.f(x, to_gpu(us)).get()
-        us = np.hstack((us,np.zeros((us.shape[0],model.nxi))))
-        dx2 = model.f(x, to_gpu(pi.uxi)).get()
-        
-        a = dx1[:,:3]
-        b = dx2[:,:3]
-        r =  np.sum(a*b,1) / np.sqrt(np.sum(a*a,1)*np.sum(b*b,1))
-        r = np.insert(r,r.shape[0],0,axis=0)
-
-
-        model.plot_traj(pi.x,r)
-        
-        #model.plot_draw()
-
-            
-
-
-    def test_pp_iter(self):
-
-        seed = 45 # 11,15,22
-        np.random.seed(seed)
-
-        p,k = 11, 11*8
-
-        env = CartDoublePole(noise = 0)
-        #env.state = np.array([-2.513, -11.849,    2.121,   2.059 ,   3.458,  -0.069])
-
-        pp = SlpNlp(GPMcompact(env,55))
-        plt.show()
-        plt.ion()
-
-        for t in range(10000):
-            s = env.state
-            print 't: ',('{:4.2f} ').format(env.t),' state: ',('{:9.3f} '*6).format(*s)
-            pi = pp.solve()
-
-            trj = env.step(pi,10)
-
-            tmp = pi.x
-            
-            plt.clf()
-
-            plt.sca(plt.subplot(2,1,1))
-
-            plt.xlim([-2*np.pi,2*np.pi])
-            plt.ylim([-40,40])
-            plt.plot(tmp[:,3],tmp[:,0])
-
-            plt.sca(plt.subplot(2,1,2))
-
-            plt.xlim([-2*np.pi,2*np.pi])
-            plt.ylim([-40,40])
-            plt.plot(tmp[:,4],tmp[:,1])
-
-            plt.draw()
-
-
-    def test_pp(self):
-
-        seed = 45 # 11,15,22
-        np.random.seed(seed)
-
-        env = CartDoublePole()
-
-        #env.state = np.array([-2.513, -11.849,    2.121,   2.059 ,   3.458,  -0.069])
-
-        pp = SlpNlp(
-            GPMcompact(env,55)
-            )
-
-        pi = pp.solve()
-
-
-        if False:
-        
-            tmp = pi.x
-            plt.sca(plt.subplot(2,1,1))
-
-            plt.xlim([-2*np.pi,2*np.pi])
-            plt.ylim([-40,40])
-            plt.plot(tmp[:,3],tmp[:,0])
-
-            plt.sca(plt.subplot(2,1,2))
-
-            plt.xlim([-2*np.pi,2*np.pi])
-            plt.ylim([-40,40])
-            plt.plot(tmp[:,4],tmp[:,1])
-
-            plt.show()
-
-
-
-class TestsPendubot(unittest.TestCase):
-    def test_implicit(self):
-        ds = PendubotImplicit()
-        
-        l,nx,nu = 11*8*32, ds.nx,ds.nu
-        n = 2*nx+nu
-        zn = np.random.random(l*n).reshape(l,n)
-        z = to_gpu(zn)
-        
-        ds.features(z)
-        ds.features_jacobian(z)
-        
-        ds.implf(z)
-        ds.implf_jac(z)
-
-    def test_explicit(self):
-        ds = PendubotImplicit()
-        np.random.seed(1)
-        
-        l,nx,nu = 11*8*32, ds.nx, ds.nu
-        n = 2*nx+nu
-        zn = np.random.random(l*n).reshape(l,n)
-        z = to_gpu(zn)
-        
-        x,u = zn[:,4:-1],zn[:,-1:]
-        x = to_gpu(x)
-        u = to_gpu(u)
-
-        r = ds.explf(x,u)
-
-        ds_ = PendubotPilco()
-        r_ = ds_.f(x,u)
-
-        np.testing.assert_array_almost_equal(r.get(),r_.get())
-
-
-    def test_cca(self):
-        ds = PendubotImplicit()
-        np.random.seed(10)
-        
-        l,nx,nu = 100, ds.nx,ds.nu
-        n = 2*nx+nu
-        zn = np.random.random(l*n).reshape(l,n)
-        z = to_gpu(zn)
-        
-        x,u = zn[:,4:-1],zn[:,-1:]
-        a = ds.explf(x,u)
-        
-        a += np.random.normal(size=a.size).reshape(a.shape)
-        trj =  (None,a,x,u)
-        
-        ds.update(trj)
-
-
-    def test_iter(self):
-
-        seed = 46 # 11,15,22
-        np.random.seed(seed)
-
-        model = PendubotImplicit()
-
-        planner = SlpNlp(GPMcompact(model,55))
-
-        env = PendubotImplicit(noise = 0.1)
-        env.state = 2*np.pi*2*(np.random.random(4)-0.5)
-        s0 = env.state.copy()
-        trj = env.step(ZeroPolicy(env.nu), 20) 
-        print trj
-        sfdad
-
-        model.plot_init()
-
-        for t in range(10000):
-            
-            # restarts?
-            if env.t > 2.0 and False:
-                env.t -= 2.0
-                env.state = s0.copy()
-
-            env.print_state()
-
-            if not trj is None:
-                model.update(trj)
-
-            model.state = env.state
-            pi = planner.solve()
-
-            model.plot_traj(pi.x)
-            model.plot_draw()
-
-
-            trj = env.step(pi,10)
-
-
-    def test_rand_pp(self):
-
-        seed = 45 # 11,15,22
-        np.random.seed(seed)
-
-        p,k = 9, 2*11*8
-        learner = BatchVDP(Mixture(SBP(k),NIW(p,k)),w=.1)
-        model = OptimisticPendubot(learner)
-
-        #planner = SlpNlp(MSMext(model,25))
-        planner = SqpPlanner(model,25)
-
-        env = Pendubot(noise = 1.0)
-        
-        filename = 'out/traj_cpickle.pkl'
-        if False:
-            trj = env.step(ZeroPolicy(env.nu), 10000, random_control=True) 
-            cPickle.dump(trj,open(filename,'wb'))
-        else:
-            trj = cPickle.load(open(filename,'rb'))
-        
-        
-        env.noise = 0.01
-
-        model.plot_init()
-
-        if not trj is None:
-            model.update(trj)
-
-
-        for t in range(10000):
-            env.print_state()
-
-
-            model.state = env.state
-            pi = planner.solve()
-
-
-            if True:
-                us = pi.us.reshape(pi.us.shape[0],-1).copy()
-                x = to_gpu(pi.x)
-                #x = to_gpu(pi.x[:-1])
-                dx1  = env.f(x, to_gpu(us)).get()
-                us_ = np.hstack((us,np.zeros((us.shape[0],model.nxi))))
-                dx2 = model.f(x, to_gpu(us_)).get()
-                #dx2 = model.f(x, to_gpu(pi.uxi)).get()
-                
-                a = dx1[:,:2]
-                b = dx2[:,:2]
-                r =  np.sum(a*b,1) / np.sqrt(np.sum(a*a,1)*np.sum(b*b,1))
-                #r = np.insert(r,r.shape[0],0,axis=0)
-            else:
-                r = None
-
-            model.plot_traj(pi.x,r,u=pi.us)
-            model.plot_draw()
-
-
-            trj = env.step(pi,5)
-            #trj = env.step(pi,2)
-
-
-
-    def test_model(self):
-
-        ds = Pendubot()
-        
-        l,p,k = 1000, 9,2*11*8
-
-        np.random.seed(5)
-
-        r = (np.random.random(size=l*5).reshape(l,-1) - .5)*2.0
-        
-        r[:,0] *= 10
-        r[:,1] *= 10
-        r[:,2] *= 2*np.pi
-        r[:,3] *= 2*np.pi
-        r[:,4] *= 1
-        
-        x,u = r[:,:4], r[:,4:5]
-        uxi = np.insert(u,1,0,axis=1)
-        
-        dx = ds.f(to_gpu(x),to_gpu(u)).get()
-
-        for t in range(10):
-            learner = BatchVDP(Mixture(SBP(k),NIW(p,k)),w=.1)
-            model = OptimisticPendubot(learner)
-            
-            trj = (None,dx,x,u)
-
-            model.update(trj)
-
-            dx_ = model.f(to_gpu(x),to_gpu(uxi)).get()
-            #print dx[:5]
-            #print dx_[:5]
-                
-            r = np.sum(dx*dx_,0)/np.sqrt(np.sum(dx*dx,0)*np.sum(dx_*dx_,0))
-            
-            cl = learner.mix.clusters
-        
-            print r
-        
-
-    def test_pp_iter(self):
-
-        seed = 45 # 11,15,22
-        #np.random.seed(seed)
-
-        env = PendubotImplicit(noise = 0.0)
-
-        #env.state = 2*np.pi*(np.random.random(4)-0.5)
-
-        pp = SlpNlp(GPMcompact(env,55))
-        plt.show()
-        plt.ion()
-
-        for t in range(10000):
-            s = env.state
-            env.print_state()
-            pi = pp.solve()
-
-            trj = env.step(pi,10)
-
-            tmp = pi.x
-            
-            plt.clf()
-
-            plt.sca(plt.subplot(2,1,1))
-
-            plt.xlim([-2*np.pi,2*np.pi])
-            plt.ylim([-40,40])
-            plt.plot(tmp[:,2],tmp[:,0])
-
-            plt.sca(plt.subplot(2,1,2))
-
-            plt.xlim([-2*np.pi,2*np.pi])
-            plt.ylim([-40,40])
-            plt.plot(tmp[:,3],tmp[:,1])
-
-            plt.draw()
-
-
-    def test_step(self):
-
-        seed = 45 # 11,15,22
-        np.random.seed(seed)
-
-        env = PendubotImplicit(noise = 0.1)
-        trj = env.step(ZeroPolicy(env.nu), 10) 
-        env.print_state()
-
-
 class TestsHeli(unittest.TestCase):
     def test_f(self):
         l = 11*8
@@ -2159,126 +1376,23 @@ class TestsHeli(unittest.TestCase):
         np.testing.assert_almost_equal( rs,rs_)
 
          
-    def test_pp(selff):
-
-        pp = KnitroNlp(Heli(),15)
-        start,end = np.zeros(12), np.zeros(12)
-        #start[3:6]  = .1*np.random.normal(size=3)
-        #end[6:9] = np.pi*np.array([0,0,1])
-        end[9:12] = np.array([0,1,1])
-        print start
-        print end
-        
-        pi = pp.solve(start,end)
-        pi(0)
-
-    def test_iter(self):
-
-        env = Heli(noise = 0.5)
-        model = OptimisticHeli(StreamingNIW)
-        
-        seed = 29 # 11,15,22
-        np.random.seed(seed)
-
-
-        trj = env.step(ZeroPolicy(env.nu), 21, random_control=True) 
-
-        model.update(trj)
-        
-        lg = np.hstack((trj[0], trj[2][:,-6:] ))
-        
-        end = np.zeros(12)
-        end[9:12] = np.array([0,0,0])
-        end[7] = np.pi
-
-        pp = KnitroNlp(model,15,hotstart=True)
-        
-        for t in range(100):
-            print env.state
-            pi = pp.solve(env.state,end)
-            trj = env.step(pi,20)
-
-            if not trj is None:
-                lg_ = np.hstack((trj[0], trj[2][:,-6:] ))
-                lg = np.vstack((lg,lg_))
-                model.update(trj)
-
-        angle = np.sqrt((lg[:,1:4]*lg[:,1:4]).sum(1))
-        lg[:,1:4] *= (np.sin(.5*angle) / angle)[:,np.newaxis]
-        
-        #np.savetxt('traj'+str(seed)+'.csv', lg, delimiter=',', header = " time(s), quaternion x, quaternion y, quaternion z (obtain quaternion w from fact that quaternion has unit norm), position x, position y, position z (positive is down) ") 
-       
-        
-
-
-    def test_update(self):
-        l,m = 20,10
-
-        env = Heli(noise=0)
-        model = OptimisticHeli(StreamingNIW)        
-
-        np.random.seed(1)
-        traj = env.random_step(l) 
-
-        model.update(traj)
-
-        xn = np.random.random(size=m*12).reshape(m,-1)
-        x = to_gpu(xn)
-        un = np.random.random(size=m*4).reshape(m,-1)
-        xi = 0*np.random.random(size=m*6).reshape(m,-1)
-        uxi = np.hstack((un,xi))
-        u = to_gpu(un)
-        uxi = to_gpu(uxi)
-        
-        rs = model.f(x,uxi)
-        rs_ = env.f(x,u)
-        
-        np.testing.assert_almost_equal( rs.get(),rs_.get())
-        
-    def test_update_noisy(self):
-        l,m = 50,1
-
-        env = Heli(noise=1e-5)
-        model = OptimisticHeli(StreamingNIW)        
-
-        np.random.seed(1)
-        traj = env.random_step(l) 
-
-        model.update(traj)
-
-        xn = np.random.random(size=m*12).reshape(m,-1)
-        x = to_gpu(xn)
-        un = np.random.random(size=m*4).reshape(m,-1)
-        xi = np.random.random(size=m*6).reshape(m,-1)
-        uxi = np.hstack((un,xi))
-        u = to_gpu(un)
-        uxi = to_gpu(uxi)
-        
-        rs = model.f(x,uxi)
-        rs_ = env.f(x,u)
-        
-        print rs
-        print rs_
-        
-class TestsUnicycle(unittest.TestCase):
+class TestsDynamicalSystem(unittest.TestCase):
     def test_implicit(self):
-        ds = Unicycle()
-
-        l,nx,nu = 11*8*32, ds.nx, ds.nu
-        n = 2*nx + nu
+        ds = self.ds
         
-        np.random.seed(3)
+        l,nx,nu = 11*8*32, ds.nx,ds.nu
+        n = 2*nx+nu
         zn = np.random.random(l*n).reshape(l,n)
-
         z = to_gpu(zn)
-
-        f = ds.features(z)
+        
+        ds.features(z)
         ds.features_jacobian(z)
+        
         ds.implf(z)
         ds.implf_jac(z)
 
     def test_explicit(self):
-        ds = Unicycle()
+        ds = self.ds
 
         l,nx,nu = 11*8*32, ds.nx, ds.nu
         n = 2*nx+nu
@@ -2291,12 +1405,84 @@ class TestsUnicycle(unittest.TestCase):
 
         r = ds.explf(x,u)
        
-        for i in range(10):
-            t=tic()
-            r = ds.explf(x,u)
-            toc(t)
-            
+        t=tic()
+        r = ds.explf(x,u)
+        toc(t)
 
+
+
+class TestsCartpole(TestsDynamicalSystem):
+    def setUp(self):
+        import cartpole
+        self.ds = cartpole.CartPole()
+class TestsCartDoublePole(TestsDynamicalSystem):
+    def setUp(self):
+        import cart2pole
+        self.ds = cart2pole.CartDoublePole()
+class TestsPendubot(TestsDynamicalSystem):
+    def setUp(self):
+        import pendubot
+        self.ds = pendubot.Pendubot()
+    def test_cca(self):
+        ds = Pendubot()
+        np.random.seed(10)
+        
+        l,nx,nu = 100, ds.nx,ds.nu
+        n = 2*nx+nu
+        zn = np.random.random(l*n).reshape(l,n)
+        z = to_gpu(zn)
+        
+        x,u = zn[:,4:-1],zn[:,-1:]
+        a = ds.explf(x,u)
+        
+        a += np.random.normal(size=a.size).reshape(a.shape)
+        trj =  (None,a,x,u)
+        
+        ds.update(trj)
+
+
+    def test_iter(self):
+
+        seed = 46 # 11,15,22
+        np.random.seed(seed)
+
+        model = Pendubot()
+
+        planner = SlpNlp(GPMcompact(model,55))
+
+        env = PendubotImplicit(noise = 0.1)
+        env.state = 2*np.pi*2*(np.random.random(4)-0.5)
+        s0 = env.state.copy()
+        trj = env.step(ZeroPolicy(env.nu), 20) 
+
+        model.plot_init()
+
+        for t in range(10000):
+            
+            # restarts?
+            if env.t > 2.0 and False:
+                env.t -= 2.0
+                env.state = s0.copy()
+
+            env.print_state()
+
+            if not trj is None:
+                model.update(trj)
+
+            model.state = env.state
+            pi = planner.solve()
+
+            model.plot_traj(pi.x)
+            model.plot_draw()
+
+
+            trj = env.step(pi,10)
+
+
+class TestsUnicycle(TestsDynamicalSystem):
+    def setUp(self):
+        import unicycle
+        self.ds = unicycle.Unicycle()
     def test_cca(self):
         ds = Unicycle()
         np.random.seed(10)
@@ -2333,51 +1519,11 @@ class TestsUnicycle(unittest.TestCase):
             trj = env.step(pi,10)
 
 
-class TestsSwimmer(unittest.TestCase):
-    def test_implicit(self):
-        ds = Swimmer(7)
-
-        l,nx,nu = 11*8*32, ds.nx, ds.nu
-        n = 2*nx+nu
-
-        np.random.seed(3)
-        zn = np.random.random(l*n).reshape(l,n)
-
-        z = to_gpu(zn)
-
-        ds.implf(z)
-        
-        t = tic()
-        ds.implf(z)
-        toc(t)
-
+class TestsSwimmer(TestsDynamicalSystem):
+    def setUp(self):
+        import swimmer
+        self.ds = swimmer.Swimmer(7)
 class TestsPP(unittest.TestCase):
-    def test_pcw_policy(self):
-
-        l,nu = 4,3
-        us = np.random.random(l*nu).reshape(l,nu)
-        h  = 4.0
-        
-        pi = PiecewiseConstantPolicy(us,h)
-        print us
-        print pi.u(.0, None)
-        print pi.u(1.0, None)
-        print pi.u(2.0, None)
-        print pi.u(3.0,None)
-        print pi.u(4.0, None)
-        
-
-    def test_sim(self):
-
-        env = Cartpole()
-
-        class ZeroPolicy:
-            def u(self,t,x):
-                return np.zeros(env.nu)
-
-
-        trj = env.step(ZeroPolicy() ,.05)
-
     def test_int(self):
         i = ExplicitRK('rk4')
         
@@ -2442,199 +1588,9 @@ class TestsPP(unittest.TestCase):
         
         
 
-    def test_time_discretize(self):
-        l = 15
-        dt = .1
-
-        ds = Cartpole()
-        np.random.seed(1)
-        xu = to_gpu(np.random.normal(size=l*(ds.nx+ds.nu)).reshape(l,-1))
-        
-        print ds.time_discretize(xu,.1).get()[0]
-
-    def test_gpm(self):
-        N = 15
-        td = GPMext(Cartpole(),N)
-        _,D,_ = td.quadrature(td.l)
-
-        np.testing.assert_almost_equal(-np.linalg.solve(D[:,1:],D[:,0]),
-                    np.ones(N))
-        
-        #td.interp_coefficients(.3)
-        
-        np.random.seed(2)
-        eps = 1e-8
-        z = np.random.normal(size=td.nv)
-        dz = eps*np.random.normal(size = td.nv)
-        
-        z_ = z+ dz
-        
-        f  = td.ccol(z) 
-
-        d   = td.ccol_jacobian(z) 
-        i,j = td.ccol_jacobian_inds()
-        j = np.array(coo_matrix((d,(i,j)),shape=(td.nc,td.nv)).todense())
-        f_ = td.ccol(z+dz) 
-        
-        r  = (f_- f)/eps
-        r_ =  np.dot(j.reshape(f.size,-1),dz)/eps
-
-        np.testing.assert_almost_equal(r,r_,4)
-        
-        al = np.linspace(0,1,10)
-        td.line_search(z,1e8*dz,al)
-
-    def test_gpm_compact(self):
-
-        seed = 45 # 11,15,22
-        np.random.seed(seed)
-
-        env = CartDoublePole()
-
-        pp = SlpNlp(
-            GPMcdiff(env,25)
-            )
-
-        z = pp.nlp.initialization()
-        pp.solve_task(z,float("inf"))
-        dz_ = pp.nlp.post_proc(pp.ret_x)
-
-        pp_ = SlpNlp(
-            GPMcompact(env,25)
-            )
-
-        pp_.solve_task(z,float("inf"))
-        dz = pp_.nlp.post_proc(pp_.ret_x) - z
-
-        
-        np.testing.assert_almost_equal(dz,dz_)
-
-        pp.solve_task(z,0.1)
-        dz = pp.nlp.post_proc(pp.ret_x)
-        
-        c = pp.nlp.line_search(z,dz,np.linspace(0,1,10))
-        self.assertTrue(np.argmin(c) == len(c)-1)
-
-
-    def test_lpm(self):
-        N = 15
-        td = LPM(Cartpole(),N)
-        #td.interp_coefficients(.3)
-        
-        np.random.seed(2)
-        eps = 1e-8
-        z = np.random.normal(size=td.nv)
-        dz = eps*np.random.normal(size = td.nv)
-        
-        z_ = z+ dz
-        
-        f  = td.ccol(z) 
-        d  = td.ccol_jacobian(z) 
-        i,j = td.ccol_jacobian_inds()
-        j = np.array(coo_matrix((d,(i,j))).todense())
-        f_ = td.ccol(z+dz) 
-        
-        r  = (f_- f)/eps
-        r_ =  np.dot(j,dz)/eps
-
-        np.testing.assert_almost_equal(r,r_,4)
-
-    def test_msm(self):
-        l = 15
-        td = MSM(Cartpole(),l)
-        zi = td.initialization()
-        
-        np.random.seed(2)
-        eps = 1e-8
-        z = np.random.normal(size=td.nv)
-        dz = eps*np.random.normal(size = td.nv)
-        
-        z_ = z+ dz
-        
-        f  = td.ccol(z) 
-
-        d   = td.ccol_jacobian(z) 
-        i,j = td.ccol_jacobian_inds()
-        j = np.array(coo_matrix((d,(i,j))).todense())
-        f_ = td.ccol(z+dz) 
-        
-        r  = (f_- f)/eps
-        r_ =  np.dot(j,dz)/eps
-
-        np.testing.assert_almost_equal(r,r_,4)
-
-    def test_msm_ext(self):
-        l = 15
-        td = MSMext(Cartpole(),l)
-        zi = td.initialization()
-        
-        np.random.seed(2)
-        eps = 1e-8
-        z = np.random.normal(size=td.nv)
-        dz = eps*np.random.normal(size = td.nv)
-        
-        z_ = z+ dz
-        
-        f  = td.ccol(z) 
-
-        d   = td.ccol_jacobian(z) 
-        i,j = td.ccol_jacobian_inds()
-        j = np.array(coo_matrix((d,(i,j)),shape=(td.nc,td.nv)).todense())
-        f_ = td.ccol(z+dz) 
-        
-        r  = (f_- f)/eps
-        print j.shape
-        print dz.shape
-        r_ =  np.dot(j,dz)/eps
-
-        np.testing.assert_almost_equal(r,r_,2)
-
-    def test_esm(self):
-        l = 15
-        td = ESM(Cartpole(),l)
-        zi = td.initialization()
-        
-        np.random.seed(2)
-        eps = 1e-8
-        z = np.random.normal(size=td.nv)
-        dz = eps*np.random.normal(size = td.nv)
-        
-        z_ = z+ dz
-        
-        f  = td.ccol(z) 
-
-        d   = td.ccol_jacobian(z) 
-        i,j = td.ccol_jacobian_inds()
-        j = np.array(coo_matrix((d,(i,j))).todense())
-        f_ = td.ccol(z+dz) 
-        
-        r  = (f_- f)/eps
-        r_ =  np.dot(j,dz)/eps
-
-        np.testing.assert_almost_equal(r,r_,4)
-
-    def test_col(self):
-
-        pp = KnitroNlp(
-            GPM(
-                Cartpole(),25)
-            )
-        pi = pp.solve()
-        
-
-    def test_slp(self):
-
-        pp = SlpNlp(
-            GPM(
-                Cartpole(state=(0,0,np.pi,0))
-                ,15)
-            )
-        pi = pp.solve()
-        
-
 if __name__ == '__main__':
-    single_test = 'test_iter'
-    tests = TestsPendubot
+    single_test = 'test_explicit'
+    tests = TestsCartpole
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))
