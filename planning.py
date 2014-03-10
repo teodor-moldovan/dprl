@@ -585,7 +585,7 @@ class ImplicitDynamicalSystem:
         
         fm.fill(0)
         fm.shape = (l,nx*nfa)
-        self.features_mass(z, fm)
+        self.k_features_mass(z, fm)
         fm.shape = (l*nx,nfa)
         
         m.shape = (l*nx,nx)
@@ -594,7 +594,7 @@ class ImplicitDynamicalSystem:
         m.shape = (l,nx,nx)
 
         fg.fill(0)
-        self.features_force(z, fg)
+        self.k_features_force(z, fg)
         matrix_mult(fg,wg.T,g)
         
         ufunc('a=-a')(g)

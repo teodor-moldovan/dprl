@@ -1941,6 +1941,8 @@ class TestsPendubot(unittest.TestCase):
         env.state = 2*np.pi*2*(np.random.random(4)-0.5)
         s0 = env.state.copy()
         trj = env.step(ZeroPolicy(env.nu), 20) 
+        print trj
+        sfdad
 
         model.plot_init()
 
@@ -2631,8 +2633,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_implicit'
-    tests = TestsSwimmer
+    single_test = 'test_iter'
+    tests = TestsPendubot
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))
