@@ -13,6 +13,7 @@ import sympy
 import matplotlib as mpl
 #mpl.use('pdf')
 import matplotlib.pyplot as plt
+from matplotlib import animation 
 
 import mosek
 import warnings

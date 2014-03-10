@@ -1454,7 +1454,7 @@ class TestsPendubot(TestsDynamicalSystem):
         env.state = 2*np.pi*2*(np.random.random(4)-0.5)
         s0 = env.state.copy()
         trj = env.step(ZeroPolicy(env.nu), 20) 
-
+        
         model.plot_init()
 
         for t in range(10000):
@@ -1477,6 +1477,18 @@ class TestsPendubot(TestsDynamicalSystem):
 
 
             trj = env.step(pi,10)
+
+
+    def test_disp(self):
+
+        seed = 46 # 11,15,22
+        np.random.seed(seed)
+
+        env = self.ds
+        env.state = 2*np.pi*2*(np.random.random(4)-0.5)
+        trj = env.step(ZeroPolicy(env.nu), 20) 
+        
+        env.plot_state_seq(trj[2])
 
 
 class TestsUnicycle(TestsDynamicalSystem):
@@ -1589,8 +1601,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_explicit'
-    tests = TestsCartpole
+    single_test = 'test_disp'
+    tests = TestsPendubot
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))

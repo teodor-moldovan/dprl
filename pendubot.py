@@ -92,4 +92,34 @@ class Pendubot(ImplicitDynamicalSystem):
         fig = plt.gcf()
         fig.savefig('out.pdf')
         plt.clf()
+        
+    def plot_state_init(self):
+        
+        x = self.anim_x[0]
+        plt.xlim([-1.2,1.2])
+        plt.ylim([-1.2,1.2])
+        x1 = np.sin(x[2])*0.5
+        y1 = np.cos(x[2])*0.5
+        x2 = np.sin(x[2]+x[3])*0.5+x1
+        y2 = np.cos(x[2]+x[3])*0.5+y1
+        self.anim_plot, = plt.plot([0,x1,x2],[0,y1,y2],'go-',linewidth=4,markersize=12)
+        return self.anim_plot,
+        
+    def plot_state(self,t):
+        
+        print 'Frame ' + str(t) + ': ' + str(self.anim_x[t])
+        x = self.anim_x[t]
+        x1 = np.sin(x[2])*0.5
+        y1 = np.cos(x[2])*0.5
+        x2 = np.sin(x[2]+x[3])*0.5+x1
+        y2 = np.cos(x[2]+x[3])*0.5+y1
+        self.anim_plot.set_data([0,x1,x2],[0,y1,y2])
+        return self.anim_plot,
+        
+    def plot_state_seq(self,x):
+
+        self.anim_x = x
+        plt.clf()
+        anim = animation.FuncAnimation(plt.figure(1),self.plot_state,frames=len(x),interval=20,blit=False,init_func=self.plot_state_init,repeat=False)
+        anim._start()
 
