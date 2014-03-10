@@ -6,7 +6,6 @@ from  scipy.sparse import coo_matrix
 from sys import stdout
 import math
 
-
 import re
 import sympy
 

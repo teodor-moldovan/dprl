@@ -1486,10 +1486,23 @@ class TestsPendubot(TestsDynamicalSystem):
 
         env = self.ds
         env.state = 2*np.pi*2*(np.random.random(4)-0.5)
-        trj = env.step(ZeroPolicy(env.nu), 20) 
+        trj = env.step(ZeroPolicy(env.nu), 200) 
         
         env.plot_state_seq(trj[2])
+        plt.show()
 
+    def test_accs(self):
+        ds = self.ds
+
+        state = 2*np.pi*2*(np.random.random(4)-0.5)
+        x = to_gpu((state)[np.newaxis,:])
+        u = to_gpu(np.array(((0,),)))
+
+        print 'state: ', x
+        print 'control: ', u
+        r = ds.explf(x,u)
+        print 'state derivative: ', r
+       
 
 class TestsUnicycle(TestsDynamicalSystem):
     def setUp(self):
@@ -1601,7 +1614,7 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_disp'
+    single_test = 'test_accs'
     tests = TestsPendubot
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()

@@ -42,7 +42,7 @@ class Pendubot(ImplicitDynamicalSystem):
         return exprs, symbols
 
 
-    def step(self,*args,**kwargs):
+    def step_(self,*args,**kwargs):
         rt = ImplicitDynamicalSystem.step(self,*args,**kwargs)
 
         self.state[2] =  np.mod(self.state[2] + 2*np.pi,4*np.pi)-2*np.pi
