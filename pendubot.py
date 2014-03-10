@@ -285,7 +285,7 @@ class PendubotPilco(DynamicalSystem, Environment):
 
         A = sympy.Matrix(A)
         b = sympy.Matrix(2,1,b)
-        x = sympy.Inverse(A)*b
+        x = A.inv()*b
         
         f,g = codegen(
             (('ddth1', x[0]), ('ddth2',x[1])) 
@@ -456,12 +456,14 @@ Pendubot=PendubotPilco
 OptimisticPendubot=OptimisticPendubotPilco
 class PendubotImplicit(ImplicitDynamicalSystem):
     def __init__(self,**kwargs):
-
-        ImplicitDynamicalSystem.__init__(self,
-                4,1,
+        e,s = self.symbolic_dynamics() 
+        ImplicitDynamicalSystem.__init__(self,e,s,
                 np.array([0,0,np.pi,np.pi]), 
                 np.array([0,0,0,0]), 
                 **kwargs)       
+
+    @staticmethod
+    def symbolic_dynamics():
 
         m1 = 0.5   # [kg]     mass of 1st link
         m2 = 0.5   # [kg]     mass of 2nd link
@@ -491,12 +493,7 @@ class PendubotImplicit(ImplicitDynamicalSystem):
             (-dt2 + w2)
         )
         
-        self.codegen(exprs,symbols)
-
-        wn = np.dot(np.diag((1,1,1,1)) , self.weights.get())
-        self.weights = to_gpu(wn)
-
-
+        return exprs, symbols
 
 
     def step(self,*args,**kwargs):

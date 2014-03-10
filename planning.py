@@ -6,7 +6,7 @@ from  scipy.sparse import coo_matrix
 from sys import stdout
 import math
 
-from sympy.utilities.codegen import codegen
+
 import re
 import sympy
 
@@ -14,10 +14,9 @@ import matplotlib as mpl
 #mpl.use('pdf')
 import matplotlib.pyplot as plt
 
-#import mosek
-#import warnings
-#mosek_env = mosek.Env()
-#mosek_env.init()
+import mosek
+import warnings
+mosek_env = mosek.Env()
 
 class ExplicitRK(object):    
     def __init__(self,st='rk4'):
@@ -413,18 +412,22 @@ class OptimisticDynamicalSystem(DynamicalSystem):
 
 
 class ImplicitDynamicalSystem:
-    def __init__(self,nx,nu, state, target = None,
+    def __init__(self, exprs, symbols, state=None, target = None,
                 log_h_init = -1.0, 
                 dt = 0.01, noise = 0.0):
 
-        self.nx = nx
-        self.nu = nu
-        self.nz = 2*nx+nu
+        self.nx = len(exprs)
+        self.nu = len(symbols) - 2*self.nx
 
-        self.state  = np.array(state)
+        self.codegen(exprs, symbols)
+
+        if state is None:
+            state = np.zeros(self.nx)
 
         if target is None:
-            target = np.zeros(self.state.shape)
+            target = np.zeros(self.nx)
+
+        self.state  = np.array(state)
 
         self.c_ignore = np.isnan(target) 
         target[np.isnan(target)] = 0.0
@@ -435,75 +438,70 @@ class ImplicitDynamicalSystem:
         self.dt = dt
         self.t = 0
         self.noise = noise
-        self.model_slack_bounds = 0.0*np.ones(nx)
+        self.model_slack_bounds = 0.0*np.ones(self.nx)
 
+    @staticmethod
+    @memoize_to_disk
+    def __codegen(exprs, symbols,nx):
 
-    def codegen(self, exprs, symbols):
+        simplify = lambda e: e.rewrite(sympy.exp).expand().rewrite(sympy.sin).expand()
+        exprs = [simplify(e) for e in exprs]
 
         # separate weights from features
-        smp = (lambda e: 
-            e.rewrite(sympy.exp).expand().rewrite(sympy.sin).expand())
-
-        exprs = [smp(smp(e)).as_coefficients_dict().items() for e in exprs]
-
+        exprs = [e.as_coefficients_dict().items() for e in exprs]
         features = set(zip(*sum(exprs,[]))[0])
         
-        accs = set(symbols[:self.nx])
+        accs = set(symbols[:nx])
         f1 = set((f for f in features 
                 if len(f.free_symbols.intersection(accs))>0 ))
         f2 = features.difference(f1)
-        features = sorted(tuple(f1))+sorted(tuple(f2))
+        features = list(tuple(f1)+ tuple(f2))
         
         nf, nfa = len(features), len(f1)
 
         feat_ind =  dict(zip(features,range(len(features))))
         
-        weights = [(i,feat_ind[c],float(d)) 
-                for i,ex in enumerate(exprs) for c,d in ex]
-        i,j,d = zip(*weights)
-        
-        weights = scipy.sparse.coo_matrix((d, (i,j)))
-        weights = to_gpu(weights.todense())
+        weights = tuple((i,feat_ind[c],float(d)) 
+                for i,ex in enumerate(exprs) for c,d in ex)
 
         # done with weights
         
-        # codegen for features
-
-        
         jac = [sympy.diff(f,s) for s in symbols for f in features]
         
-        # rename symbols
-        for i,s in enumerate(symbols):
-            s.name = 'z['+str(i)+']'
+        # generate cuda code
         
-        compiled_features = []
-        for f in list(features) + jac:
-            if f == 0:
-                compiled_features.append('0')
-                continue
-            code = codegen(("f",f),'c','pendubot',header=False)[0][1]
-            code = re.search(r"(?<=return).*(?=;)", code).group(0)
-            compiled_features.append(code)
-        
-        fcode = compiled_features[:nf]
-        jcode = compiled_features[nf:]
-        
+        m_inds = [s*nf + f  for s in range(nx) for f in range(nfa)]
+        msym = [jac[i] for i in m_inds]
+        gsym = features[nfa:]
 
-        tpl = Template("""
-        __device__ void f({{ dtype }} z[], {{ dtype }} out[]){
-        {% for f in fcode %}{% if f!="0" %}
-        out[{{ loop.index0 }}] = {{ f }};{% endif %}{% endfor %}
-        }
-        """)
-        fn = tpl.render(dtype = cuda_dtype, fcode = fcode)
-        k_features = rowwise(fn,'features')
+        fn1 = codegen_cse(features, symbols)
+        fn2 = codegen_cse(jac, symbols)
+        fn3 = codegen_cse(msym, symbols[nx:])
+        fn4 = codegen_cse(gsym, symbols[nx:])
 
-        fn = tpl.render(dtype = cuda_dtype, fcode = jcode)
-        k_features_jacobian = rowwise(fn,'features_jacobian')
-        
-        self.nf, self.nfa = nf,nfa
-        ret =  weights, k_features, k_features_jacobian
-        self.weights, self.k_features, self.k_features_jacobian = ret
+        return fn1,fn2,fn3,fn4, weights, nf, nfa 
+
+    def codegen(self, exprs, symbols):
+
+        self.exprs = tuple(exprs)
+        self.symbols = tuple(symbols)
+        nx = self.nx
+
+        ret  = self.__codegen(self.exprs, self.symbols,self.nx)
+        fn1,fn2,fn3,fn4, weights, nf, nfa  = ret
+
+        self.nf, self.nfa = nf, nfa
+
+        i,j,d = zip(*weights)
+        weights = scipy.sparse.coo_matrix((d, (i,j))).todense()
+        self.weights = to_gpu(weights)
+
+        # compile cuda code
+        self.k_features = rowwise(fn1,'features')
+        self.k_features_jacobian = rowwise(fn2,'features_jacobian')
+        self.k_features_mass = rowwise(fn3,'features_mass')
+        self.k_features_force = rowwise(fn4,'features_force')
+
 
     def features(self,x):
 
@@ -522,7 +520,8 @@ class ImplicitDynamicalSystem:
 
     def features_jacobian(self,x):
 
-        l,n,f = x.shape[0], self.nz, self.nf
+        l,f = x.shape[0], self.nf
+        n = 2*self.nx+self.nu
         y = self.__jac_buffer(l,n,f)
         
         y.shape = (l,n*f)
@@ -552,21 +551,67 @@ class ImplicitDynamicalSystem:
         return f
 
 
-    def explf(self,x,u):
-        # note: this function is not gpu accelerated
-        nx,nu = self.nx, self.nu
-        z = array((x.shape[0],self.nz))
-        z.fill(0)
-        ufunc('a=b')(z[:,nx:-nu],to_gpu(x))
-        ufunc('a=b')(z[:,-nu:],to_gpu(u))
-        f = self.implf(z).get()
-        j = self.implf_jac(z).get()
-        
-        a = -j[:,:nx,:].swapaxes(1,2)
-        
-        r = np.vstack(map(lambda e: np.linalg.solve(e[0],e[1]), zip(a,f)))
-        return r
+    @staticmethod
+    @memoize
+    def __explf_wsplit(w,n):
+        nx,nf = w.shape
+        wm = array((nx,n))
+        wg = array((nx,nf-n))
 
+        ufunc('a=b')(wm,w[:,:n])
+        ufunc('a=b')(wg,w[:,n:])
+        return wm,wg
+
+    @staticmethod
+    @memoize
+    def __explf_cache(l,nx,nfa,nf):
+        fm = array((l,nx,nfa))
+        fg = array((l,nf-nfa))
+        m   = array((l,nx,nx))
+        m_  = array((l,nx,nx))
+        g  = array((l,nx))
+        dx = array((l,nx))
+        return fm,fg,m,m_,g,dx
+        
+    def explf(self,x,u):
+        nx,nu,nf,nfa = self.nx, self.nu, self.nf, self.nfa
+        l = x.shape[0]
+        z = array((l,nx+nu))
+        ufunc('a=b')(z[:,:nx],x)
+        ufunc('a=b')(z[:,nx:],u)
+
+        fm,fg,m,m_,g,dx = self.__explf_cache(l,nx,nfa,nf)
+        wm,wg = self.__explf_wsplit(self.weights, nfa)
+        
+        fm.fill(0)
+        fm.shape = (l,nx*nfa)
+        self.features_mass(z, fm)
+        fm.shape = (l*nx,nfa)
+        
+        m.shape = (l*nx,nx)
+        matrix_mult(fm,wm.T,m)
+        fm.shape = (l,nx,nfa)
+        m.shape = (l,nx,nx)
+
+        fg.fill(0)
+        self.features_force(z, fg)
+        matrix_mult(fg,wg.T,g)
+        
+        ufunc('a=-a')(g)
+
+        g.shape = (l,nx,1)
+        dx.shape = (l,nx,1)
+
+        batch_matrix_mult(m,m.T,m_)
+        batch_matrix_mult(m,g,dx)
+
+        chol_batched(m_,m)
+        solve_triangular(m,dx,back_substitution = True)
+
+        g.shape = (l,nx)
+        dx.shape = (l,nx)
+
+        return dx
 
     def step(self, policy, n = 1):
 
@@ -576,7 +621,8 @@ class ImplicitDynamicalSystem:
             u = policy.u(t,x).reshape(-1)[:self.nu]
             u = np.maximum(-1.0, np.minimum(1.0,u) )
 
-            dx = self.explf(x.reshape(1,x.size),u.reshape(1,u.size))
+            dx = self.explf(to_gpu(x.reshape(1,x.size)),
+                        to_gpu(u.reshape(1,u.size))).get()
             dx = dx.reshape(-1)
 
             return dx,u 
@@ -664,9 +710,9 @@ class ImplicitDynamicalSystem:
         
         
     def print_state(self):
-        t,s = self.t, self.state
-        nx = self.nx
-        print 't: ',('{:4.2f} ').format(t),' state: ',('{:9.3f} '*nx).format(*s)
+        for x, n in [(self.t, 'time')] + zip(self.state, self.symbols[self.nx:]):
+            print '{:8}: {: 6.4f}'.format(str(n),x)
+
 
 class GPMcompact():
     """ Gauss Pseudospectral Method
@@ -1275,11 +1321,11 @@ class SlpNlp():
                 a,b = self.nlp.line_search(z,dz,al)
                 
                 # find first local minimum
-                ae = np.concatenate(([float('inf')],b,[float('inf')]))
-                inds  = np.where(np.logical_and(b<=ae[2:],b<ae[:-2] ) )[0]
+                #ae = np.concatenate(([float('inf')],b,[float('inf')]))
+                #inds  = np.where(np.logical_and(b<=ae[2:],b<ae[:-2] ) )[0]
                 
-                #i = np.argmin(b)
-                i = inds[0]
+                i = np.argmin(b)
+                #i = inds[0]
                 cost = b[i]
                 r = al[i]
 
@@ -1292,7 +1338,7 @@ class SlpNlp():
             #print z[self.nlp.iv_model_slack]
                 
             hi = z[self.nlp.iv_h]
-            if np.abs(old_cost - cost)<1e-4:
+            if np.abs(old_cost - cost)<1e-5:
                 break
             old_cost = cost
 

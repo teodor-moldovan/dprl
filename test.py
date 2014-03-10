@@ -4,6 +4,7 @@ from cartpole import *
 from cart2pole import *
 from pendubot import *
 from unicycle import *
+from swimmer import *
 from heli import *
 import time
 import scipy.linalg
@@ -214,6 +215,41 @@ class TestsTools(unittest.TestCase):
         np.testing.assert_almost_equal(r/r_,1,4)
 
         #print cc[0]
+
+
+    def test_pinv(self):
+        k,m,n = 32*8*11, 32, 5
+        np.random.seed(6)
+
+        A = np.random.normal(size=k*m*m).reshape(k,m,m)
+        X = np.random.normal(size=k*m*n).reshape(k,m,n)
+
+        t = time.time()
+        cc = np.array([np.linalg.solve(A_,X_) 
+                for A_,X_ in zip(A,X)])
+
+        msecs = (time.time()-t)*1000
+        print 'CPU ',msecs ,'ms'
+
+        
+        a = to_gpu(A)
+        x = to_gpu(X)
+        
+        a_ = array(a.shape)
+        d  = array(a.shape)
+        x_ = array(x.shape)
+        
+        batch_matrix_mult(a.T,a,a_)
+        batch_matrix_mult(a.T,x,x_)
+        chol_batched(a_,d)
+        solve_triangular(d,x_,back_substitution = True)
+
+        t = tic()
+        batch_matrix_mult(a.T,a,a_)
+        batch_matrix_mult(a.T,x,x_)
+        chol_batched(a_,d)
+        solve_triangular(d,x_,back_substitution = True)
+        toc(t)
 
 
     def test_outer(self):
@@ -496,6 +532,19 @@ class TestsTools(unittest.TestCase):
         print "Speedup: ", msecs/msecs_
 
         np.testing.assert_almost_equal( e.get(),rs,3)
+
+
+    def test_inv(self):
+        l,m = 11*8*32,11
+        np.random.seed(1)
+        A = np.random.rand(l,m, m)
+        
+        a = to_gpu(A)
+        batch_matrix_inv(a)
+
+        A_ = np.array(map(np.linalg.inv,A))
+        
+        np.testing.assert_almost_equal( a.get(),A_,6)
 
 
 class TestsClustering(unittest.TestCase):
@@ -1829,7 +1878,8 @@ class TestsPendubot(unittest.TestCase):
     def test_implicit(self):
         ds = PendubotImplicit()
         
-        l,n = 1000, ds.nz
+        l,nx,nu = 11*8*32, ds.nx,ds.nu
+        n = 2*nx+nu
         zn = np.random.random(l*n).reshape(l,n)
         z = to_gpu(zn)
         
@@ -1839,20 +1889,33 @@ class TestsPendubot(unittest.TestCase):
         ds.implf(z)
         ds.implf_jac(z)
 
+    def test_explicit(self):
+        ds = PendubotImplicit()
+        np.random.seed(1)
+        
+        l,nx,nu = 11*8*32, ds.nx, ds.nu
+        n = 2*nx+nu
+        zn = np.random.random(l*n).reshape(l,n)
+        z = to_gpu(zn)
+        
         x,u = zn[:,4:-1],zn[:,-1:]
+        x = to_gpu(x)
+        u = to_gpu(u)
+
         r = ds.explf(x,u)
 
         ds_ = PendubotPilco()
-        r_ = ds_.f(to_gpu(x),to_gpu(u)).get()
+        r_ = ds_.f(x,u)
 
-        np.testing.assert_array_almost_equal(r,r_)
+        np.testing.assert_array_almost_equal(r.get(),r_.get())
 
 
     def test_cca(self):
         ds = PendubotImplicit()
         np.random.seed(10)
         
-        l,n = 100, ds.nz
+        l,nx,nu = 100, ds.nx,ds.nu
+        n = 2*nx+nu
         zn = np.random.random(l*n).reshape(l,n)
         z = to_gpu(zn)
         
@@ -2051,7 +2114,8 @@ class TestsPendubot(unittest.TestCase):
         np.random.seed(seed)
 
         env = PendubotImplicit(noise = 0.1)
-        trj = env.step(ZeroPolicy(env.nu), 10, random_control=True) 
+        trj = env.step(ZeroPolicy(env.nu), 10) 
+        env.print_state()
 
 
 class TestsHeli(unittest.TestCase):
@@ -2198,21 +2262,45 @@ class TestsUnicycle(unittest.TestCase):
     def test_implicit(self):
         ds = Unicycle()
 
-        l,n = 1000, ds.nz
-        zn = np.random.random(l*n).reshape(l,n)
-        z = to_gpu(zn)
+        l,nx,nu = 11*8*32, ds.nx, ds.nu
+        n = 2*nx + nu
         
+        np.random.seed(3)
+        zn = np.random.random(l*n).reshape(l,n)
+
+        z = to_gpu(zn)
+
         f = ds.features(z)
         ds.features_jacobian(z)
-            
         ds.implf(z)
         ds.implf_jac(z)
+
+    def test_explicit(self):
+        ds = Unicycle()
+
+        l,nx,nu = 11*8*32, ds.nx, ds.nu
+        n = 2*nx+nu
+        np.random.seed(3)
+        zn = np.random.random(l*n).reshape(l,n)
+
+        x,u = zn[:,ds.nx:-ds.nu],zn[:,-ds.nu:]
+        x = to_gpu(x)
+        u = to_gpu(u)
+
+        r = ds.explf(x,u)
+       
+        for i in range(10):
+            t=tic()
+            r = ds.explf(x,u)
+            toc(t)
+            
 
     def test_cca(self):
         ds = Unicycle()
         np.random.seed(10)
         
-        l,n = 1000, ds.nz
+        l,nx,nu = 1000, ds.nx, ds.nu
+        n = 2*nx+nu
         zn = 3+10*np.random.normal(size=l*n).reshape(l,n)
         z = to_gpu(zn)
         
@@ -2229,10 +2317,8 @@ class TestsUnicycle(unittest.TestCase):
         seed = 45 # 11,15,22
         np.random.seed(seed)
 
-        env = Unicycle(noise = 0.001)
+        env = Unicycle(noise = 0.0)
         env.set_location(1.0,1.0)
-
-        #env.state = 2*np.pi*(np.random.random(4)-0.5)
 
         pp = SlpNlp(GPMcompact(env,55))
         
@@ -2244,6 +2330,24 @@ class TestsUnicycle(unittest.TestCase):
 
             trj = env.step(pi,10)
 
+
+class TestsSwimmer(unittest.TestCase):
+    def test_implicit(self):
+        ds = Swimmer(7)
+
+        l,nx,nu = 11*8*32, ds.nx, ds.nu
+        n = 2*nx+nu
+
+        np.random.seed(3)
+        zn = np.random.random(l*n).reshape(l,n)
+
+        z = to_gpu(zn)
+
+        ds.implf(z)
+        
+        t = tic()
+        ds.implf(z)
+        toc(t)
 
 class TestsPP(unittest.TestCase):
     def test_pcw_policy(self):
@@ -2527,8 +2631,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_f'
-    tests = TestsCartDoublePole
+    single_test = 'test_implicit'
+    tests = TestsSwimmer
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))

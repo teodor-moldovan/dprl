@@ -5,13 +5,17 @@ from pycuda.compiler import SourceModule
 import pycuda.scan
 from pycuda import gpuarray
 from pytools import my_decorator
-import functools
 from pycuda.gpuarray import GPUArray
 from collections import OrderedDict
 import numpy as np
 import re
 import atexit
 import time
+import sympy
+from tempfile import gettempdir
+from os.path import join
+from inspect import getsourcelines
+import shelve
 
 from jinja2 import Template
 
@@ -19,6 +23,23 @@ if True:    # set True for double precision
     np_dtype, cuda_dtype = np.float64, 'double'
 else:
     np_dtype, cuda_dtype = np.float32, 'float'
+
+@my_decorator
+def memoize_to_disk(func, *args):
+    fname = join(gettempdir(),'dprl_shelf')
+    s = shelve.open(fname)
+    
+    code = ''.join(getsourcelines(func)[0])
+    hs = code +str(args)
+    try:
+        return s[hs]
+    except KeyError:
+        result = func(*args)
+        s[hs] = result
+        return result
+
+    s.close()
+    
 
 @my_decorator
 def memoize(func, *args):
@@ -62,7 +83,7 @@ def memoize_one(func, *args):
 if False:   # set True to disable caching
     memoize = lambda x : x
     memoize_one = lambda x : x
-#memoize_one = lambda x : x
+    memoize_to_disk = lambda x : x
 
 ## end settings
 cublas_handle = cublas.cublasCreate()
@@ -150,7 +171,7 @@ class array(GPUArray):
 
     @property
     def bptrs(self):
-        return self.__get_bptrs(self.ptr,self.shape,self.strides)
+        return self.__get_bptrs(self.ptr,self.shape[0],self.strides[0])
 
     @property
     def slc(self):
@@ -181,12 +202,12 @@ class array(GPUArray):
 
     @staticmethod
     @memoize
-    def __get_bptrs(ptr,shape,strides):
+    def __get_bptrs(ptr,shape,stride):
         """
         Pointer array when input represents a batch of matrices.
         """
         
-        start, stop, step = ptr, ptr+shape[0]*strides[0], strides[0] 
+        start, stop, step = ptr, ptr+shape*stride, stride 
 
         #return gpuarray.arange(start,stop,step,dtype=cublas.ctypes.c_void_p)
 
@@ -484,14 +505,14 @@ def k_solve_triangular(m,n,bd,bck,identity):
 
         {% if bck %}
 
-        for (int i=M-1; i>-1; i--){
+        for (int i=M-1; i>=0; i--){
             {{ dtype }} s = (*x)[i];
             {{ dtype }} d = (*lg)[i][i];
-            for (int j=M-1; j>i; j--){
-                s -= (*x)[j]*(*lg)[i][j];
+            for (int j=i+1; j<M; j++){
+                s -= (*x)[j]*(*lg)[j][i];
             }
-            (*x)[i] = s/d;
             {{ dtype }} tt = s/d;
+            (*x)[i] = tt;
             (*dg)[i][k] = tt;
         }
         {% endif %}
@@ -507,9 +528,10 @@ def k_solve_triangular(m,n,bd,bck,identity):
 
 def solve_triangular(l,x,d=None,
             back_substitution = False, identity=False, bd = 1):
+        
     if d is None:
         d = x;
-
+        
     k,m,m = l.shape
         
     if len(x.shape)==3:
@@ -1099,4 +1121,101 @@ def mm_batched(a,b,c, dm=1,dn=2 ):
 
 
 
+
+
+@memoize
+def __batch_matrix_inv_ws(l,m):
+    c = array((l,m,m))
+    p = gpuarray.empty((l,m), np.int32)
+    i = gpuarray.zeros(l, np.int32)
+    return c, p, i
+
+def batch_matrix_inv(a):
+
+    l,m,m_ = a.shape
+
+    if m_!=m:
+        raise TypeError
+
+    if cuda_dtype=='float':
+        trf = cublas.cublasSgetrfBatched
+        tri = cublas.cublasSgetriBatched
+
+    if cuda_dtype=='double':
+        trf = cublas.cublasDgetrfBatched
+        tri = cublas.cublasDgetriBatched
+
+    print a.get()[0][2:4]
+    import scipy
+    P,L,U = scipy.linalg.lu(a.get()[0].T)
+
+    c, p, i = __batch_matrix_inv_ws(l,m)
+  
+    trf(cublas_handle, 
+        m, a.bptrs.gpudata, m, p.gpudata, 
+        i.gpudata, l)
+
+    print i.get()
+    print p.get()
+    print np.diag(U)
+    print np.diag(a.get()[0])
+    asdf
+
+    tri(cublas_handle, 
+        m, a.bptrs.gpudata, m, p.gpudata, 
+        c.bptrs.gpudata, m,
+        i.gpudata, l)
+
+    ufunc('a=b')(a,c)
+
+
+# codegen
+def codegen_cse(exprs,symbols, temp_name = 'tmp',
+                input_name = 'z', output_name = 'out'):
+
+    fs = set()
+    for e in exprs:
+        fs = fs.union(e.free_symbols)
+
+    l0 = []
+    for i,e in enumerate(symbols):
+        if e in fs:
+            l0.append((e , sympy.var('z['+str(i)+']') ))
+        
+    l1,ex_ = sympy.cse(exprs,symbols = sympy.numbered_symbols(temp_name))
+    
+        
+    l2 = []
+    for i,e in enumerate(ex_):
+        if e != 0:
+            l2.append((sympy.var(output_name+'['+str(i)+']'), e ))
+        
+    l =  l0+l1+l2
+    
+    compiled_features = []
+
+    codegen = sympy.utilities.codegen.codegen
+    for d,f in l:
+        code = codegen(("f",f),'c','pendubot',header=False)[0][1]
+        code = re.search(r"(?<=return).*(?=;)", code).group(0)
+        compiled_features.append((d.name, code))
+
+
+    declare = [l[0].name for l in l0+l1] 
+
+    tpl = Template("""
+    __device__ void f({{ dtype }} {{ nin }}[], {{ dtype }} {{ nout }}[]){
+    {% for t in declare %}
+    {{ dtype }} {{ t }};{% endfor %}
+    {% for s,d in lines %}
+    {{ s }} = {{ d }};{% endfor %}
+    }
+    """)
+    fn = tpl.render(dtype = cuda_dtype, nin = input_name,
+                    nout = output_name,
+            lines = compiled_features,
+            declare = declare)
+    
+    return fn
+    
 

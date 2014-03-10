@@ -1,4 +1,4 @@
-all: noft
+all: ft
 
 noft: 
 	python test.py 
