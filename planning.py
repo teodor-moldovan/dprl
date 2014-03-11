@@ -217,6 +217,20 @@ class PiecewiseConstantPolicy:
          
         #hack
         return u
+        
+class LinearFeedbackPolicy:
+    def __init__(self,us,xs,Ks,ks,max_h,dt):
+        self.us = us+ks
+        self.xs = xs
+        self.K = Ks
+        self.max_h = max_h
+        self.dt = dt
+        
+    def u(self,t,x):
+        l = self.us.shape[0]
+        r = np.minimum(np.floor((t/self.dt)),l-1)
+        u = self.us[np.int_(r)]+self.K*(x-self.xs[np.int_(r)])
+        return u
 
 class DynamicalSystem:
     def __init__(self, exprs, symbols, state=None, target = None,
@@ -477,21 +491,23 @@ class DynamicalSystem:
             dx = self.explf(to_gpu(x.reshape(1,x.size)),
                         to_gpu(u.reshape(1,u.size))).get()
             dx = dx.reshape(-1)
-
-            return dx,u 
-
-
+            
+            return dx,u
+            
         h = min(self.dt*n,policy.max_h)
         
         ode = scipy.integrate.ode(lambda t_,x_ : f(t_,x_)[0])
         ode.set_integrator('dop853')
         ode.set_initial_value(self.state, 0)
-
+        
         trj = []
-        while ode.successful() and ode.t + self.dt <= h:
+        stp = 0
+        #while ode.successful() and ode.t + self.dt <= h:
+        while ode.successful() and stp < n:
             ode.integrate(ode.t+self.dt) 
             dx,u = f(ode.t,ode.y)
             trj.append((self.t+ode.t,dx,ode.y,u))
+            stp = stp + 1
         
         if len(trj)==0:
             ode.integrate(h) 
@@ -504,7 +520,6 @@ class DynamicalSystem:
         self.t += ode.t
         t,dx,x,u = zip(*trj)
         t,dx,x,u = np.vstack(t), np.vstack(dx), np.vstack(x), np.vstack(u)
-
 
         nz = self.noise*np.random.normal(size=dx.shape[0]*self.nx)
         # hack
@@ -1228,4 +1243,217 @@ class SlpNlp():
         self.last_z = z
         
         return self.nlp.get_policy(z)
+        
+
+class DDPPlanner():
+    """DDP solver for planning """
+    def __init__(self,ds,x0,T,iterations):
+        # set user-specified parameters
+        self.ds = ds
+        self.x0 = x0
+        self.T = T
+        self.iterations = iterations
+    
+    # run DDP planning
+    def plan(self):
+        # startup message TODO: remove
+        print 'Running DDP solver with horizon',self.T
+        
+        # convenience constants
+        Dx = self.ds.nx
+        Du = self.ds.nu
+        T = self.T
+        ds = self.ds
+        
+        # algorithm constants
+        verbosity = 4
+        mumin = 1e-4
+        mu = 0.0
+        del0 = 2.0
+        delc = del0
+        alpha = 1
+        
+        # intialize actions
+        u = 0.1*np.random.randn(T,Du)
+        
+        # initial rollout to get nominal trajectory
+        print 'Running initial rollout'
+        lsx,lsu,policy = self.rollout(u,np.zeros((T,Dx)),np.zeros((T,Du,Dx)),np.zeros((T,Du)))
+        
+        # allocate arrays
+        Qx = np.zeros((T,Dx,1))
+        Qu = np.zeros((T,Du,1))
+        Qxx = np.zeros((T,Dx,Dx))
+        Quu = np.zeros((T,Du,Du))
+        Qux = np.zeros((T,Du,Dx))
+        
+        # run optimization
+        print 'Running optimization'
+        for itr in range(self.iterations):
+            # use result from previous line search
+            x = lsx.copy()
+            u = lsu.copy()        
+            
+            # differentiate the cost function
+            print 'Differentiating cost function'
+            l,lx,lu,lxx,luu,lux = ds.get_cost(x,u)
+            cost = np.sum(l)
+        
+            # differentiate the dynamics
+            print 'Differentiating dynamics'
+            fx,fu = ds.discrete_time_linearization(x,u)
+            
+            # print total cost
+            if verbosity > 1:
+                print 'Iteration',itr,'initial return:',cost
+        
+            # perform backward pass until success
+            K = np.zeros((T,Du,Dx))
+            k = np.zeros((T,Du,1))
+            fail = True
+            while fail == True:
+                fail = False
+                Vx = np.zeros((Dx,1))
+                Vxx = np.zeros((Dx,Dx))
+                sum1 = 0
+                sum2 = 0
+                for t in range(T-1,-1,-1):
+                    # compute Q function at this time step                    
+                    Qx[t] = lx[t] + fx[t].transpose().dot(Vx)
+                    Qu[t] = lu[t] + fu[t].transpose().dot(Vx)
+                    Qxx[t] = lxx[t] + fx[t].transpose().dot(Vxx.dot(fx[t]))
+                    Quu[t] = luu[t] + fu[t].transpose().dot(Vxx.dot(fu[t]))
+                    Qux[t] = lux[t] + fu[t].transpose().dot(Vxx.dot(fx[t]))
+                    
+                    # add regularizing parameter
+                    Quut = Quu[t] + mu*fu[t].transpose().dot(fu[t])
+                    Quxt = Qux[t] + mu*fu[t].transpose().dot(fx[t])
+                    
+                    # perform Cholesky decomposition and check that Quut is SPD
+                    try:
+                        L = scipy.linalg.cho_factor(Quut,lower=False)
+                        break
+                    except scipy.linalg.LinAlgError:
+                        # if we arrive here, Quut is not SPD, need to increase regularizer
+                        fail = True
+                        break
+                    
+                    # compute linear feedback policy
+                    k[t] = -scipy.linalg.cho_solve((L,False),Qu[t])
+                    K[t] = -scipy.linalg.cho_solve((L,False),Qux[t])
+                    
+                    # update the value function
+                    Vx = Qx[t] + K[t].transpose().dot(Quu[t].dot(k[t])) + K[t].transpose().dot(Qu[t]) + Qux[t].transpose().dot(k[t])
+                    Vxx = Qxx[t] + K[t].transpose().dot(Quu[t].dot(K[t])) + K[t].transpose().dot(Qux[t]) + Qux[t].transpose().dot(K[t])
+                    
+                    # make sure Vxx is symmetric
+                    Vxx = 0.5*(Vxx+Vxx.transpose())
+                    
+                    # increment sums
+                    sum1 = sum1 + k[t].transpose().dot(Qu[t])
+                    sum2 = sum2 + 0.5*k[t].transpose().dot(Quu[t].dot(k[t]))
+                    
+                    # store regularized matrices for future use
+                    Quu[t] = Quut
+                    Qux[t] = Quxt
+                    
+                # adjust regularizer if necessary
+                if fail == True:
+                    delc = np.max((del0,delc*del0))
+                    mu = np.max((mumin,mu*delc))
+                    if mu > 1e10:
+                        print 'Regularizer is too high!'
+                    if verbosity > 2:
+                        print 'Increasing regularizer:',mu
+            
+            # perform linesearch
+            line_search_success = False
+            alpha = np.min((1,alpha*2))
+            best_cost = cost
+            while line_search_success == False:
+                # perform rollout
+                lsx,lsu,lspolicy = self.rollout(u,x,K,k*alpha)
+                
+                # compute rollout cost
+                new_cost = np.sum(ds.get_cost(lsx,lsu)[0])
+                
+                # compute del_cost and check optimality condition
+                del_cost = np.max((1e-4,-(alpha*sum1 + alpha**2*sum2)))
+                z = (cost-new_cost)/del_cost
+                
+                # check if this is the new best result
+                if new_cost < best_cost:
+                    best_cost = new_cost
+                    best_lsx = lsx
+                    best_lsu = lsu
+                    best_alpha = alpha
+                    best_policy = lspolicy
+                    
+                # check if improvement is sufficient
+                if z > 0.2:
+                    line_search_success = True
+                    if verbosity > 1:
+                        print 'Improved at alpha:',alpha,'(z =',z,'del_cost =',del_cost,'new_cost =',new_cost,')'
+                else:
+                    alpha = alpha*0.5
+                    if alpha < 1e-12:
+                        break
+                    if verbosity > 1:
+                        print 'Failed to improve at alpha:',alpha,'(z =',z,'del_cost =',del_cost,'new_cost =',new_cost,')'
+            
+            # line search is done, modify regularizer
+            if line_search_success == True:
+                # decrease regularizer
+                delc = np.min((1.0/del0,delc/del0))
+                if mu*delc > mumin:
+                    mu = mu*delc
+                else:
+                    mu = 0.0
+                if verbosity > 2:
+                    print 'Decreasing regularizer:',mu
+                    
+                # store the new score and k
+                cost = new_cost
+                k = k*alpha
+                policy = lspolicy
+            else:
+                # increase regularizer
+                delc = np.max((del0,delc*del0))
+                mu = np.max((mumin,mu*delc))
+                if verbosity > 2:
+                    print 'LINESEARCH FAILED! Increasing regularizer:',mu
+                
+                # resest trajectory
+                if best_cost < cost:
+                    cost = best_cost
+                    k = k*best_alpha
+                    lsx = best_lsx
+                    lsu = best_lsu
+                    alpha = best_alpha
+                    policy = best_policy
+                else:
+                    lsx = x
+                    lsu = u
+                    k = k*0.0
+            
+            # print status
+            if verbosity > 0:
+                print 'Iteration',itr,'alpha:',alpha,'mu:',mu,'return:',cost
+        
+        # return policy
+        print 'DDP finished, returning policy'
+        return policy
+        
+    # helper function to perform a rollout
+    def rollout(self,u,x,K,k):
+        # create linear feedback policy
+        policy = LinearFeedbackPolicy(u,x,K,k,self.T*self.ds.dt,self.ds.dt)
+        
+        # run simulation
+        self.ds.state = self.x0.copy()
+        self.ds.t = 0
+        trj = self.ds.step(policy,self.T)
+        
+        # return result
+        return trj[2],trj[3],policy
         
