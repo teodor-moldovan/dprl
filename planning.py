@@ -217,6 +217,19 @@ class PiecewiseConstantPolicy:
          
         #hack
         return u
+        
+class LinearFeedbackPolicy:
+    def __init__(self,us,xs,Ks,ks,max_h):
+        self.us = us+ks
+        self.xs = xs
+        self.K = Ks
+        self.max_h = max_h
+        
+    def u(self,t,x):
+        l = self.us.shape[0]
+        r = np.minimum(np.floor((t/self.max_h)*(l)),l-1)
+        u = self.us[np.int_(r)]+self.K*(x-self.xs[np.int_(r)])
+        return u
 
 class DynamicalSystem:
     def __init__(self, exprs, symbols, state=None, target = None,
@@ -1227,4 +1240,42 @@ class SlpNlp():
         self.last_z = z
         
         return self.nlp.get_policy(z)
+        
+
+class DDPPlanner():
+    """DDP solver for planning """
+    def __init__(self,ds,x0,T):
+        self.ds = ds
+        self.x0 = x0
+        self.T = T
+    
+    # run DDP planning
+    def plan(self):
+        # startup message TODO: remove
+        print 'Running DDP solver with horizon',self.T
+        
+        # convenience constants
+        Dx = self.ds.nx
+        Du = self.ds.nu
+        T = self.T
+        
+        # intialize actions
+        u = 0.1*np.random.randn(T,Du)
+        
+        # initial rollout to get nominal trajectory
+        x,u,policy = self.rollout(u,np.zeros((T,Dx)),np.zeros((T,Du,Dx)),np.zeros((T,Du)))
+        
+        # return policy
+        return policy
+        
+    # helper function to perform a rollout
+    def rollout(self,u,x,K,k):        
+        # create linear feedback policy
+        policy = LinearFeedbackPolicy(u,x,K,k,self.T*self.ds.dt)
+        
+        # run simulation
+        trj = self.ds.step(policy,self.T)
+        
+        # return result
+        return trj[2],trj[3],policy
         

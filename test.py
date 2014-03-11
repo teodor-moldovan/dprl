@@ -1379,8 +1379,32 @@ class TestsDynamicalSystem(unittest.TestCase):
         print 
         print 'state derivative: '
         print  self.ds.dstate2str(r)
+        
+    def test_ddp(self):
+        # get dynamical system
+        env = self.ds
+        
+        # sample initial state
+        x0 = 2*np.pi*2*(np.random.random(env.nx)-0.5)
+        
+        # create DDP planner
+        ddp = DDPPlanner(env,x0,200)
+        
+        # run DDP planner
+        policy = ddp.plan()
+        
+        # execute
+        env = self.ds
+        env.state = x0
+        trj = env.step(policy, 200)
 
-
+        # render result
+        env.plot_state_seq(trj[2])
+        plt.show()
+        
+        # TODO:remove
+        timetocrash
+        
     def test_discrete_time(self):
         ds = self.ds
         np.random.seed(10)
