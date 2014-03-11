@@ -1382,7 +1382,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         
     def test_ddp(self):
         # constants
-        T = 10
+        T = 100
         ddp_itr = 10
         seed = 1
         
@@ -1407,9 +1407,6 @@ class TestsDynamicalSystem(unittest.TestCase):
         # render result
         env.plot_state_seq(trj[2])
         plt.show()
-        
-        # TODO:remove
-        timetocrash
         
     def test_discrete_time(self):
         ds = self.ds

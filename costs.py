@@ -15,6 +15,8 @@ class TargetCost:
         # compute derivatives
         lx = self.cost_wp*(x-self.target)
         lu = self.cost_wu*u
+        lx = lx.reshape((T,Dx,1))
+        lu = lu.reshape((T,Du,1))
         
         # compute second derivatives
         lxx = self.cost_wp*np.repeat(np.eye(Dx).reshape((1,Dx,Dx)),T,axis=0)
