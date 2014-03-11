@@ -229,7 +229,7 @@ class LinearFeedbackPolicy:
     def u(self,t,x):
         l = self.us.shape[0]
         r = np.minimum(np.floor((t/self.dt)),l-1)
-        u = self.us[np.int_(r)]+self.K.dot(x-self.xs[np.int_(r)])
+        u = self.us[np.int_(r)]+self.K[np.int_(r)].dot(x-self.xs[np.int_(r)])
         return u
 
 class DynamicalSystem:
@@ -1479,11 +1479,11 @@ class DDPPlanner():
     # helper function to perform a rollout
     def rollout(self,u,x,K,k):
         # create linear feedback policy
-        policy = LinearFeedbackPolicy(u,x,K,k,self.T*self.ds.dt,self.ds.dt)
+        policy = LinearFeedbackPolicy(u,x,K,k.reshape(self.T,self.ds.nu),self.T*self.ds.dt,self.ds.dt)
         
         # run simulation
-        trj = self.ds.discrete_time_rollout(policy,self.x0,self.T)
+        rox,rou = self.ds.discrete_time_rollout(policy,self.x0,self.T)
         
         # return result
-        return trj[2],trj[3],policy
+        return rox,rou,policy
         
