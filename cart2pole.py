@@ -1,10 +1,15 @@
 from planning import *
+from costs import *
  
-class CartDoublePole(DynamicalSystem):
+class CartDoublePole(DynamicalSystem,TargetCost):
     def __init__(self,**kwargs):
         e,s = self.symbolic_dynamics() 
+        self.cost_wu = 1e-5
+        self.cost_wp = 1.0
+        nan = np.float('nan')
         DynamicalSystem.__init__(self,e,s,
-                np.array([0,0,0,np.pi,np.pi,0]), 
+                np.array([0,0,0,np.pi,np.pi,0]),
+                np.array([nan,nan,nan,0,0,0]), 
                 **kwargs)       
 
     @staticmethod

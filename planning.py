@@ -1309,20 +1309,54 @@ class DDPPlanner():
     
     # run incremental DDP planning
     def incremental_plan(self,stride,horizon):
-        # allocate structures
+        # constants
+        T = self.T
+        Dx = self.nx
+        Du = self.nu        
         
+        # allocate feedback matrices
+        K = np.zeros((T,Du,Dx))
+        
+        # initial rollout to get nominal trajectory
+        print 'Running initial rollout for incremental planning'
+        x,u,policy = self.rollout(u,np.zeros((T,Dx)),K,np.zeros((T,Du)))
         
         # run incremental planning
+        for tinit in range(0,T,stride):
+            # choose range end and horizon
+            tlast = np.min((T-1,tinit+horizon-1))
+            itrhorizon = tlast-init+1   
+            
+            # print status message
+            print 'Optimizing range',tinit,'to',tlast
+            
+            # set up DDP input functions
+            frollout = lambda u_,x_,K_,k_ : self.rollout(u_,x_,K_,k_,x[tinit],itrhorizon)
+            fcost = lambda x_,u_ : self.ds.get_cost(x_,u_)
+            fdyngrad = lambda x_,u_ : self.ds.discrete_time_linearization(x_,u_)
         
+            # call DDP optimizer with initialization
+            xitr,uitr,policyitr = ddpopt(x[tinit],frollout,fcost,fdyngrad,Dx,Du,itrhorizon,
+                                         x[tinit,...,tend,:],u[tinit,...,tend,:])
+        
+            # place result back into x, u, and K
+            x[tinit,...,tend,:] = xitr
+            u[tinit,...,tend,:] = uitr
+            K[tinit,...,tend,:,:] = policyitr.K
         
         # finalize with full planning
-        
+        print 'Running finalization'
+        # set up DDP input functions
+        frollout = lambda u_,x_,K_,k_ : self.rollout(u_,x_,K_,k_)
+        fcost = lambda x_,u_ : self.ds.get_cost(x_,u_)
+        fdyngrad = lambda x_,u_ : self.ds.discrete_time_linearization(x_,u_)
+        policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,Dx,Du,T,x,u)
         
         # return result
         return policy,x,u
         
     # DDP-based trajectory optimization with modular dynamics and cost computation
-    def ddpopt(self,x0,frollout,fcost,fdyngrad,Dx,Du,T):
+    def ddpopt(self,x0,frollout,fcost,fdyngrad,Dx,Du,T,lsx=None,lsu=None):
                 # startup message TODO: remove
         print 'Running DDP solver with horizon',T
                 
@@ -1334,12 +1368,11 @@ class DDPPlanner():
         delc = del0
         alpha = 1
         
-        # intialize actions
-        u = 0.1*np.random.randn(T,Du)
-        
         # initial rollout to get nominal trajectory
-        print 'Running initial rollout'
-        lsx,lsu,policy = frollout(u,np.zeros((T,Dx)),np.zeros((T,Du,Dx)),np.zeros((T,Du)))
+        if lsx == None:
+            print 'Running initial rollout'
+            u = 0.1*np.random.randn(T,Du) # use random initial actions
+            lsx,lsu,policy = frollout(u,np.zeros((T,Dx)),np.zeros((T,Du,Dx)),np.zeros((T,Du)))
         
         # allocate arrays
         Qx = np.zeros((T,Dx,1))
@@ -1505,12 +1538,18 @@ class DDPPlanner():
         return policy,lsx,lsu
         
     # helper function to perform a rollout
-    def rollout(self,u,x,K,k):
+    def rollout(self,u,x,K,k,state=None,H=None):
+        # fill in defaults
+        if state == None:
+            state = self.x0
+        if H == None:
+            H = self.T
+        
         # create linear feedback policy
-        policy = LinearFeedbackPolicy(u,x,K,k.reshape(self.T,self.ds.nu),self.T*self.ds.dt,self.ds.dt)
+        policy = LinearFeedbackPolicy(u,x,K,k.reshape(H,self.ds.nu),H*self.ds.dt,self.ds.dt)
         
         # run simulation
-        rox,rou = self.ds.discrete_time_rollout(policy,self.x0,self.T)
+        rox,rou = self.ds.discrete_time_rollout(policy,state,H)
         
         # return result
         return rox,rou,policy

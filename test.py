@@ -1384,7 +1384,7 @@ class TestsDynamicalSystem(unittest.TestCase):
     def test_ddp(self):
         # constants
         T = 400
-        ddp_itr = 200
+        ddp_itr = 500
         seed = 1
         
         # get dynamical system
