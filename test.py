@@ -1613,12 +1613,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_accs'
-    tests = TestsCartpole
-    if hasattr(tests, single_test):
-        dev_suite = unittest.TestSuite()
-        dev_suite.addTest(tests(single_test))
-        unittest.TextTestRunner().run(dev_suite)
-    else:
-        unittest.main()
-
+    """ to avoid merge conflicts, let's run individual tests 
+        from command-line like this:
+	python test.py TestsCartDoublePole.test_accs
+    """
+    unittest.main()
