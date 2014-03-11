@@ -1409,6 +1409,30 @@ class TestsDynamicalSystem(unittest.TestCase):
         r = ds.explf(x,u)
         toc(t)
 
+    def test_disp(self):
+
+        seed = 46 # 11,15,22
+        np.random.seed(seed)
+
+        env = self.ds
+        env.state = 2*np.pi*2*(np.random.random(self.ds.nx)-0.5)
+        trj = env.step(ZeroPolicy(env.nu), 200) 
+        
+        env.plot_state_seq(trj[2])
+        plt.show()
+
+    def test_accs(self):
+        ds = self.ds
+
+        np.random.seed(6)
+        state = 2*np.pi*2*(np.random.random(self.ds.nx)-0.5)
+        x = to_gpu((state)[np.newaxis,:])
+        u = to_gpu(np.zeros((1,self.ds.nu)))
+
+        print 'state: ', x
+        print 'control: ', u
+        r = ds.explf(x,u)
+        print 'state derivative: ', r
 
 
 class TestsCartpole(TestsDynamicalSystem):
@@ -1477,32 +1501,7 @@ class TestsPendubot(TestsDynamicalSystem):
 
 
             trj = env.step(pi,10)
-
-
-    def test_disp(self):
-
-        seed = 46 # 11,15,22
-        np.random.seed(seed)
-
-        env = self.ds
-        env.state = 2*np.pi*2*(np.random.random(4)-0.5)
-        trj = env.step(ZeroPolicy(env.nu), 200) 
-        
-        env.plot_state_seq(trj[2])
-        plt.show()
-
-    def test_accs(self):
-        ds = self.ds
-
-        state = 2*np.pi*2*(np.random.random(4)-0.5)
-        x = to_gpu((state)[np.newaxis,:])
-        u = to_gpu(np.array(((0,),)))
-
-        print 'state: ', x
-        print 'control: ', u
-        r = ds.explf(x,u)
-        print 'state derivative: ', r
-       
+      
 
 class TestsUnicycle(TestsDynamicalSystem):
     def setUp(self):
@@ -1614,8 +1613,13 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
+<<<<<<< HEAD
     single_test = 'test_disp'
     tests = TestsPendubot
+=======
+    single_test = 'test_accs'
+    tests = TestsCartpole
+>>>>>>> fdefec9b51bd4c335852b7d6947645c22d21061e
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))

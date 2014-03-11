@@ -114,8 +114,8 @@ class Pendubot(ImplicitDynamicalSystem):
         x = self.anim_x[t]
         x1 = np.sin(x[2])*0.5
         y1 = np.cos(x[2])*0.5
-        x2 = np.sin(x[2]+x[3])*0.5+x1
-        y2 = np.cos(x[2]+x[3])*0.5+y1
+        x2 = np.sin(x[3])*0.5+x1
+        y2 = np.cos(x[3])*0.5+y1
         self.anim_plot.set_data([0,x1,x2],[0,y1,y2])
         return self.anim_plot,
         
