@@ -1290,8 +1290,8 @@ class DDPPlanner():
         print 'Running optimization'
         for itr in range(self.iterations):
             # use result from previous line search
-            x = lsx
-            u = lsu            
+            x = lsx.copy()
+            u = lsu.copy()        
             
             # differentiate the cost function
             print 'Differentiating cost function'
@@ -1377,7 +1377,7 @@ class DDPPlanner():
                 new_cost = np.sum(ds.get_cost(lsx,lsu)[0])
                 
                 # compute del_cost and check optimality condition
-                del_cost = np.max((0,-(alpha*sum1 + alpha**2*sum2)))
+                del_cost = np.max((1e-4,-(alpha*sum1 + alpha**2*sum2)))
                 z = (cost-new_cost)/del_cost
                 
                 # check if this is the new best result
