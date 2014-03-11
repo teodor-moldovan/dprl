@@ -81,6 +81,13 @@ class ExplicitRK(object):
         ks = [ [kn[i] for i in nd] for nd in nds]
         return y,kn,ks,t
 
+    @staticmethod
+    @memoize
+    def __const(l,h):
+        r = array((l,1))
+        r.fill(h)
+        return r
+
     def integrate(self,fnc, y0,hb): 
         """return state x_h given x_0, control u and h  """
         # todo higher order. eg: http://www.peterstone.name/Maplepgs/Maple/nmthds/RKcoeff/Runge_Kutta_schemes/RK5/RKcoeff5b_1.pdf
@@ -89,6 +96,11 @@ class ExplicitRK(object):
                         self.inds,self.name)    
 
         ufunc('a=b')(y,y0)
+        
+        try:
+            len(hb)
+        except:
+            hb = self.__const(y0.shape[0],hb)
 
         for i in range(self.ns):
             self.ft[i](t,hb)
@@ -229,6 +241,8 @@ class DynamicalSystem:
         self.target = np.array(target)
 
         self.log_h_init = log_h_init
+        self.integrator = ExplicitRK()
+        self.differentiator = NumDiff()
             
         self.dt = dt
         self.t = 0
@@ -368,12 +382,18 @@ class DynamicalSystem:
         dx = array((l,nx))
         return fm,fg,m,m_,g,dx
         
-    def explf(self,x,u):
+    def explf(self,*args):
+        
         nx,nu,nf,nfa = self.nx, self.nu, self.nf, self.nfa
-        l = x.shape[0]
-        z = array((l,nx+nu))
-        ufunc('a=b')(z[:,:nx],x)
-        ufunc('a=b')(z[:,nx:],u)
+        l = args[0].shape[0]
+
+        if len(args)==2:
+            x,u = args
+            z = array((l,nx+nu))
+            ufunc('a=b')(z[:,:nx],x)
+            ufunc('a=b')(z[:,nx:],u)
+        if len(args)==1:
+            z = args[0]
 
         fm,fg,m,m_,g,dx = self.__explf_cache(l,nx,nfa,nf)
         wm,wg = self.__explf_wsplit(self.weights, nfa)
@@ -407,6 +427,43 @@ class DynamicalSystem:
         dx.shape = (l,nx)
 
         return dx
+
+    def integrate(self,*args):
+        
+        nx,nu = self.nx, self.nu
+        l = args[0].shape[0]
+
+        if len(args)==2:
+            x,u = args
+        if len(args)==1:
+            z = args[0]
+            x = array((l,nx))
+            u = array((l,nu))
+            ufunc('a=b')(x,z[:,:nx])
+            ufunc('a=b')(u,z[:,nx:])
+
+        fnc = lambda x_,t : self.explf(x_,u)
+        delta_x =  self.integrator.integrate(fnc,x, self.dt)
+        return delta_x
+
+    def discrete_time_linearization(self,*args):
+        nx,nu = self.nx, self.nu
+        l = args[0].shape[0]
+
+        if len(args)==2:
+            x,u = args
+            z = array((l,nx+nu))
+            ufunc('a=b')(z[:,:nx],to_gpu(x))
+            ufunc('a=b')(z[:,nx:],to_gpu(u))
+        if len(args)==1:
+            z = to_gpu(args[0])
+        
+        r =  self.differentiator.diff(self.integrate, z)
+        r = r.get()
+        A = np.swapaxes(r[:,:nx,:],1,2) + np.eye(nx)[np.newaxis,:,:]
+        B = np.swapaxes(r[:,nx:,:],1,2)
+
+        return A,B
 
     def step(self, policy, n = 1):
 

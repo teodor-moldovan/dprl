@@ -1381,6 +1381,24 @@ class TestsDynamicalSystem(unittest.TestCase):
         print  self.ds.dstate2str(r)
 
 
+    def test_discrete_time(self):
+        ds = self.ds
+        np.random.seed(10)
+        
+        l,nx,nu = 11, ds.nx, ds.nu
+        n = 2*nx+nu
+        np.random.seed(3)
+        zn = np.random.random(l*n).reshape(l,n)
+
+        x,u = zn[:,ds.nx:-ds.nu],zn[:,-ds.nu:]
+
+        r = ds.integrate(to_gpu(x),to_gpu(u))
+        r = ds.discrete_time_linearization(x,u)
+        
+        t = tic()
+        A,B = ds.discrete_time_linearization(x,u)
+        toc(t)
+
 class TestsCartpole(TestsDynamicalSystem):
     def setUp(self):
         import cartpole
