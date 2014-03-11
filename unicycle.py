@@ -8,7 +8,6 @@ class Unicycle(ImplicitDynamicalSystem):
         e,s = self.symbolic_dynamics() 
 
         ImplicitDynamicalSystem.__init__(self,e,s,
-                np.zeros(nx),
                 np.array((
                         0,0,0,0,0,
                         0,0,

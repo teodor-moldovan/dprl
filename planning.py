@@ -14,9 +14,12 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib import animation 
 
-import mosek
-import warnings
-mosek_env = mosek.Env()
+try:
+    import mosek
+    import warnings
+    mosek_env = mosek.Env()
+except ImportError:
+    pass
 
 class ExplicitRK(object):    
     def __init__(self,st='rk4'):
@@ -202,214 +205,6 @@ class PiecewiseConstantPolicy:
          
         #hack
         return u
-
-class Environment:
-    def __init__(self, state, dt = .01, noise = 0.0):
-        self.state = np.array(state)
-        self.home_state = self.state.copy()
-        self.dt = dt
-        self.t = 0
-        self.noise = noise
-
-    def step(self, policy, n = 1, random_control=False):
-
-        seed = int(np.random.random()*1000)
-
-        def f(t,x):
-            u = policy.u(t,x).reshape(-1)[:self.nu]
-            
-            sd = seed+ int(t/self.dt)
-            np.random.seed(sd)
-
-            if random_control:
-                nz = self.noise*np.random.normal(size=self.nu)
-                u = u + nz
-
-            u = np.maximum(-1.0, np.minimum(1.0,u) )
-
-            dx = self.f(to_gpu(x.reshape(1,x.size)),to_gpu(u.reshape(1,u.size)))
-            dx = dx.get().reshape(-1)
-
-            #nz = self.noise*np.random.normal(size=self.nx/2)
-            # hack
-            #dx[:self.nx/2] += nz
-
-            return dx,u #.get().reshape(-1)
-
-
-        h = min(self.dt*n,policy.max_h)
-        
-        ode = scipy.integrate.ode(lambda t_,x_ : f(t_,x_)[0])
-        ode.set_integrator('dop853')
-        ode.set_initial_value(self.state, 0)
-
-        trj = []
-        while ode.successful() and ode.t + self.dt <= h:
-            ode.integrate(ode.t+self.dt) 
-            dx,u = f(ode.t,ode.y)
-            trj.append((self.t+ode.t,dx,ode.y,u))
-        
-        if len(trj)==0:
-            ode.integrate(h) 
-            self.state[:] = ode.y
-            self.t += ode.t
-            return None
-            
-
-        self.state[:] = ode.y
-        self.t += ode.t
-        t,dx,x,u = zip(*trj)
-        t,dx,x,u = np.vstack(t), np.vstack(dx), np.vstack(x), np.vstack(u)
-
-
-        nz = self.noise*np.random.normal(size=dx.shape[0]*self.nx)
-        # hack
-        #print np.max(np.abs(dx[:,:2]),0)
-        dx += nz.reshape(dx.shape[0],self.nx)
-        x  += self.noise*np.random.normal(size= x.size).reshape( x.shape)
-        u  += self.noise*np.random.normal(size= u.size).reshape( u.shape)
-
-        return t,dx,x,u
-
-
-    def print_state(self):
-        pass
-class DynamicalSystem(object):
-    """ Controls are assumed to be bounded between -1 and 1 """
-    def __init__(self,nx,nu):
-        self.nx = nx
-        self.nu = nu
-
-        self.differentiator = NumDiff()
-        self.integrator = ExplicitRK()
-        
-    def f(self,x,u):
-        
-        l = x.shape[0]
-        y = array((l,self.nx))
-        
-        self.k_f(x,u,y)
-        
-        return y
-
-    def f_sp(self,x):
-        
-        l,nx,nu = x.shape[0],self.nx,self.nu
-        y_,u_ = array((l,nx)), array((l,nu))
-
-        y,u = x[:,:nx], x[:,nx:nx+nu]
-
-        ufunc('a=b')(y_,y)
-        ufunc('a=b')(u_,u)
-        
-        return self.f(y_,u_)
-
-
-    def f_sp_diff(self,x):
-        df = self.differentiator.diff(lambda x_: self.f_sp(x_), x)   
-
-        return df
-
-
-    def integrate_sp(self,hxu):
-        
-        l,nx,nu = hxu.shape[0], self.nx,self.nu
-
-        x,u,h = array((l,nx)), array((l,nu)), array((l,1))
-        ufunc('a=b')(h,hxu[:,:1])
-        ufunc('a=b')(x,hxu[:,1:1+nx])
-        ufunc('a=b')(u,hxu[:,1+nx:1+nx+nu])
-        
-        f = lambda x_,t : self.f(x_,u)
-        df = self.integrator.integrate(f,x,h)
-        ufunc('a/=b')(df,h)
-        return df
-
-    def integrate_sp_diff(self,hxu):
-        df = self.differentiator.diff(lambda x_: self.integrate_sp(x_), hxu)
-        return df 
-        
-    # todo: move out
-    def state2waypoint(self,state):
-        try:
-            state = state.tolist()
-        except:
-            pass
-
-        state = [0 if s is None else s for s in state] + [0,]*self.nu
-        return np.array(state)
-
-    # todo: move out
-    def initializations(self):
-        ws = self.state2waypoint(self.state)
-        we = self.state2waypoint(self.target)
-        w =  self.waypoint_spline((ws,we))
-        yield -1.0, w
-        while True:
-            h = np.random.normal()
-            yield h,w
-
-    # todo: move out
-    def waypoint_spline(self,ws):
-        ws = np.array(ws)
-        tw = np.arange(len(ws))*(1.0/(len(ws)-1))
-        
-        return lambda t: np.array([np.interp(t,tw, w ) for w in ws.T]).T
-
-        
-class OptimisticDynamicalSystem(DynamicalSystem):
-    def __init__(self,nx,nu, nxi, start, pred, xi_scale = 4.0, **kwargs):
-
-        DynamicalSystem.__init__(self,nx,nu+nxi, **kwargs)
-        
-        self.state = np.array(start)
-        self.home_state = self.state.copy()
-
-        self.xi_scale = xi_scale
-        self.nxi = nxi
-        self.predictor = pred
-
-    @staticmethod
-    def __pred_input_ws(l,n,m):
-        return array((l,n)), array((l,m))
-
-    @staticmethod
-    def __f_with_prediction_ws(l,nx):
-        return array((l,nx))
-    def f(self,x,u):
-
-        l = x.shape[0]
-        x0,xi = self.__pred_input_ws(l,
-                   self.predictor.p-self.nxi,self.nxi)
-        
-        u0 = array((l,self.nu-self.nxi))
-
-        ufunc('a=b*'+str(self.xi_scale))(xi,u[:,self.nu-self.nxi:self.nu])
-        ufunc('a=b')(u0,u[:,:self.nu-self.nxi])
-
-        self.k_pred_in(x,u0,x0)
-
-        y = self.predictor.predict(x0,xi)
-        
-        dx = self.__f_with_prediction_ws(l, self.nx)
-        self.k_f(x,y,u,dx)
-        
-        return dx
-        
-    @staticmethod
-    def __update_input_ws(l,n):
-        return array((l,n))
-
-    def update(self,traj):
-
-        t,dx,x,u = traj
-        dx,x,u = to_gpu(dx), to_gpu(x), to_gpu(u)
-
-        w = self.__update_input_ws(x.shape[0], self.predictor.p)
-        self.k_update(dx,x,u,w)
-
-        self.predictor.update(w)
-
 
 class ImplicitDynamicalSystem:
     def __init__(self, exprs, symbols, state=None, target = None,
@@ -709,10 +504,28 @@ class ImplicitDynamicalSystem:
         self.spectrum = l
         
         
-    def print_state(self):
-        for x, n in [(self.t, 'time')] + zip(self.state, self.symbols[self.nx:]):
-            print '{:8}: {: 6.4f}'.format(str(n),x)
+    def print_state(self,s = None):
+        if s is None:
+            s = self.state
+        print self.state2str(s)
+            
+    @staticmethod
+    def __symvals2str(s,syms):
+        out = ['{:6} {: 8.4f}'.format(str(n),x)
+            for x, n in zip(s, syms)
+            ]
+        
+        return '\n'.join(out)
 
+
+    def state2str(self,s):
+        return self.__symvals2str(s,self.symbols[self.nx:-self.nu])
+        
+    def control2str(self,u):
+        return self.__symvals2str(u,self.symbols[-self.nu:])
+
+    def dstate2str(self,s):
+        return self.__symvals2str(s,self.symbols[:self.nx])
 
 class GPMcompact():
     """ Gauss Pseudospectral Method

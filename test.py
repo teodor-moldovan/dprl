@@ -1,7 +1,5 @@
 import unittest
 from clustering import *
-from cartpole import *
-from heli import *
 import time
 import scipy.linalg
 import scipy.special
@@ -1338,9 +1336,12 @@ class TestsClustering(unittest.TestCase):
             
          
 class TestsHeli(unittest.TestCase):
+    def setUp(self):
+        import heli
+        self.ds = heli.Heli()
     def test_f(self):
         l = 11*8
-        c = Heli()
+        c = self.ds
         
         np.random.seed(1)
 
@@ -1425,14 +1426,19 @@ class TestsDynamicalSystem(unittest.TestCase):
         ds = self.ds
 
         np.random.seed(6)
-        state = 2*np.pi*2*(np.random.random(self.ds.nx)-0.5)
-        x = to_gpu((state)[np.newaxis,:])
-        u = to_gpu(np.zeros((1,self.ds.nu)))
+        x = 2*np.pi*2*(np.random.random(self.ds.nx)-0.5)
+        u = np.zeros(self.ds.nu)
 
-        print 'state: ', x
-        print 'control: ', u
-        r = ds.explf(x,u)
-        print 'state derivative: ', r
+        print
+        print 'state: '
+        print self.ds.state2str(x)
+        print 
+        print 'controls: '
+        print  self.ds.control2str(u)
+        r = ds.explf(to_gpu(x[np.newaxis,:]),to_gpu(u[np.newaxis,:])).get()[0]
+        print 
+        print 'state derivative: '
+        print  self.ds.dstate2str(r)
 
 
 class TestsCartpole(TestsDynamicalSystem):
