@@ -7,13 +7,17 @@ class TargetCost:
         # dimensions
         T = x.shape[0]
         Dx = x.shape[1]
-        Du = u.shape[1]        
+        Du = u.shape[1]
+        
+        # state difference
+        sdiff = x-self.target
+        sdiff[:,self.c_ignore] = 0
         
         # compute cost function using target state
-        l = 0.5*self.cost_wu*np.sum(u**2,axis=1) + 0.5*self.cost_wp*np.sum((x-self.target)**2,axis=1)
+        l = 0.5*self.cost_wu*np.sum(u**2,axis=1) + 0.5*self.cost_wp*np.sum(sdiff**2,axis=1)
         
         # compute derivatives
-        lx = self.cost_wp*(x-self.target)
+        lx = self.cost_wp*sdiff
         lu = self.cost_wu*u
         lx = lx.reshape((T,Dx,1))
         lu = lu.reshape((T,Du,1))

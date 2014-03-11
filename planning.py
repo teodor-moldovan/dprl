@@ -259,7 +259,7 @@ class DynamicalSystem:
 
         self.log_h_init = log_h_init
         self.integrator = ExplicitRK()
-        self.differentiator = NumDiff()
+        self.differentiator = NumDiff(1e-6,1)
             
         self.dt = dt
         self.t = 0
@@ -1289,17 +1289,38 @@ class DDPPlanner():
         self.T = T
         self.iterations = iterations
     
-    # run DDP planning
-    def plan(self):
-        # startup message TODO: remove
-        print 'Running DDP solver with horizon',self.T
+    # run standard DDP planning
+    def direct_plan(self):
+        # set up DDP input functions
+        frollout = lambda u_,x_,K_,k_ : self.rollout(u_,x_,K_,k_)
+        fcost = lambda x_,u_ : self.ds.get_cost(x_,u_)
+        fdyngrad = lambda x_,u_ : self.ds.discrete_time_linearization(x_,u_)
         
-        # convenience constants
-        Dx = self.ds.nx
-        Du = self.ds.nu
-        T = self.T
-        ds = self.ds
+        # call DDP optimizer
+        policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,self.ds.nx,self.ds.nu,self.T)
         
+        # return result
+        return policy,x,u
+    
+    # run incremental DDP planning
+    def incremental_plan(self,stride,horizon):
+        # allocate structures
+        
+        
+        # run incremental planning
+        
+        
+        # finalize with full planning
+        
+        
+        # return result
+        return policy,x,u
+        
+    # DDP-based trajectory optimization with modular dynamics and cost computation
+    def ddpopt(self,x0,frollout,fcost,fdyngrad,Dx,Du,T):
+                # startup message TODO: remove
+        print 'Running DDP solver with horizon',T
+                
         # algorithm constants
         verbosity = 4
         mumin = 1e-4
@@ -1313,7 +1334,7 @@ class DDPPlanner():
         
         # initial rollout to get nominal trajectory
         print 'Running initial rollout'
-        lsx,lsu,policy = self.rollout(u,np.zeros((T,Dx)),np.zeros((T,Du,Dx)),np.zeros((T,Du)))
+        lsx,lsu,policy = frollout(u,np.zeros((T,Dx)),np.zeros((T,Du,Dx)),np.zeros((T,Du)))
         
         # allocate arrays
         Qx = np.zeros((T,Dx,1))
@@ -1331,12 +1352,12 @@ class DDPPlanner():
             
             # differentiate the cost function
             print 'Differentiating cost function'
-            l,lx,lu,lxx,luu,lux = ds.get_cost(x,u)
+            l,lx,lu,lxx,luu,lux = fcost(x,u)
             cost = np.sum(l)
         
             # differentiate the dynamics
             print 'Differentiating dynamics'
-            fx,fu = ds.discrete_time_linearization(x,u)
+            fx,fu = fdyngrad(x,u)
             
             # print total cost
             if verbosity > 1:
@@ -1406,10 +1427,10 @@ class DDPPlanner():
             best_cost = cost
             while line_search_success == False:
                 # perform rollout
-                lsx,lsu,lspolicy = self.rollout(u,x,K,k*alpha)
+                lsx,lsu,lspolicy = frollout(u,x,K,k*alpha)
                 
                 # compute rollout cost
-                new_cost = np.sum(ds.get_cost(lsx,lsu)[0])
+                new_cost = np.sum(fcost(lsx,lsu)[0])
                 
                 # compute del_cost and check optimality condition
                 del_cost = np.max((1e-4,-(alpha*sum1 + alpha**2*sum2)))
@@ -1476,7 +1497,7 @@ class DDPPlanner():
         
         # return policy
         print 'DDP finished, returning policy'
-        return policy
+        return policy,lsx,lsu
         
     # helper function to perform a rollout
     def rollout(self,u,x,K,k):

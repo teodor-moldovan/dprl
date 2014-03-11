@@ -7,11 +7,12 @@ class Pendubot(DynamicalSystem,TargetCost):
     """
     def __init__(self,**kwargs):
         e,s = self.symbolic_dynamics() 
-        self.cost_wu = 1e-4
+        self.cost_wu = 1e-5
         self.cost_wp = 1.0
+        nan = np.float('nan')
         DynamicalSystem.__init__(self,e,s,
                 np.array([0,0,np.pi,np.pi]), 
-                np.array([0,0,0,0]), 
+                np.array([nan,nan,0,0]), 
                 **kwargs)       
 
     @staticmethod
