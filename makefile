@@ -1,6 +1,6 @@
 all: noft
 
 noft: 
-	python test.py TestsSwimmer.test_accs 
+	python test.py TestsPendubot.test_disp
 ft:
 	faketime -f '-80d' python test.py

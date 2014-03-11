@@ -1,28 +1,10 @@
 import unittest
 from clustering import *
+from planning import *
 import time
 import scipy.linalg
 import scipy.special
 #import dpcluster
-
-def check_grad(func,n,eps=1e-8):
-    z = np.random.normal(size=n)
-    dz = eps*np.random.normal(size = n)
-    
-    z_ = z+ dz
-    
-    f ,j  = func(z ) 
-    f_,_  = func(z_) 
-    
-    r  = (f_- f)/eps
-    r_ =  np.dot(j.reshape(f.size,-1),dz)/eps
-        
-    if r_.shape == (1,):
-        r_ = r_[0]
-        
-    df = (r-r_)/np.maximum(r,r_)
-
-    np.testing.assert_almost_equal(df,np.zeros(df.shape),4)
 
 class TestsTools(unittest.TestCase):
     def test_array(self):
