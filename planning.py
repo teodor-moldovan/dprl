@@ -1244,10 +1244,12 @@ class SlpNlp():
 
 class DDPPlanner():
     """DDP solver for planning """
-    def __init__(self,ds,x0,T):
+    def __init__(self,ds,x0,T,iterations):
+        # set user-specified parameters
         self.ds = ds
         self.x0 = x0
         self.T = T
+        self.iterations = iterations
     
     # run DDP planning
     def plan(self):
@@ -1258,18 +1260,45 @@ class DDPPlanner():
         Dx = self.ds.nx
         Du = self.ds.nu
         T = self.T
+        ds = self.ds
+        
+        # algorithm constants
+        verbosity = 4
+        mumin = 1e-4
+        mu = 0.0
+        del0 = 2.0
+        delc = del0
+        alpha = 1
         
         # intialize actions
         u = 0.1*np.random.randn(T,Du)
         
         # initial rollout to get nominal trajectory
+        print 'Running initial rollout'
         x,u,policy = self.rollout(u,np.zeros((T,Dx)),np.zeros((T,Du,Dx)),np.zeros((T,Du)))
         
+        # run optimization
+        print 'Running optimization'
+        for itr in range(self.iterations):
+            # differentiate the cost function
+            print 'Differentiating cost function'
+            l,lx,lu,lxx,luu,lux = ds.get_cost(x,u)
+        
+            # differentiate the dynamics
+            print 'Differentiating dynamics'
+            fx,fu = ds.discrete_time_linearization(x,u)
+        
+            # perform backward pass until success
+        
+            # perform linesearch
+            
+        
         # return policy
+        print 'DDP finished, returning policy'
         return policy
         
     # helper function to perform a rollout
-    def rollout(self,u,x,K,k):        
+    def rollout(self,u,x,K,k):
         # create linear feedback policy
         policy = LinearFeedbackPolicy(u,x,K,k,self.T*self.ds.dt)
         
