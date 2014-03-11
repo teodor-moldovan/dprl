@@ -1614,7 +1614,7 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-    single_test = 'test_accs'
+    single_test = 'test_disp'
     tests = TestsPendubot
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()

@@ -1,6 +1,9 @@
 from planning import *
  
 class Pendubot(ImplicitDynamicalSystem):
+    """
+    Dynamics taken from: http://mlg.eng.cam.ac.uk/pub/pdf/Dei10.pdf
+    """
     def __init__(self,**kwargs):
         e,s = self.symbolic_dynamics() 
         ImplicitDynamicalSystem.__init__(self,e,s,
