@@ -1317,48 +1317,6 @@ class TestsClustering(unittest.TestCase):
             toc(t)
             
          
-class TestsHeli(unittest.TestCase):
-    def setUp(self):
-        import heli
-        self.ds = heli.Heli()
-    def test_f(self):
-        l = 11*8
-        c = self.ds
-        
-        np.random.seed(1)
-
-        xn = np.random.random(size=l*(c.nx)).reshape(l,c.nx)
-        x = to_gpu(xn)
-
-        un = np.random.random(size=l*(c.nu)).reshape(l,c.nu)
-        u = to_gpu(un)
-        
-        rs = c.f(x,u)
-        
-        x.newhash()
-        t = tic()
-        c.f(x,u)
-        toc(t)
-
-        st = np.zeros((1,12))
-        st[0,0] = 1
-        st[0,6] = 1
-        st = to_gpu(st)
-        u = to_gpu(np.zeros((1,4)))
-        
-        rs_ = c.f(st,u).get()[0]
-
-        
-        st = np.zeros((1,12))
-        st[0,0] = 1
-        st = to_gpu(st)
-        u = to_gpu(np.zeros((1,4)))
-        
-        rs = c.f(st,u).get()[0]
-        
-        np.testing.assert_almost_equal( rs,rs_)
-
-         
 class TestsDynamicalSystem(unittest.TestCase):
     def test_implicit(self):
         ds = self.ds
@@ -1436,7 +1394,7 @@ class TestsPendubot(TestsDynamicalSystem):
         import pendubot
         self.ds = pendubot.Pendubot()
     def test_cca(self):
-        ds = Pendubot()
+        ds = self.ds
         np.random.seed(10)
         
         l,nx,nu = 100, ds.nx,ds.nu
@@ -1452,44 +1410,6 @@ class TestsPendubot(TestsDynamicalSystem):
         
         ds.update(trj)
 
-
-    def test_iter(self):
-
-        seed = 46 # 11,15,22
-        np.random.seed(seed)
-
-        model = Pendubot()
-
-        planner = SlpNlp(GPMcompact(model,55))
-
-        env = PendubotImplicit(noise = 0.1)
-        env.state = 2*np.pi*2*(np.random.random(4)-0.5)
-        s0 = env.state.copy()
-        trj = env.step(ZeroPolicy(env.nu), 20) 
-        
-        model.plot_init()
-
-        for t in range(10000):
-            
-            # restarts?
-            if env.t > 2.0 and False:
-                env.t -= 2.0
-                env.state = s0.copy()
-
-            env.print_state()
-
-            if not trj is None:
-                model.update(trj)
-
-            model.state = env.state
-            pi = planner.solve()
-
-            model.plot_traj(pi.x)
-            model.plot_draw()
-
-
-            trj = env.step(pi,10)
-      
 
 class TestsUnicycle(TestsDynamicalSystem):
     def setUp(self):
@@ -1517,7 +1437,7 @@ class TestsUnicycle(TestsDynamicalSystem):
         seed = 45 # 11,15,22
         np.random.seed(seed)
 
-        env = Unicycle(noise = 0.0)
+        env = self.ds
         env.set_location(1.0,1.0)
 
         pp = SlpNlp(GPMcompact(env,55))
