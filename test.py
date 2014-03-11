@@ -1352,7 +1352,7 @@ class TestsDynamicalSystem(unittest.TestCase):
 
     def test_disp(self):
 
-        seed = 46 # 11,15,22
+        seed = 44 # 11,15,22
         np.random.seed(seed)
 
         env = self.ds

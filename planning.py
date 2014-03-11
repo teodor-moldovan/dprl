@@ -189,6 +189,8 @@ class ZeroPolicy:
         self.zr = np.zeros(n)
     def u(self,t,x):
         return self.zr
+    def discu(self,t,x):
+        return self.zr
     max_h = float('inf')
 
 class CollocationPolicy:
@@ -217,6 +219,9 @@ class PiecewiseConstantPolicy:
          
         #hack
         return u
+        
+    def discu(self,t,x):
+        u = self.us[t]
         
 class LinearFeedbackPolicy:
     def __init__(self,us,xs,Ks,ks,max_h,dt):
