@@ -490,16 +490,15 @@ class DynamicalSystem:
             dx = self.explf(to_gpu(x.reshape(1,x.size)),
                         to_gpu(u.reshape(1,u.size))).get()
             dx = dx.reshape(-1)
-
-            return dx,u 
-
-
+            
+            return dx,u
+            
         h = min(self.dt*n,policy.max_h)
         
         ode = scipy.integrate.ode(lambda t_,x_ : f(t_,x_)[0])
         ode.set_integrator('dop853')
         ode.set_initial_value(self.state, 0)
-
+        
         trj = []
         stp = 0
         #while ode.successful() and ode.t + self.dt <= h:
@@ -1450,6 +1449,8 @@ class DDPPlanner():
         policy = LinearFeedbackPolicy(u,x,K,k,self.T*self.ds.dt,self.ds.dt)
         
         # run simulation
+        self.ds.state = self.x0.copy()
+        self.ds.t = 0
         trj = self.ds.step(policy,self.T)
         
         # return result

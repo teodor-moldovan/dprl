@@ -1382,7 +1382,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         
     def test_ddp(self):
         # constants
-        T = 100
+        T = 200
         ddp_itr = 10
         seed = 1
         
@@ -1402,6 +1402,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         # execute
         env = self.ds
         env.state = x0
+        env.t = 0
         trj = env.step(policy,T)
 
         # render result

@@ -10,7 +10,7 @@ class TargetCost:
         Du = u.shape[1]        
         
         # compute cost function using target state
-        l = 0.5*self.cost_wu*np.sum(np.sum(u**2)) + 0.5*self.cost_wp*np.sum(np.sum((x-self.target)**2))
+        l = 0.5*self.cost_wu*np.sum(u**2,axis=1) + 0.5*self.cost_wp*np.sum((x-self.target)**2,axis=1)
         
         # compute derivatives
         lx = self.cost_wp*(x-self.target)
