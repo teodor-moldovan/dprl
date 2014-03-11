@@ -1,6 +1,6 @@
 from planning import *
 
-class Swimmer(ImplicitDynamicalSystem):
+class Swimmer(DynamicalSystem):
     """ same parameters and dynamics as used here:
     http://remi.coulom.free.fr/Publications/Thesis.pdf"""
 
@@ -11,7 +11,7 @@ class Swimmer(ImplicitDynamicalSystem):
         nx = 4 + 2*n
         
         e,s = self.symbolic_dynamics(n) 
-        ImplicitDynamicalSystem.__init__(self,e, s, **kwargs)       
+        DynamicalSystem.__init__(self,e, s, **kwargs)       
 
     @staticmethod
     @memoize_to_disk

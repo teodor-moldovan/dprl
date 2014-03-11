@@ -1,9 +1,9 @@
 from planning import *
  
-class CartDoublePole(ImplicitDynamicalSystem):
+class CartDoublePole(DynamicalSystem):
     def __init__(self,**kwargs):
         e,s = self.symbolic_dynamics() 
-        ImplicitDynamicalSystem.__init__(self,e,s,
+        DynamicalSystem.__init__(self,e,s,
                 np.array([0,0,0,np.pi,np.pi,0]), 
                 **kwargs)       
 

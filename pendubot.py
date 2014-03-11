@@ -1,12 +1,12 @@
 from planning import *
  
-class Pendubot(ImplicitDynamicalSystem):
+class Pendubot(DynamicalSystem):
     """
     Dynamics taken from: http://mlg.eng.cam.ac.uk/pub/pdf/Dei10.pdf
     """
     def __init__(self,**kwargs):
         e,s = self.symbolic_dynamics() 
-        ImplicitDynamicalSystem.__init__(self,e,s,
+        DynamicalSystem.__init__(self,e,s,
                 np.array([0,0,np.pi,np.pi]), 
                 np.array([0,0,0,0]), 
                 **kwargs)       
@@ -43,14 +43,6 @@ class Pendubot(ImplicitDynamicalSystem):
         )
         
         return exprs, symbols
-
-
-    def step_(self,*args,**kwargs):
-        rt = ImplicitDynamicalSystem.step(self,*args,**kwargs)
-
-        self.state[2] =  np.mod(self.state[2] + 2*np.pi,4*np.pi)-2*np.pi
-        self.state[3] =  np.mod(self.state[3] + 2*np.pi,4*np.pi)-2*np.pi
-        return rt
 
 
     def plot_init(self):

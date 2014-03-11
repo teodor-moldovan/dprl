@@ -1,13 +1,13 @@
 from planning import *
 
-class Unicycle(ImplicitDynamicalSystem):
+class Unicycle(DynamicalSystem):
     def __init__(self,**kwargs):
 
         nan = np.float('nan')
 
         e,s = self.symbolic_dynamics() 
 
-        ImplicitDynamicalSystem.__init__(self,e,s,
+        DynamicalSystem.__init__(self,e,s,
                 np.array((
                         0,0,0,0,0,
                         0,0,

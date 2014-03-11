@@ -206,7 +206,7 @@ class PiecewiseConstantPolicy:
         #hack
         return u
 
-class ImplicitDynamicalSystem:
+class DynamicalSystem:
     def __init__(self, exprs, symbols, state=None, target = None,
                 log_h_init = -1.0, 
                 dt = 0.01, noise = 0.0):
