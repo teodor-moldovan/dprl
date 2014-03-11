@@ -1613,13 +1613,8 @@ class TestsPP(unittest.TestCase):
         
 
 if __name__ == '__main__':
-<<<<<<< HEAD
-    single_test = 'test_disp'
-    tests = TestsPendubot
-=======
     single_test = 'test_accs'
     tests = TestsCartpole
->>>>>>> fdefec9b51bd4c335852b7d6947645c22d21061e
     if hasattr(tests, single_test):
         dev_suite = unittest.TestSuite()
         dev_suite.addTest(tests(single_test))
