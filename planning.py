@@ -93,7 +93,7 @@ class ExplicitRK(object):
         # todo higher order. eg: http://www.peterstone.name/Maplepgs/Maple/nmthds/RKcoeff/Runge_Kutta_schemes/RK5/RKcoeff5b_1.pdf
 
         y,kn,ks,t = self.__batch_integrate_ws(self.ns,y0.shape,
-                        self.inds,self.name)    
+                        self.inds,self.name)
 
         ufunc('a=b')(y,y0)
         
@@ -229,7 +229,7 @@ class LinearFeedbackPolicy:
     def u(self,t,x):
         l = self.us.shape[0]
         r = np.minimum(np.floor((t/self.dt)),l-1)
-        u = self.us[np.int_(r)]+self.K*(x-self.xs[np.int_(r)])
+        u = self.us[np.int_(r)]+self.K.dot(x-self.xs[np.int_(r)])
         return u
 
 class DynamicalSystem:
@@ -478,6 +478,38 @@ class DynamicalSystem:
         B = np.swapaxes(r[:,nx:,:],1,2)
 
         return A,B
+        
+    def discrete_time_rollout(self,policy,x0,T):
+                
+        # allocate space for states and actions
+        x = np.zeros((T,self.nx))
+        u = np.zeros((T,self.nu))
+        x[0] = x0
+        
+        # run simulation
+        for t in range(T):
+            # compute policy action
+            u[t] = policy.u(t*self.dt,x[t])
+            
+            # download state and action to GPU
+            #z = array((1,self.nx+self.nu))
+            #ufunc('a=b')(z[:,:self.nx],to_gpu(x[t]))
+            #ufunc('a=b')(z[:,self.nx:],to_gpu(u[t]))
+            gx = array((1,self.nx))
+            gu = array((1,self.nu))
+            gx.set(x[t].reshape(1,self.nx))
+            gu.set(u[t].reshape(1,self.nu))
+            
+            # take step
+            dx = self.integrate(gx,gu)
+            
+            # compute next state
+            if t < T-1:
+                x[t+1] = x[t] + dx.get()
+        
+        # return result
+        return x,u
+        
 
     def step(self, policy, n = 1):
 
@@ -1449,9 +1481,7 @@ class DDPPlanner():
         policy = LinearFeedbackPolicy(u,x,K,k,self.T*self.ds.dt,self.ds.dt)
         
         # run simulation
-        self.ds.state = self.x0.copy()
-        self.ds.t = 0
-        trj = self.ds.step(policy,self.T)
+        trj = self.ds.discrete_time_rollout(policy,self.x0,self.T)
         
         # return result
         return trj[2],trj[3],policy

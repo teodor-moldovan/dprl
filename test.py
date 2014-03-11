@@ -1357,9 +1357,10 @@ class TestsDynamicalSystem(unittest.TestCase):
 
         env = self.ds
         env.state = 2*np.pi*2*(np.random.random(self.ds.nx)-0.5)
-        trj = env.step(ZeroPolicy(env.nu), 200) 
-        
-        env.plot_state_seq(trj[2])
+        #trj = env.step(ZeroPolicy(env.nu), 200)
+        #env.plot_state_seq(trj[2])
+        x,u = env.discrete_time_rollout(ZeroPolicy(env.nu),env.state,200)
+        env.plot_state_seq(x)
         plt.show()
 
     def test_accs(self):
@@ -1403,10 +1404,10 @@ class TestsDynamicalSystem(unittest.TestCase):
         env = self.ds
         env.state = x0
         env.t = 0
-        trj = env.step(policy,T)
+        x,u = env.discrete_time_rollout(policy,env.state,T)
 
         # render result
-        env.plot_state_seq(trj[2])
+        env.plot_state_seq(x)
         plt.show()
         
     def test_discrete_time(self):
