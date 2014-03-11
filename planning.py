@@ -501,9 +501,6 @@ class DynamicalSystem:
             u[t] = policy.discu(t,x[t])
             
             # download state and action to GPU
-            #z = array((1,self.nx+self.nu))
-            #ufunc('a=b')(z[:,:self.nx],to_gpu(x[t]))
-            #ufunc('a=b')(z[:,self.nx:],to_gpu(u[t]))
             gx = array((1,self.nx))
             gu = array((1,self.nu))
             gx.set(x[t].reshape(1,self.nx))
@@ -519,6 +516,36 @@ class DynamicalSystem:
         # return result
         return x,u
         
+    # this variant of the rollout function works with a policy that returns non-physical
+    # actions that get added directly to state, producing a quasi-physical simulation
+    def discrete_time_rollout_quasiphysical(self,policy,x0,T):
+                
+        # allocate space for states and actions
+        x = np.zeros((T,self.nx))
+        u = np.zeros((T,self.nu+self.nx))
+        x[0] = x0
+        
+        # run simulation
+        for t in range(T):
+            # compute policy action
+            # note that the quasi-physical policy returns a vector of size nx+nu
+            u[t] = policy.discu(t,x[t])
+            
+            # download state and action to GPU
+            gx = array((1,self.nx))
+            gu = array((1,self.nu))
+            gx.set(x[t].reshape(1,self.nx))
+            gu.set(u[t,:self.nu].reshape(1,self.nu))
+            
+            # take step
+            dx = self.integrate(gx,gu)
+            
+            # compute next state
+            if t < T-1:
+                x[t+1] = x[t] + dx.get() + u[t,self.nu:]
+        
+        # return result
+        return x,u
 
     def step(self, policy, n = 1):
 
@@ -1355,6 +1382,27 @@ class DDPPlanner():
         # return result
         return policy,x,u
         
+    # run relaxed dynamics continuation method DDP planning
+    def continuation_plan(self):
+        print 'Continuation planning not implemented yet!'
+        
+        # constants
+        qp_wt = 1e2        
+        
+        # set up DDP input functions
+        frollout = lambda u_,x_,K_,k_ : self.rollout(u_,x_,K_,k_)
+        fcost = lambda x_,u_ : self.continuation_cost(x_,u_,qp_wt)
+        fdyngrad = lambda x_,u_ : self.continuation_dyngrad(x_,u_)
+        
+        # call DDP optimizer
+        policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,self.ds.nx,self.ds.nu+self.ds.nx,self.T)
+        
+        # generate new policy for fully physical domain and generate trajectory
+        x,u,policy = rollout(self,u[:,:self.ds.nu],x,K[:,:self.ds.nu,:],k[:,:self.ds.nu])
+        
+        # return result
+        return policy,x,u
+        
     # DDP-based trajectory optimization with modular dynamics and cost computation
     def ddpopt(self,x0,frollout,fcost,fdyngrad,Dx,Du,T,lsx=None,lsu=None):
                 # startup message TODO: remove
@@ -1554,3 +1602,13 @@ class DDPPlanner():
         # return result
         return rox,rou,policy
         
+    # helper function for continuation method to compute derivatives
+    def continuation_dyngrad(x,u):
+        # compute derivatives with respect to states and actions
+        A,B = self.ds.discrete_time_linearization(x,u)
+    
+        # append additional action gradients
+        B = B.append(B,np.repeat(np.eye(x.shape[1]).reshape((1,x.shape[1],x.shape[1])),T,axis=0),axis=2)
+    
+        # return result
+        return A,B
