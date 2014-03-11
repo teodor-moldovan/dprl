@@ -1,9 +1,11 @@
 from planning import *
-import re
+from costs import *
 
-class CartPole(DynamicalSystem):
+class CartPole(DynamicalSystem,TargetCost):
     def __init__(self,**kwargs):
         e,s = self.symbolic_dynamics() 
+        self.cost_wu = 1e-4
+        self.cost_wp = 1.0
         DynamicalSystem.__init__(self,e,s,
                 np.array((0,0,np.pi,0)), 
                 **kwargs)       
