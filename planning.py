@@ -231,6 +231,9 @@ class LinearFeedbackPolicy:
         r = np.minimum(np.floor((t/self.dt)),l-1)
         u = self.us[np.int_(r)]+self.K[np.int_(r)].dot(x-self.xs[np.int_(r)])
         return u
+        
+    def discu(self,t,x):
+        return self.us[t]+self.K[t].dot(x-self.xs[t])
 
 class DynamicalSystem:
     def __init__(self, exprs, symbols, state=None, target = None,
@@ -490,7 +493,7 @@ class DynamicalSystem:
         # run simulation
         for t in range(T):
             # compute policy action
-            u[t] = policy.u(t*self.dt,x[t])
+            u[t] = policy.discu(t,x[t])
             
             # download state and action to GPU
             #z = array((1,self.nx+self.nu))
@@ -1363,16 +1366,15 @@ class DDPPlanner():
                     
                     # perform Cholesky decomposition and check that Quut is SPD
                     try:
-                        L = scipy.linalg.cho_factor(Quut,lower=False)
-                        break
+                        L,bLower = scipy.linalg.cho_factor(Quut,lower=False)
                     except scipy.linalg.LinAlgError:
                         # if we arrive here, Quut is not SPD, need to increase regularizer
                         fail = True
                         break
                     
                     # compute linear feedback policy
-                    k[t] = -scipy.linalg.cho_solve((L,False),Qu[t])
-                    K[t] = -scipy.linalg.cho_solve((L,False),Qux[t])
+                    k[t] = -scipy.linalg.cho_solve((L,bLower),Qu[t])
+                    K[t] = -scipy.linalg.cho_solve((L,bLower),Qux[t])
                     
                     # update the value function
                     Vx = Qx[t] + K[t].transpose().dot(Quu[t].dot(k[t])) + K[t].transpose().dot(Qu[t]) + Qux[t].transpose().dot(k[t])

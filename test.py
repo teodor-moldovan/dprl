@@ -1383,8 +1383,8 @@ class TestsDynamicalSystem(unittest.TestCase):
         
     def test_ddp(self):
         # constants
-        T = 20
-        ddp_itr = 10
+        T = 400
+        ddp_itr = 50
         seed = 1
         
         # get dynamical system
