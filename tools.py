@@ -309,17 +309,28 @@ __device__ {{ dtype }} digamma({{ dtype }} x) {
   return result;}""").render(dtype = cuda_dtype)
 
 @memoize
-def grid_block_sizes(mx):
+def grid_block_sizes_mem(mx, mem_per_thread, multiple_of):
 
     tsz = int(np.prod(mx))
+    if cuda_dtype=='double':
+        s = 64
+    if cuda_dtype=='float':
+        s = 32
+
     # hack. 512 was also good
-    for i in range(256,0,-1):
-        if tsz%i ==0:
-            break
+    for i in reversed(range(multiple_of,256,multiple_of)):
+        if tsz%i != 0:
+            continue
+        if mem_per_thread*i*s > 16*1024: # 16*1024 for older graphics cards
+            continue
+        
+        break
 
     return tsz/i,i
 
-
+@memoize
+def grid_block_sizes(mx):
+    return grid_block_sizes_mem(mx,0,1)
 
 ## kernels
 cumsum_ex = pycuda.scan.ExclusiveScanKernel(np_dtype, "a+b", 0.0)
@@ -388,19 +399,17 @@ def k_chol_batched(m,bd):
     perm_mod = SourceModule(tmp)
     return perm_mod.get_function("cholesky").prepare('PP')
 
-def chol_batched(s,d,bd=1, ):
-
+def chol_batched(s,d):
 
     if s.gpudata==d.gpudata:
         raise NotImplementedError
 
     l,m,m = d.shape
-
-    if l % bd != 0:
-        bd = 1
+    g,b = grid_block_sizes_mem(l*m, (m+1)/2.0, m )
+    bd = b/m
 
     d.newhash()
-    return k_chol_batched(m,bd).prepared_call((1,1,l/bd),(m,1,bd),
+    return k_chol_batched(m,bd).prepared_call((1,1,g),(m,1,bd),
         s.gpudata,d.gpudata)
 
 
@@ -527,8 +536,7 @@ def k_solve_triangular(m,n,bd,bck,identity):
     #f.set_cache_config(pycuda.driver.func_cache.PREFER_NONE)
     return f.prepare('PPP')
 
-def solve_triangular(l,x,d=None,
-            back_substitution = False, identity=False, bd = 1):
+def solve_triangular(l,x,d=None, back_substitution = False, identity=False):
         
     if d is None:
         d = x;
@@ -544,14 +552,11 @@ def solve_triangular(l,x,d=None,
     if l.gpudata==x.gpudata:
         raise NotImplementedError
         
-    if k % bd != 0:
-        bd = 1
+    g,b = grid_block_sizes_mem(k*n, m, n )
+    bd = b/n
 
     d.newhash()
-    return k_solve_triangular(m,n,bd,back_substitution,identity).prepared_call((1,1,k/bd),(n,1,bd),l.gpudata,x.gpudata,d.gpudata)
-
-
-
+    return k_solve_triangular(m,n,bd,back_substitution,identity).prepared_call((1,1,g),(n,1,bd),l.gpudata,x.gpudata,d.gpudata)
 
 @memoize
 def k_outer_product(m,n,bd):

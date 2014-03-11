@@ -113,7 +113,7 @@ class ExplicitRK(object):
 
 
 class NumDiff(object):
-    def __init__(self, h= 1e-8, order = 4):
+    def __init__(self, h= 1e-8, order = 2):
         self.h = h
         self.order = order
 
@@ -460,6 +460,7 @@ class DynamicalSystem:
         
         r =  self.differentiator.diff(self.integrate, z)
         r = r.get()
+        
         A = np.swapaxes(r[:,:nx,:],1,2) + np.eye(nx)[np.newaxis,:,:]
         B = np.swapaxes(r[:,nx:,:],1,2)
 
