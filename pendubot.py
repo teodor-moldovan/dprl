@@ -13,6 +13,7 @@ class Pendubot(DynamicalSystem,TargetCost):
         DynamicalSystem.__init__(self,e,s,
                 np.array([0,0,np.pi,np.pi]), 
                 np.array([nan,nan,0,0]), 
+                -1.0,0.05,0.0,
                 **kwargs)       
 
     @staticmethod

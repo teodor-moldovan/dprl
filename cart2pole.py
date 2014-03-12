@@ -9,7 +9,8 @@ class CartDoublePole(DynamicalSystem,TargetCost):
         nan = np.float('nan')
         DynamicalSystem.__init__(self,e,s,
                 np.array([0,0,0,np.pi,np.pi,0]),
-                np.array([nan,nan,nan,0,0,0]), 
+                np.array([nan,nan,nan,0,0,0]),
+                -1.0,0.05,0.0,
                 **kwargs)       
 
     @staticmethod

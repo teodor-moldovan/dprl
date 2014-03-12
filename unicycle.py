@@ -12,7 +12,8 @@ class Unicycle(DynamicalSystem):
                         0,0,0,0,0,
                         0,0,
                         0,nan,nan,0,0)),
-                log_h_init = -1.0, 
+                np.array([0,0,0,0,0,0,0,0,0,0,0]), 
+                -1.0,0.15,0.0,
                 **kwargs)       
 
     @staticmethod

@@ -8,11 +8,15 @@ class CartPole(DynamicalSystem,TargetCost):
         self.cost_wp = 1.0
         nan = np.float('nan')
         DynamicalSystem.__init__(self,e,s,
-                np.array((0,0,np.pi,0)), 
+                np.array((0,0,np.pi,0)),
+                np.array((0,0,0,0)),
+                -1.0,0.10,0.0,
                 **kwargs)       
 
     @staticmethod
     def symbolic_dynamics():
+
+        # IMPORTANT: this does not match PILCO CartPole -- note the lack of a friction term...
 
         l = .1      # pole length
         mc = .7     # cart mass
