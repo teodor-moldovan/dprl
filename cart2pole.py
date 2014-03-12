@@ -3,20 +3,17 @@ from costs import *
  
 class CartDoublePole(DynamicalSystem,TargetCost):
     def __init__(self,**kwargs):
-        e,s = self.symbolic_dynamics()
-        
         # set up simple cost function parameters
         self.cost_wu = 1e-5
         self.cost_wp = 1.0
                 
         nan = np.float('nan')
-        DynamicalSystem.__init__(self,e,s,
+        DynamicalSystem.__init__(self,
                 np.array([0,0,0,np.pi,np.pi,0]),
                 np.array([nan,nan,nan,0,0,0]),
                 -1.0,0.05,0.0,
                 **kwargs)
-    
-    
+
 #    def get_cost(self,x,u):
 #        # dimensions
 #        T = x.shape[0]
@@ -77,7 +74,7 @@ class CartDoublePole(DynamicalSystem,TargetCost):
         exb = tuple( -i + j for i,j in zip(symbols[3:6],symbols[6:9]))
         exprs = exa + exb
         
-        return exprs, symbols
+        return symbols, exprs
 
     def plot_state_init(self):
           

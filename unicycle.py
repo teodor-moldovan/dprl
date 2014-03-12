@@ -5,14 +5,12 @@ class Unicycle(DynamicalSystem):
 
         nan = np.float('nan')
 
-        e,s = self.symbolic_dynamics() 
-
-        DynamicalSystem.__init__(self,e,s,
+        DynamicalSystem.__init__(self,
+                None,
                 np.array((
                         0,0,0,0,0,
                         0,0,
                         0,nan,nan,0,0)),
-                np.array([0,0,0,0,0,0,0,0,0,0,0]), 
                 -1.0,0.15,0.0,
                 **kwargs)       
 
@@ -74,7 +72,7 @@ class Unicycle(DynamicalSystem):
         exc = tuple( -i + j for i,j in zip(symbols[7:12],symbols[12:17]))
         exprs = exa + exb + exc
 
-        return exprs, symbols
+        return symbols, exprs
         
     def set_location(self,x,y):
         self.state[5:7] = (x,y)

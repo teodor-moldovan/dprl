@@ -1489,7 +1489,6 @@ class TestsUnicycle(TestsDynamicalSystem):
         env.set_location(1.0,1.0)
 
         pp = SlpNlp(GPMcompact(env,55))
-        
 
         for t in range(10000):
             s = env.state

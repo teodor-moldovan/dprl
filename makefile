@@ -1,6 +1,7 @@
-all: noft
+all: ft
 
+CMD = python test.py TestsUnicycle.test_pp_iter
 noft: 
-	python test.py TestsPendubot.test_discrete_time
+	$(CMD)
 ft:
-	faketime -f '-80d' python test.py
+	faketime -f '-80d' $(CMD)
