@@ -1390,16 +1390,25 @@ class DDPPlanner():
     def continuation_plan(self):        
         # constants
         qp_wt = 1e-1
+        T = self.T
+        Du = self.ds.nu
+        Dx = self.ds.nx
+        
+        # initial rollout to get nominal trajectory
+        print 'Running initial rollout for continuation planning'
+        u = 0.1*np.random.randn(T,Du) # use random initial actions
+        x,u,policy = self.rollout(u,np.zeros((T,Dx)),np.zeros((T,Du,Dx)),np.zeros((T,Du)))
+        u = np.append(u,np.zeros(x.shape),axis=1)
         
         # repeat for desired number of iterations
-        for itr in range(10):
+        for itr in range(50):
             # set up DDP input functions
             frollout = lambda u_,x_,K_,k_ : self.continuation_rollout(u_,x_,K_,k_)
             fcost = lambda x_,u_ : self.continuation_cost(x_,u_,qp_wt)
             fdyngrad = lambda x_,u_ : self.continuation_dyngrad(x_,u_)
             
             # call DDP optimizer
-            policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,self.ds.nx,self.ds.nu+self.ds.nx,self.T,verbosity=1)
+            policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,self.ds.nx,self.ds.nu+self.ds.nx,self.T,x,u,verbosity=1)
             
             # compute cost
             totcost = np.sum(self.ds.get_cost(x,u[:,:self.ds.nu])[0])
@@ -1426,7 +1435,7 @@ class DDPPlanner():
         frollout = lambda u_,x_,K_,k_ : self.rollout(u_,x_,K_,k_)
         fcost = lambda x_,u_ : self.ds.get_cost(x_,u_)
         fdyngrad = lambda x_,u_ : self.ds.discrete_time_linearization(x_,u_)
-        policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,x.shape[1],u.shape[1],T,x,u,verbosity=1)
+        policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,x.shape[1],u.shape[1],self.T,x,u,verbosity=1)
         
         # return result
         return policy,x,u
@@ -1539,7 +1548,7 @@ class DDPPlanner():
                         print 'Increasing regularizer:',mu
             
             # check convergence
-            if np.sum(k**2) < 1e-4:
+            if np.sum(k**2) < 1e-4 and itr > 0:
                 if verbosity > 1:
                     print 'Converged!'
                 break
@@ -1682,7 +1691,7 @@ class DDPPlanner():
     # helper function for continuation method to compute derivatives
     def continuation_dyngrad(self,x,u):
         # compute derivatives with respect to states and actions
-        A,B = self.ds.discrete_time_linearization(x,u)
+        A,B = self.ds.discrete_time_linearization(x,u[:,:self.ds.nu])
 
         # append additional action gradients
         B = np.append(B,np.repeat(np.eye(x.shape[1]).reshape((1,x.shape[1],x.shape[1])),x.shape[0],axis=0),axis=2)
