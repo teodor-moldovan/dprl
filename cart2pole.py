@@ -3,15 +3,51 @@ from costs import *
  
 class CartDoublePole(DynamicalSystem,TargetCost):
     def __init__(self,**kwargs):
-        e,s = self.symbolic_dynamics() 
+        e,s = self.symbolic_dynamics()
+        
+        # set up simple cost function parameters
         self.cost_wu = 1e-5
         self.cost_wp = 1.0
+                
         nan = np.float('nan')
         DynamicalSystem.__init__(self,e,s,
                 np.array([0,0,0,np.pi,np.pi,0]),
                 np.array([nan,nan,nan,0,0,0]),
                 -1.0,0.05,0.0,
-                **kwargs)       
+                **kwargs)
+    
+    
+#    def get_cost(self,x,u):
+#        # dimensions
+#        T = x.shape[0]
+#        Dx = x.shape[1]
+#        Du = u.shape[1]
+#        
+#        # compute augmented state with sine/cosine terms and u
+#        xaug = [x[:,5],x[:,2],x[:,0],x[:,1],x[:,3],x[:,4],np.sin(x[:,3]),np.cos(x[:,3]),np.sin(x[:,4]),np.cos(x[:,4]),u]
+#        xtgt = [0,0,0,0,0,0,np.sin(0),np.cos(0),np.sin(0),np.cos(0),0]
+#        
+#        # PILCO weighting matrix
+#        W = [[4,0,0,0,0,0,-4,0,-4,0],
+#             [0,0,0,0,0,0,0,0,0,0],
+#             [0,0,0,0,0,0,0,0,0,0],
+#             [0,0,0,0,0,0,0,0,0,0],
+#             [0,0,0,0,0,0,0,0,0,0],
+#             [0,0,0,0,0,0,0,0,0,0],
+#             [-4,0,0,0,0,0,4,0,4,0],
+#             [0,0,0,0,0,0,0,4,0,4],
+#             [-4,0,0,0,0,0,4,0,4,0],
+#             [0,0,0,0,0,0,0,4,0,4]]
+#        
+#        # compute cost
+#        l = 1-np.exp(-0.5*np.sum((xaug-xtgt)*((xaug-xtgt).dot(W)),axis=1))
+#        
+#        # TODO: compute derivatives lx,lu,lxxl,luu,lux
+#        
+#        
+#        # return results
+#        return l,lx,lu,lxx,luu,lux
+    
 
     @staticmethod
     @memoize_to_disk

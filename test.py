@@ -1392,7 +1392,8 @@ class TestsDynamicalSystem(unittest.TestCase):
         
         # sample initial state
         np.random.seed(seed)
-        x0 = env.state#2*np.pi*2*(np.random.random(env.nx)-0.5)
+        #x0 = env.state
+        x0 = 2*np.pi*2*(np.random.random(env.nx)-0.5)
         
         # create DDP planner
         ddp = DDPPlanner(env,x0,T,ddp_itr)
