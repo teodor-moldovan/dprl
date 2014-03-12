@@ -3,19 +3,15 @@ from planning import *
 class Swimmer(DynamicalSystem):
     """ same parameters and dynamics as used here:
     http://remi.coulom.free.fr/Publications/Thesis.pdf"""
-
     def __init__(self,num_links = 3, **kwargs):
+        self.num_links = num_links
+        DynamicalSystem.__init__(self, **kwargs)       
 
-        n = num_links
-        nu = n - 1 
-        nx = 4 + 2*n
-        
-        e,s = self.symbolic_dynamics(n) 
-        DynamicalSystem.__init__(self,e, s, **kwargs)       
-
+    def symbolic_dynamics(self):
+        return self.symbolic_dynamics_parametrized(self.num_links)
     @staticmethod
     @memoize_to_disk
-    def symbolic_dynamics(n):
+    def symbolic_dynamics_parametrized(n):
 
         sympy.var("dvx,dvy,dx,dy, vx,vy,x,y")
         t = sympy.var(','.join(['t'+str(i) for i in range(n)]) )
@@ -88,5 +84,5 @@ class Swimmer(DynamicalSystem):
         exprs = exprf + exprt 
         exprs += [ -i + j for i,j in zip((dx,dy) + dt, (vx,vy) + w)]
         
-        return exprs, symbols
+        return symbols, exprs
         

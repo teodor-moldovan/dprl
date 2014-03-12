@@ -241,9 +241,11 @@ class LinearFeedbackPolicy:
         return self.us[t]+self.K[t].dot(x-self.xs[t])
 
 class DynamicalSystem:
-    def __init__(self, exprs, symbols, state=None, target = None,
+    def __init__(self, state=None, target = None,
                 log_h_init = -1.0, 
                 dt = 0.01, noise = 0.0):
+
+        symbols, exprs = self.symbolic_dynamics()
 
         self.nx = len(exprs)
         self.nu = len(symbols) - 2*self.nx
@@ -270,7 +272,7 @@ class DynamicalSystem:
         self.t = 0
         self.noise = noise
         self.model_slack_bounds = 0.0*np.ones(self.nx)
-
+        
     @staticmethod
     @memoize_to_disk
     def __codegen(exprs, symbols,nx):
@@ -494,6 +496,9 @@ class DynamicalSystem:
         x = np.zeros((T,self.nx))
         u = np.zeros((T,self.nu))
         x[0] = x0
+
+        gx = array((1,self.nx))
+        gu = array((1,self.nu))
         
         # run simulation
         for t in range(T):
@@ -501,8 +506,6 @@ class DynamicalSystem:
             u[t] = policy.discu(t,x[t])
             
             # download state and action to GPU
-            gx = array((1,self.nx))
-            gu = array((1,self.nu))
             gx.set(x[t].reshape(1,self.nx))
             gu.set(u[t].reshape(1,self.nu))
             
@@ -524,6 +527,9 @@ class DynamicalSystem:
         x = np.zeros((T,self.nx))
         u = np.zeros((T,self.nu+self.nx))
         x[0] = x0
+
+        gx = array((1,self.nx))
+        gu = array((1,self.nu))
         
         # run simulation
         for t in range(T):
@@ -532,8 +538,6 @@ class DynamicalSystem:
             u[t] = policy.discu(t,x[t])
             
             # download state and action to GPU
-            gx = array((1,self.nx))
-            gu = array((1,self.nu))
             gx.set(x[t].reshape(1,self.nx))
             gu.set(u[t,:self.nu].reshape(1,self.nu))
             
@@ -1320,7 +1324,6 @@ class DDPPlanner():
         self.x0 = x0
         self.T = T
         self.iterations = iterations
-    
     # run standard DDP planning
     def direct_plan(self):
         # set up DDP input functions
@@ -1333,7 +1336,6 @@ class DDPPlanner():
         
         # return result
         return policy,x,u
-    
     # run incremental DDP planning
     def incremental_plan(self,stride,horizon):
         # constants
@@ -1681,9 +1683,9 @@ class DDPPlanner():
     def continuation_dyngrad(self,x,u):
         # compute derivatives with respect to states and actions
         A,B = self.ds.discrete_time_linearization(x,u)
-    
+
         # append additional action gradients
         B = np.append(B,np.repeat(np.eye(x.shape[1]).reshape((1,x.shape[1],x.shape[1])),x.shape[0],axis=0),axis=2)
-    
+        
         # return result
         return A,B

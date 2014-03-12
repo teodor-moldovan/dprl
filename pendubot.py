@@ -6,11 +6,10 @@ class Pendubot(DynamicalSystem,TargetCost):
     Dynamics taken from: http://mlg.eng.cam.ac.uk/pub/pdf/Dei10.pdf
     """
     def __init__(self,**kwargs):
-        e,s = self.symbolic_dynamics() 
         self.cost_wu = 1e-5
         self.cost_wp = 1.0
         nan = np.float('nan')
-        DynamicalSystem.__init__(self,e,s,
+        DynamicalSystem.__init__(self,
                 np.array([0,0,np.pi,np.pi]), 
                 np.array([nan,nan,0,0]), 
                 -1.0,0.05,0.0,
@@ -47,7 +46,7 @@ class Pendubot(DynamicalSystem,TargetCost):
             (-dt2 + w2)
         )
         
-        return exprs, symbols
+        return symbols, exprs
 
 
     def plot_init(self):

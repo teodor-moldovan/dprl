@@ -7,7 +7,7 @@ class CartPole(DynamicalSystem,TargetCost):
         self.cost_wu = 1.0
         self.cost_wp = 1.0
         nan = np.float('nan')
-        DynamicalSystem.__init__(self,e,s,
+        DynamicalSystem.__init__(self,
                 np.array((0,0,np.pi,0)),
                 np.array((0,0,0,0)),
                 -1.0,0.10,0.0,
@@ -16,29 +16,26 @@ class CartPole(DynamicalSystem,TargetCost):
     @staticmethod
     def symbolic_dynamics():
 
-        # IMPORTANT: this does not match PILCO CartPole -- note the lack of a friction term...
-
-        l = .1      # pole length
-        mc = .7     # cart mass
-        mp = .325   # mass at end of pendulum
-        g = 9.81    # gravitational accel
-        um = 10.0   # max control
+        l = 0.5   # [m]      length of pendulum
+        m = 0.5   # [kg]     mass of pendulum
+        M = 0.5   # [kg]     mass of cart
+        b = 0.1   # [N/m/s]  coefficient of friction between cart and ground
+        g = 9.82  # [m/s^2]  acceleration of gravity
+        um = 10   # max control
 
         symbols = sympy.var(" dw, dv, dt, dx, w, v, t, x, u ")
 
-        cos,sin = sympy.cos, sympy.sin
+        s,c = sympy.sin(t), sympy.cos(t)
+        denom = 4*(M+m)-3*m*c*c
 
-        s,c = sin(t), cos(t)
-        tmp = mc+ mp*s*s
-
-        exprs = (
-        -dw*l*tmp + u *um*c - mp * l * w*w * s*c + (mc+mp) *g *s ,
-        -dv*tmp + u*um -  mp * l *s*w*w + mp*g *c*s,
+        dyn = (
+        -dw*l*denom + (-3*m*l*w*w*s*c - 6*(M+m)*g*s - 6*(u*um-b*v)*c),
+        -dv*denom + ( 2*m*l*w*w*s + 3*m*g*s*c + 4*u*um - 4*b*v ),
         -dt + w,
         -dx + v,
         )
 
-        return exprs, symbols
+        return symbols, dyn
 
     def plot_state_init(self):
         
