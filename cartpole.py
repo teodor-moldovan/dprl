@@ -4,7 +4,7 @@ from costs import *
 class CartPole(DynamicalSystem,TargetCost):
     def __init__(self,**kwargs):
         e,s = self.symbolic_dynamics()
-        self.cost_wu = 1e-5
+        self.cost_wu = 1.0
         self.cost_wp = 1.0
         nan = np.float('nan')
         DynamicalSystem.__init__(self,e,s,
