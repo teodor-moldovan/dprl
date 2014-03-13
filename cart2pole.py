@@ -3,14 +3,9 @@ from costs import *
  
 class CartDoublePole(DynamicalSystem,TargetCost):
     def __init__(self,**kwargs):
-        # set up simple cost function parameters
-        self.cost_wu = 1.0
-        self.cost_wp = 1.0
-                
-        nan = np.float('nan')
+
         DynamicalSystem.__init__(self,
                 np.array([0,0,0,np.pi,np.pi,0]),
-                np.array([nan,nan,nan,0,0,0]),
                 -1.0,0.05,0.0,
                 **kwargs)
 
@@ -38,20 +33,9 @@ class CartDoublePole(DynamicalSystem,TargetCost):
 #        
 #        # compute cost
 #        l = 1-np.exp(-0.5*np.sum((xaug-xtgt)*((xaug-xtgt).dot(W)),axis=1))
-#        
-#        # TODO: compute derivatives lx,lu,lxxl,luu,lux
-#        
-#        
-#        # return results
-#        return l,lx,lu,lxx,luu,lux
+    
 
-    @staticmethod
-    @memoize_to_disk
-    def symbolic_dynamics():
-
-        m1,m2,m3,l2,l3,b,g,um = (.5,.5,.5,.6,.6,.1,9.82, 20.0)
-
-
+    def symbolics(self):
         symbols = sympy.var("""
                             dw1, dw2, dv, 
                             dt1, dt2, dx,
@@ -59,29 +43,35 @@ class CartDoublePole(DynamicalSystem,TargetCost):
                             t1, t2, x
                             u""")
 
-        cost_wp, cost_wu = 1.0, 1e-5
-
-        costs = cost_wu * u*u 
-
-        l = 0.5*self.cost_wu*np.sum(u**2,axis=1) + 0.5*self.cost_wp*np.sum(sdiff**2,axis=1)
-
         cos,sin = sympy.cos, sympy.sin
 
-        A = [[2*(m1+m2+m3), -(m2+2*m3)*l2*cos(t1), -m3*l3*cos(t2)],
-             [  -(3*m2+6*m3)*cos(t1), (2*m2+6*m3)*l2, 3*m3*l3*cos(t1-t2)],
-             [  -3*cos(t2), 3*l2*cos(t1-t2), 2*l3]];
-        b = [2*u*um-2*b*v-(m2+2*m3)*l2*w1*w1*sin(t1)-m3*l3*w2*w2*sin(t2),
-               (3*m2+6*m3)*g*sin(t1)-3*m3*l3*w2*w2*sin(t1-t2),
-               3*l2*w1*w1*sin(t1-t2)+3*g*sin(t2)];
+        def pilco_cost():
 
-        exa = sympy.Matrix(b) - sympy.Matrix(A)*sympy.Matrix((dv,dw1,dw2)) 
-        exa = tuple(e for e in exa)
+            return u*0
 
-        exb = tuple( -i + j for i,j in zip(symbols[3:6],symbols[6:9]))
-        exprs = exa + exb
-        
-        return symbols, exprs, costs
+        def quad_cost():
+            return .5*(u*u + x*x + t1*t1 + t2*t2)
 
+        def dyn():
+            m1,m2,m3,l2,l3,b,g,um = (.5,.5,.5,.6,.6,.1,9.82, 20.0)
+
+            costs = .5*u*u + .5*(t1*t2 + t2*t2 + x*x) 
+
+            A = [[2*(m1+m2+m3), -(m2+2*m3)*l2*cos(t1), -m3*l3*cos(t2)],
+                 [  -(3*m2+6*m3)*cos(t1), (2*m2+6*m3)*l2, 3*m3*l3*cos(t1-t2)],
+                 [  -3*cos(t2), 3*l2*cos(t1-t2), 2*l3]];
+            b = [2*u*um-2*b*v-(m2+2*m3)*l2*w1*w1*sin(t1)-m3*l3*w2*w2*sin(t2),
+                   (3*m2+6*m3)*g*sin(t1)-3*m3*l3*w2*w2*sin(t1-t2),
+                   3*l2*w1*w1*sin(t1-t2)+3*g*sin(t2)];
+
+            exa = sympy.Matrix(b) - sympy.Matrix(A)*sympy.Matrix((dv,dw1,dw2)) 
+            exa = tuple(e for e in exa)
+
+            exb = tuple( -i + j for i,j in zip(symbols[3:6],symbols[6:9]))
+            exprs = exa + exb
+            
+            return exprs
+        return symbols, dyn(), quad_cost()
     def plot_state_init(self):
           
         x = self.anim_x[0]
@@ -122,3 +112,4 @@ class CartDoublePole(DynamicalSystem,TargetCost):
         plt.clf()
         anim = animation.FuncAnimation(plt.figure(1),self.plot_state,frames=len(x),interval=100,blit=False,init_func=self.plot_state_init,repeat=False)
         anim._start()
+

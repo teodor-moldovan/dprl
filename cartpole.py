@@ -3,18 +3,16 @@ from costs import *
 
 class CartPole(DynamicalSystem,TargetCost):
     def __init__(self,**kwargs):
-        e,s = self.symbolic_dynamics()
-        self.cost_wu = 1.0
-        self.cost_wp = 1.0
+
         nan = np.float('nan')
         DynamicalSystem.__init__(self,
                 np.array((0,0,np.pi,0)),
-                np.array((0,0,0,0)),
                 -1.0,0.10,0.0,
                 **kwargs)       
 
     @staticmethod
-    def symbolic_dynamics():
+    def symbolics():
+        symbols = sympy.var(" dw, dv, dt, dx, w, v, t, x, u ")
 
         l = 0.5   # [m]      length of pendulum
         m = 0.5   # [kg]     mass of pendulum
@@ -22,8 +20,6 @@ class CartPole(DynamicalSystem,TargetCost):
         b = 0.1   # [N/m/s]  coefficient of friction between cart and ground
         g = 9.82  # [m/s^2]  acceleration of gravity
         um = 10   # max control
-
-        symbols = sympy.var(" dw, dv, dt, dx, w, v, t, x, u ")
 
         s,c = sympy.sin(t), sympy.cos(t)
         denom = 4*(M+m)-3*m*c*c
@@ -34,8 +30,11 @@ class CartPole(DynamicalSystem,TargetCost):
         -dt + w,
         -dx + v,
         )
+        
+        
+        cost = .5*( w**2 + v**2 + t**2 + x**2 )
 
-        return symbols, dyn
+        return symbols, dyn, cost
 
     def plot_state_init(self):
         

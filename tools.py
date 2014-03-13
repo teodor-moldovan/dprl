@@ -1175,7 +1175,7 @@ def batch_matrix_inv(a):
     ufunc('a=b')(a,c)
 
 
-# codegen
+# symbolics, codegen
 def codegen_cse(exprs,symbols, temp_name = 'tmp',
                 input_name = 'z', output_name = 'out'):
 

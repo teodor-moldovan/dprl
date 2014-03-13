@@ -241,14 +241,14 @@ class LinearFeedbackPolicy:
         return self.us[t]+self.K[t].dot(x-self.xs[t])
 
 class DynamicalSystem:
-    def __init__(self, state=None, target = None,
+    def __init__(self, state=None,
                 log_h_init = -1.0, 
                 dt = 0.01, noise = 0.0):
 
-        symbols, exprs, cost = self.symbolic_dynamics()
-
-        self.exprs = tuple(exprs)
+        symbols, exprs, cost = self.symbolics()
         self.symbols = tuple(symbols)
+        self.exprs = tuple(exprs)
+        self.cost = cost
 
         self.nx = len(self.exprs)
         self.nu = len(self.symbols) - 2*self.nx
@@ -258,14 +258,7 @@ class DynamicalSystem:
         if state is None:
             state = np.zeros(self.nx)
 
-        if target is None:
-            target = np.zeros(self.nx)
-
         self.state  = np.array(state)
-
-        self.c_ignore = np.isnan(target) 
-        target[np.isnan(target)] = 0.0
-        self.target = np.array(target)
 
         self.log_h_init = log_h_init
         self.integrator = ExplicitRK()
@@ -279,7 +272,6 @@ class DynamicalSystem:
     @staticmethod
     @memoize_to_disk
     def __codegen(exprs, symbols,nx):
-
         simplify = lambda e: e.rewrite(sympy.exp).expand().rewrite(sympy.sin).expand()
         exprs = [simplify(e) for e in exprs]
 
@@ -317,12 +309,26 @@ class DynamicalSystem:
 
         return fn1,fn2,fn3,fn4, weights, nf, nfa 
 
+    @staticmethod
+    @memoize_to_disk
+    def __codegen_cost(cost,syms):
+
+        exprs = (cost, ) 
+        exprs += tuple((sympy.diff(cost, s) for s in syms))
+        exprs += tuple((sympy.diff(sympy.diff(cost, s),s_ )
+                    for s in syms for s_ in syms))
+
+        return codegen_cse(exprs, syms)
+
+
     def codegen(self):
 
         nx = self.nx
 
         ret  = self.__codegen(self.exprs, self.symbols,self.nx)
         fn1,fn2,fn3,fn4, weights, nf, nfa  = ret
+
+        fc = self.__codegen_cost(self.cost,self.symbols[self.nx:])
 
         self.nf, self.nfa = nf, nfa
 
@@ -335,12 +341,53 @@ class DynamicalSystem:
         self.k_features_jacobian = rowwise(fn2,'features_jacobian')
         self.k_features_mass = rowwise(fn3,'features_mass')
         self.k_features_force = rowwise(fn4,'features_force')
+        self.k_cost = rowwise(fc,'cost')
 
+
+    @staticmethod
+    @memoize
+    def __cost_buffer(l,n):
+        y = array((l,n))
+        y.fill(0.0)
+        return y 
+
+    def get_cost(self,x,u):
+        nx,nu = self.nx, self.nu
+        k = x.shape[0]
+
+        z = array((k,nx+nu))
+        o = self.__cost_buffer(k,1+(nx+nu)+ (nx+nu)*(nx+nu) )
+        ufunc('a=b')(z[:,:nx],to_gpu(x))
+        ufunc('a=b')(z[:,nx:],to_gpu(u)) 
+
+        self.k_cost(z,o)
+        
+        o = o.get()
+        l = o[:,0]
+        j = o[:,1:1+nx+nu]
+        h = o[:,1+nx+nu:].reshape(-1,nx+nu,nx+nu)
+        
+        lx = j[:,:nx]
+        lu = j[:,nx:]
+        
+        lxx = h[:,:nx,:nx]
+        luu = h[:,-nu:,-nu:]
+        lux = h[:,-nu:,:nx]
+        
+        return l,lx,lu,lxx,luu,lux
+
+
+    @staticmethod
+    @memoize
+    def __features_buffer(l,n):
+        y = array((l,n))
+        y.fill(0.0)
+        return y 
 
     def features(self,x):
 
         l = x.shape[0]
-        y = array((l,self.nf))
+        y = self.__features_buffer(l,self.nf)
         self.k_features(x,y)
 
         return y
