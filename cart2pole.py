@@ -44,7 +44,6 @@ class CartDoublePole(DynamicalSystem,TargetCost):
 #        
 #        # return results
 #        return l,lx,lu,lxx,luu,lux
-    
 
     @staticmethod
     @memoize_to_disk
@@ -52,12 +51,19 @@ class CartDoublePole(DynamicalSystem,TargetCost):
 
         m1,m2,m3,l2,l3,b,g,um = (.5,.5,.5,.6,.6,.1,9.82, 20.0)
 
+
         symbols = sympy.var("""
                             dw1, dw2, dv, 
                             dt1, dt2, dx,
                             w1, w2, v, 
                             t1, t2, x
                             u""")
+
+        cost_wp, cost_wu = 1.0, 1e-5
+
+        costs = cost_wu * u*u 
+
+        l = 0.5*self.cost_wu*np.sum(u**2,axis=1) + 0.5*self.cost_wp*np.sum(sdiff**2,axis=1)
 
         cos,sin = sympy.cos, sympy.sin
 
@@ -74,7 +80,7 @@ class CartDoublePole(DynamicalSystem,TargetCost):
         exb = tuple( -i + j for i,j in zip(symbols[3:6],symbols[6:9]))
         exprs = exa + exb
         
-        return symbols, exprs
+        return symbols, exprs, costs
 
     def plot_state_init(self):
           
