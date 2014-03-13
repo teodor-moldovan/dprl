@@ -1341,21 +1341,22 @@ class DDPPlanner():
     def incremental_plan(self,stride,horizon):
         # constants
         T = self.T
-        Dx = self.nx
-        Du = self.nu        
+        Dx = self.ds.nx
+        Du = self.ds.nu        
         
         # allocate feedback matrices
         K = np.zeros((T,Du,Dx))
         
         # initial rollout to get nominal trajectory
         print 'Running initial rollout for incremental planning'
+        u = 0.1*np.random.randn(T,Du) # use random initial actions
         x,u,policy = self.rollout(u,np.zeros((T,Dx)),K,np.zeros((T,Du)))
         
         # run incremental planning
         for tinit in range(0,T,stride):
             # choose range end and horizon
             tlast = np.min((T-1,tinit+horizon-1))
-            itrhorizon = tlast-init+1   
+            itrhorizon = tlast-tinit+1   
             
             # print status message
             print 'Optimizing range',tinit,'to',tlast
@@ -1366,13 +1367,14 @@ class DDPPlanner():
             fdyngrad = lambda x_,u_ : self.ds.discrete_time_linearization(x_,u_)
         
             # call DDP optimizer with initialization
-            xitr,uitr,policyitr = ddpopt(x[tinit],frollout,fcost,fdyngrad,Dx,Du,itrhorizon,
-                                         x[tinit,...,tend,:],u[tinit,...,tend,:])
+            #policyitr,xitr,uitr = self.ddpopt(x[tinit],frollout,fcost,fdyngrad,Dx,Du,itrhorizon,
+            #                                  x[tinit:(tlast+1),:],u[tinit:(tlast+1),:])
+            policyitr,xitr,uitr = self.ddpopt(x[tinit],frollout,fcost,fdyngrad,Dx,Du,itrhorizon,verbosity=0)
         
             # place result back into x, u, and K
-            x[tinit,...,tend,:] = xitr
-            u[tinit,...,tend,:] = uitr
-            K[tinit,...,tend,:,:] = policyitr.K
+            x[tinit:(tlast+1),:] = xitr
+            u[tinit:(tlast+1),:] = uitr
+            K[tinit:(tlast+1),:,:] = policyitr.K
         
         # finalize with full planning
         print 'Running finalization'
@@ -1386,33 +1388,65 @@ class DDPPlanner():
         return policy,x,u
         
     # run relaxed dynamics continuation method DDP planning
-    def continuation_plan(self):
-        print 'Continuation planning not implemented yet!'
-        
+    def continuation_plan(self):        
         # constants
-        qp_wt = 1e2        
+        qp_wt = 1e-1
+        T = self.T
+        Du = self.ds.nu
+        Dx = self.ds.nx
         
-        # set up DDP input functions
-        frollout = lambda u_,x_,K_,k_ : self.rollout(u_,x_,K_,k_)
-        fcost = lambda x_,u_ : self.continuation_cost(x_,u_,qp_wt)
-        fdyngrad = lambda x_,u_ : self.continuation_dyngrad(x_,u_)
+        # initial rollout to get nominal trajectory
+        print 'Running initial rollout for continuation planning'
+        u = 0.1*np.random.randn(T,Du) # use random initial actions
+        x,u,policy = self.rollout(u,np.zeros((T,Dx)),np.zeros((T,Du,Dx)),np.zeros((T,Du)))
+        u = np.append(u,np.zeros(x.shape),axis=1)
         
-        # call DDP optimizer
-        policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,self.ds.nx,self.ds.nu+self.ds.nx,self.T)
+        # repeat for desired number of iterations
+        for itr in range(50):
+            # set up DDP input functions
+            frollout = lambda u_,x_,K_,k_ : self.continuation_rollout(u_,x_,K_,k_)
+            fcost = lambda x_,u_ : self.continuation_cost(x_,u_,qp_wt)
+            fdyngrad = lambda x_,u_ : self.continuation_dyngrad(x_,u_)
+            
+            # call DDP optimizer
+            policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,self.ds.nx,self.ds.nu+self.ds.nx,self.T,x,u,verbosity=1)
+            
+            # compute cost
+            totcost = np.sum(self.ds.get_cost(x,u[:,:self.ds.nu])[0])
+            
+            # compute nonphysical forces
+            nonphys = np.sum(u[:,self.ds.nu:]**2)
+            print 'Itr',itr,'physics weight:',qp_wt,'constraint violation:',nonphys,'total cost:',totcost
+            
+            # increment weight
+            qp_wt = qp_wt*2
+            
+            # check convergence
+            if nonphys < 1e-10:
+                break
         
         # generate new policy for fully physical domain and generate trajectory
-        x,u,policy = rollout(self,u[:,:self.ds.nu],x,K[:,:self.ds.nu,:],k[:,:self.ds.nu])
+        x,u,policy = self.rollout(u[:,:self.ds.nu],x,policy.K[:,:self.ds.nu,:],np.zeros((self.T,self.ds.nu,1)))
+        
+        # compute cost
+        totcost = np.sum(self.ds.get_cost(x,u)[0])
+        print 'Fully physical cost:',totcost
+        
+        # run DDP with fully physical domain
+        frollout = lambda u_,x_,K_,k_ : self.rollout(u_,x_,K_,k_)
+        fcost = lambda x_,u_ : self.ds.get_cost(x_,u_)
+        fdyngrad = lambda x_,u_ : self.ds.discrete_time_linearization(x_,u_)
+        policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,x.shape[1],u.shape[1],self.T,x,u,verbosity=1)
         
         # return result
         return policy,x,u
         
     # DDP-based trajectory optimization with modular dynamics and cost computation
-    def ddpopt(self,x0,frollout,fcost,fdyngrad,Dx,Du,T,lsx=None,lsu=None):
-                # startup message TODO: remove
-        print 'Running DDP solver with horizon',T
+    def ddpopt(self,x0,frollout,fcost,fdyngrad,Dx,Du,T,lsx=None,lsu=None,verbosity=4):
+        if verbosity > 1:
+            print 'Running DDP solver with horizon',T
                 
         # algorithm constants
-        verbosity = 4
         mumin = 1e-4
         mu = 0.0
         del0 = 2.0
@@ -1421,7 +1455,8 @@ class DDPPlanner():
         
         # initial rollout to get nominal trajectory
         if lsx == None:
-            print 'Running initial rollout'
+            if verbosity > 3:
+                print 'Running initial rollout'
             u = 0.1*np.random.randn(T,Du) # use random initial actions
             lsx,lsu,policy = frollout(u,np.zeros((T,Dx)),np.zeros((T,Du,Dx)),np.zeros((T,Du)))
         
@@ -1433,19 +1468,22 @@ class DDPPlanner():
         Qux = np.zeros((T,Du,Dx))
         
         # run optimization
-        print 'Running optimization'
+        if verbosity > 3:
+            print 'Running optimization'
         for itr in range(self.iterations):
             # use result from previous line search
             x = lsx.copy()
             u = lsu.copy()        
             
             # differentiate the cost function
-            print 'Differentiating cost function'
+            if verbosity > 3:
+                print 'Differentiating cost function'
             l,lx,lu,lxx,luu,lux = fcost(x,u)
             cost = np.sum(l)
         
             # differentiate the dynamics
-            print 'Differentiating dynamics'
+            if verbosity > 3:
+                print 'Differentiating dynamics'
             fx,fu = fdyngrad(x,u)
             
             # print total cost
@@ -1510,6 +1548,15 @@ class DDPPlanner():
                     if verbosity > 2:
                         print 'Increasing regularizer:',mu
             
+            # check convergence
+            if np.sum(k**2) < 1e-4 and itr > 0:
+                if verbosity > 1:
+                    print 'Converged!'
+                break
+            else:
+                if verbosity > 4:
+                    print 'k magnitude:',np.sum(k**2)
+            
             # perform linesearch
             line_search_success = False
             alpha = np.min((1,alpha*2))
@@ -1564,8 +1611,9 @@ class DDPPlanner():
                 # increase regularizer
                 delc = np.max((del0,delc*del0))
                 mu = np.max((mumin,mu*delc))
-                if verbosity > 2:
+                if verbosity > 0:
                     print 'LINESEARCH FAILED! Increasing regularizer:',mu
+                    break
                 
                 # resest trajectory
                 if best_cost < cost:
@@ -1585,7 +1633,8 @@ class DDPPlanner():
                 print 'Iteration',itr,'alpha:',alpha,'mu:',mu,'return:',cost
         
         # return policy
-        print 'DDP finished, returning policy'
+        if verbosity > 1:
+            print 'DDP finished, returning policy'
         return policy,lsx,lsu
         
     # helper function to perform a rollout
@@ -1597,7 +1646,7 @@ class DDPPlanner():
             H = self.T
         
         # create linear feedback policy
-        policy = LinearFeedbackPolicy(u,x,K,k.reshape(H,self.ds.nu),H*self.ds.dt,self.ds.dt)
+        policy = LinearFeedbackPolicy(u,x,K,k.reshape(H,u.shape[1]),H*self.ds.dt,self.ds.dt)
         
         # run simulation
         rox,rou = self.ds.discrete_time_rollout(policy,state,H)
@@ -1605,13 +1654,48 @@ class DDPPlanner():
         # return result
         return rox,rou,policy
         
+    # helper function to perform a rollout with continuation method
+    def continuation_rollout(self,u,x,K,k,state=None,H=None):
+        # fill in defaults
+        if state == None:
+            state = self.x0
+        if H == None:
+            H = self.T
+        
+        # create linear feedback policy
+        policy = LinearFeedbackPolicy(u,x,K,k.reshape(H,u.shape[1]),H*self.ds.dt,self.ds.dt)
+        
+        # run simulation
+        rox,rou = self.ds.discrete_time_rollout_quasiphysical(policy,state,H)
+        
+        # return result
+        return rox,rou,policy
+        
+    # helper function for continuation method to compute cost
+    def continuation_cost(self,x,u,wt):
+        # compute cost of original sequence
+        l,lx,lu,lxx,luu,lux = self.ds.get_cost(x,u[:,:self.ds.nu])
+        
+        # add constraint violation
+        l = l + 0.5*wt*np.sum(u[:,self.ds.nu:]**2,axis=1)
+        
+        # append derivatives
+        lux = np.append(lux,np.zeros((x.shape[0],x.shape[1],x.shape[1])),axis=1)
+        luu = np.append(luu,np.zeros((x.shape[0],x.shape[1],lu.shape[1])),axis=1)
+        luu = np.append(luu,np.append(np.zeros((x.shape[0],lu.shape[1],x.shape[1])),
+            wt*np.repeat(np.eye(x.shape[1]).reshape((1,x.shape[1],x.shape[1])),x.shape[0],axis=0),axis=1),axis=2)
+        lu = np.append(lu,np.reshape(wt*u[:,self.ds.nu:],(x.shape[0],x.shape[1],1)),axis=1)
+                    
+        # return result
+        return l,lx,lu,lxx,luu,lux
+        
     # helper function for continuation method to compute derivatives
-    def continuation_dyngrad(x,u):
+    def continuation_dyngrad(self,x,u):
         # compute derivatives with respect to states and actions
-        A,B = self.ds.discrete_time_linearization(x,u)
+        A,B = self.ds.discrete_time_linearization(x,u[:,:self.ds.nu])
 
         # append additional action gradients
-        B = B.append(B,np.repeat(np.eye(x.shape[1]).reshape((1,x.shape[1],x.shape[1])),T,axis=0),axis=2)
-
+        B = np.append(B,np.repeat(np.eye(x.shape[1]).reshape((1,x.shape[1],x.shape[1])),x.shape[0],axis=0),axis=2)
+        
         # return result
         return A,B

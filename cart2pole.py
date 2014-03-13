@@ -4,7 +4,7 @@ from costs import *
 class CartDoublePole(DynamicalSystem,TargetCost):
     def __init__(self,**kwargs):
         # set up simple cost function parameters
-        self.cost_wu = 1e-5
+        self.cost_wu = 1.0
         self.cost_wp = 1.0
                 
         nan = np.float('nan')
@@ -120,5 +120,5 @@ class CartDoublePole(DynamicalSystem,TargetCost):
 
         self.anim_x = x
         plt.clf()
-        anim = animation.FuncAnimation(plt.figure(1),self.plot_state,frames=len(x),interval=20,blit=False,init_func=self.plot_state_init,repeat=False)
+        anim = animation.FuncAnimation(plt.figure(1),self.plot_state,frames=len(x),interval=100,blit=False,init_func=self.plot_state_init,repeat=False)
         anim._start()
