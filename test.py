@@ -1356,10 +1356,11 @@ class TestsDynamicalSystem(unittest.TestCase):
         np.random.seed(seed)
 
         env = self.ds
-        env.state = 2*np.pi*2*(np.random.random(self.ds.nx)-0.5)
+        #env.state = 2*np.pi*2*(np.random.random(self.ds.nx)-0.5)
+        env.state = 0.001*(np.random.random(self.ds.nx)-0.5)
         #trj = env.step(ZeroPolicy(env.nu), 200)
         #env.plot_state_seq(trj[2])
-        x,u = env.discrete_time_rollout(ZeroPolicy(env.nu),env.state,200)
+        x,u = env.discrete_time_rollout(ZeroPolicy(env.nu),env.state,100)
         env.plot_state_seq(x)
         plt.show()
 

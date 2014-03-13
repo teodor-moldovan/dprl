@@ -1,4 +1,5 @@
 from planning import *
+from mpl_toolkits.mplot3d import Axes3D
 
 class Unicycle(DynamicalSystem):
     def __init__(self,**kwargs):
@@ -76,3 +77,101 @@ class Unicycle(DynamicalSystem):
         
     def set_location(self,x,y):
         self.state[5:7] = (x,y)
+        
+    def compute_geom(self,state):
+        x = state[0]
+        y = state[1]
+        theta = state[2]
+        phi = state[3]
+        psiw = -state[4]
+        psif = state[5]
+        psit = state[6]
+  
+        rw =  0.225; # wheel radius
+        rf =  0.54;  # frame center of mass to wheel
+        rt =  0.27;  # frame centre of mass to turntable
+        rr =  rf+rt;  # distance wheel to turntable
+        
+        M = 24; MM = (2.0*np.pi*np.array([range(M+1)]))/M;
+        
+        A = np.array([[np.cos(phi), np.sin(phi), 0.0],
+             [-np.sin(phi)*np.cos(theta), np.cos(phi)*np.cos(theta), -np.sin(theta)],
+             [-np.sin(phi)*np.sin(theta), np.cos(phi)*np.sin(theta), np.cos(theta)]]);
+        A = A.transpose()
+        R = [0,0,0,0,0,0,0]
+
+        r = rw*np.concatenate((np.cos(psiw+MM),np.zeros((1,M+1)),np.sin(psiw+MM)+1),axis=0)
+        R[0] = A.dot(r) + np.array([[x],[y],[0]])
+        
+        r = rw*np.array([[np.cos(psiw),-np.cos(psiw)],[0.0,0.0],[np.sin(psiw)+1,-np.sin(psiw)+1]])
+        R[1] = A.dot(r) + np.array([[x],[y],[0]])
+        
+        r = rw*np.array([[np.sin(psiw),-np.sin(psiw)],[0.0,0.0],[-np.cos(psiw)+1,np.cos(psiw)+1]])
+        R[2] = A.dot(r) + np.array([[x],[y],[0]])
+        
+        r = rw*np.array([[0.0,rr*np.sin(psif)],[0.0,0.0],[rw,rw+rw+rr*np.cos(psif)]])
+        R[3] = A.dot(r) + np.array([[x],[y],[0]])
+        
+        r = np.concatenate((rr*np.sin(psif)+rw*np.cos(psif)*np.cos(psit+MM),rw*np.sin(psit+MM),rw+rr*np.cos(psif)-rw*np.sin(psif)*np.cos(psit+MM)),axis=0)    
+        R[4] = A.dot(r) + np.array([[x],[y],[0]])
+        
+        r = np.array([[rr*np.sin(psif)+rw*np.cos(psif)*np.cos(psit), rr*np.sin(psif)-rw*np.cos(psif)*np.cos(psit)],
+             [rw*np.sin(psit), -rw*np.sin(psit)],
+             [rw+rr*np.cos(psif)-rw*np.sin(psif)*np.cos(psit),rw+rr*np.cos(psif)+rw*np.sin(psif)*np.cos(psit)]])
+        R[5] = A.dot(r) + np.array([[x],[y],[0]])
+          
+        r = np.array([[rr*np.sin(psif)+rw*np.cos(psif)*np.sin(psit),rr*np.sin(psif)-rw*np.cos(psif)*np.sin(psit)],
+             [-rw*np.cos(psit),rw*np.cos(psit)],
+             [rw+rr*np.cos(psif)-rw*np.sin(psif)*np.sin(psit),rw+rr*np.cos(psif)+rw*np.sin(psif)*np.sin(psit)]])
+        R[6] = A.dot(r) + np.array([[x],[y],[0]])
+        
+        # create semicircle geometries
+        r = A.dot([[0],[0],[rw]]) + [[x],[y],[0]]
+        P1 = np.concatenate((r,R[0][:,:(M/4 + 1)],r,R[0][:,(M/4):(M/2 + 1)],r),axis=1)
+        P2 = np.concatenate((r,R[0][:,(M/2):(3*M/4+1)],r,R[0][:,(3*M/4):(M+1)]),axis=1)
+        
+        r = A.dot([[rr*np.sin(psif)],[0],[rw+rr*np.cos(psif)]]) + [[x],[y],[0]]
+        P3 = np.concatenate((r,R[4][:,:(M/4 + 1)],r,R[4][:,(M/4):(M/2 + 1)],r),axis=1)
+        P4 = np.concatenate((r,R[4][:,(M/2):(3*M/4+1)],r,R[4][:,(3*M/4):(M+1)]),axis=1)
+        
+        # return geometries
+        return R,P1,P2,P3,P4
+
+    def plot_state_init(self):
+          
+        x = self.anim_x[0]
+        self.ax = plt.gca()
+        
+        # ground
+        aa = 2*np.pi*np.array(range(201))/200.0
+        self.ax.plot(2*np.sin(aa),np.zeros(201),'k:',linewidth=2)
+        
+        # get geometries
+        R,P1,P2,P3,P4 = self.compute_geom(x)        
+        
+        # plot
+        self.c1p, = self.ax.plot(P1[0],P1[2],'r',linewidth=2)
+        self.c2p, = self.ax.plot(P2[0],P2[2],'r',linewidth=2)
+        self.c3p, = self.ax.plot(P3[0],P3[2],'b',linewidth=2)
+        self.c4p, = self.ax.plot(P4[0],P4[2],'b',linewidth=2)
+        self.ax.axis('equal')
+        self.ax.axis([-2.0,2.0,-0.5,1.5])
+        return self.ax,
+        
+    def plot_state(self,t):
+        
+        print 'Frame ' + str(t) + ': ' + str(self.anim_x[t])
+        x = self.anim_x[t]
+        R,P1,P2,P3,P4 = self.compute_geom(x)
+        self.c1p.set_data(P1[0],P1[2])
+        self.c2p.set_data(P2[0],P2[2])
+        self.c3p.set_data(P3[0],P3[2])
+        self.c4p.set_data(P4[0],P4[2])
+        return self.ax,
+        
+    def plot_state_seq(self,x):
+
+        self.anim_x = x
+        plt.clf()
+        anim = animation.FuncAnimation(plt.figure(1),self.plot_state,frames=len(x),interval=100,blit=False,init_func=self.plot_state_init,repeat=False)
+        anim._start()
