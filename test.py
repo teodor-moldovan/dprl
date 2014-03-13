@@ -1512,6 +1512,32 @@ class TestsUnicycle(TestsDynamicalSystem):
             trj = env.step(pi,10)
 
 
+    def test_dyn(self):
+        matvals = (
+        """0.000334842149000  -0.000969415745309
+        -0.000395203896000   0.000000201686072
+        0.000244640482000  -0.095280176594652
+        -0.000139499164000   0.036560879846300
+        -0.000140689162000  -0.000000694800181
+        0.000109238381000   0.000055044108447
+        -0.000106220449000   0.000000000545069
+        -0.000090927390100   0.000334842149000
+        0.000009902409590  -0.000395203896000
+        0.000210147993000   0.000244640482000
+        0.000460526225000  -0.000139499164000
+        -0.000043378891100  -0.000140689162000""")
+        
+        v = np.array([float(v) for v in re.split("\s+", matvals)]).reshape(-1,2)
+        
+        x = to_gpu(v[:,0][np.newaxis,:] )
+        u = to_gpu(np.zeros((1,self.ds.nu)))
+        
+        r_ = self.ds.explf(x,u).get()[0]
+        r = v[:,1]
+        
+        np.testing.assert_almost_equal(r,r_)
+        
+        
 class TestsSwimmer(TestsDynamicalSystem):
     def setUp(self):
         import swimmer
