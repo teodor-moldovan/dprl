@@ -367,8 +367,8 @@ class DynamicalSystem:
         j = o[:,1:1+nx+nu]
         h = o[:,1+nx+nu:].reshape(-1,nx+nu,nx+nu)
         
-        lx = j[:,:nx]
-        lu = j[:,nx:]
+        lx = j[:,:nx][:,:,np.newaxis]
+        lu = j[:,nx:][:,:,np.newaxis]
         
         lxx = h[:,:nx,:nx]
         luu = h[:,-nu:,-nu:]
