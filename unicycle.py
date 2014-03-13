@@ -1,10 +1,13 @@
 from planning import *
 from mpl_toolkits.mplot3d import Axes3D
+from costs import *
 
-class Unicycle(DynamicalSystem):
+class Unicycle(DynamicalSystem,TargetCost):
     def __init__(self,**kwargs):
 
         nan = np.float('nan')
+        self.cost_wu = 1.0
+        self.cost_wp = 1.0
 
         DynamicalSystem.__init__(self,
                 None,

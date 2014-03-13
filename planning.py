@@ -515,6 +515,8 @@ class DynamicalSystem:
             # compute next state
             if t < T-1:
                 x[t+1] = x[t] + dx.get()
+                x[t+1][x[t+1] > 1e4] = 1e4
+                x[t+1][x[t+1] < -1e4] = -1e4
         
         # return result
         return x,u
@@ -547,6 +549,8 @@ class DynamicalSystem:
             # compute next state
             if t < T-1:
                 x[t+1] = x[t] + dx.get() + u[t,self.nu:]
+                x[t+1][x[t+1] > 1e4] = 1e4
+                x[t+1][x[t+1] < -1e4] = -1e4
         
         # return result
         return x,u
@@ -1396,7 +1400,8 @@ class DDPPlanner():
         
         # initial rollout to get nominal trajectory
         print 'Running initial rollout for continuation planning'
-        u = 0.1*np.random.randn(T,Du) # use random initial actions
+        u = 0.0000000000000000000000000000000001*np.random.randn(T,Du) # use random initial actions
+        #u = 0.1*np.random.randn(T,Du) # use random initial actions
         x,u,policy = self.rollout(u,np.zeros((T,Dx)),np.zeros((T,Du,Dx)),np.zeros((T,Du)))
         u = np.append(u,np.zeros(x.shape),axis=1)
         
