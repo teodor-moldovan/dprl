@@ -24,26 +24,39 @@ class Pendubot(DynamicalSystem,TargetCost):
         I1 = m1*l1**2/12.0 # moment of inertia around pendulum midpoint (inner)
         I2 = m2*l2**2/12.0 # moment of inertia around pendulum midpoint (outer)
         u_max = 3.5 # force exerted at maximum control
+        
+        width = 0.25    # used for pilco costs
 
         symbols = sympy.var("dw1, dw2, dt1, dt2, w1, w2, t1, t2, u")
-        cos, sin = sympy.cos, sympy.sin
+        cos, sin, exp = sympy.cos, sympy.sin, sympy.exp
 
-        exprs = (
-            (
-            - (l1**2*(0.25*m1+m2) + I1)*dw1 -  0.5*m2*l1*l2*cos(t1-t2)*dw2 
-                + g*l1*sin(t1)*(0.5*m1+m2) - 0.5*m2*l1*l2*w2**2*sin(t1-t2) 
-                + u_max*u - b1*w1
-            ),
-            (
-            - 0.5*m2*l1*l2*cos(t1-t2)*dw1 - (l2**2*0.25*m2 + I2)*dw2 +
-            0.5*m2*l2*( l1*w1*w1*sin(t1-t2) + g*sin(t2) ) - b2*w2
-            ),
-            (-dt1 + w1),
-            (-dt2 + w2)
-        )
-        
-        cost = .5*(t1*t1 + t2*t2 ) + 1e-5*(u*u)
-        return symbols, exprs, cost
+        def dyn():
+            return (
+                (
+                - (l1**2*(0.25*m1+m2) + I1)*dw1 -  0.5*m2*l1*l2*cos(t1-t2)*dw2 
+                    + g*l1*sin(t1)*(0.5*m1+m2) - 0.5*m2*l1*l2*w2**2*sin(t1-t2) 
+                    + u_max*u - b1*w1
+                ),
+                (
+                - 0.5*m2*l1*l2*cos(t1-t2)*dw1 - (l2**2*0.25*m2 + I2)*dw2 +
+                0.5*m2*l2*( l1*w1*w1*sin(t1-t2) + g*sin(t2) ) - b2*w2
+                ),
+                (-dt1 + w1),
+                (-dt2 + w2)
+            )
+        def quad_cost():
+            return  .5*(t1*t1 + t2*t2 ) + 1e-5*(u*u)
+
+        def pilco_cost():
+
+            dx = ( -l1 *sin(t1)  - l2*sin(t2))/width
+            dy = (l1 + l2 - l1*cos(t1) - l2*cos(t2))/width
+            dist = dx*dx + dy*dy
+            cost = 1 - exp(- .5 * dist)
+
+            return cost
+
+        return symbols, dyn(), quad_cost()
 
 
     def plot_init(self):

@@ -20,21 +20,36 @@ class CartPole(DynamicalSystem,TargetCost):
         b = 0.1   # [N/m/s]  coefficient of friction between cart and ground
         g = 9.82  # [m/s^2]  acceleration of gravity
         um = 10   # max control
-
-        s,c = sympy.sin(t), sympy.cos(t)
-        denom = 4*(M+m)-3*m*c*c
-
-        dyn = (
-        -dw*l*denom + (-3*m*l*w*w*s*c - 6*(M+m)*g*s - 6*(u*um-b*v)*c),
-        -dv*denom + ( 2*m*l*w*w*s + 3*m*g*s*c + 4*u*um - 4*b*v ),
-        -dt + w,
-        -dx + v,
-        )
         
-        
-        cost = .5*( w**2 + v**2 + t**2 + x**2 )
+        width = .25     # used by pilco cost function   
 
-        return symbols, dyn, cost
+        sin,cos,exp = sympy.sin, sympy.cos, sympy.exp
+
+        def dyn():
+            s,c = sympy.sin(t), sympy.cos(t)
+            denom = 4*(M+m)-3*m*c*c
+
+            dyn = (
+            -dw*l*denom + (-3*m*l*w*w*s*c - 6*(M+m)*g*s - 6*(u*um-b*v)*c),
+            -dv*denom + ( 2*m*l*w*w*s + 3*m*g*s*c + 4*u*um - 4*b*v ),
+            -dt + w,
+            -dx + v,
+            )
+            return dyn
+
+        def pilco_cost():
+
+            dx = (x + l*sin(t))/width
+            dy = l*(cos(t)-1)/width
+            dist = dx*dx + dy*dy
+            cost = 1 - exp(- .5 * dist)
+
+            return cost
+
+        def quad_cost(): 
+            return .5*( w**2 + v**2 + t**2 + x**2 )
+
+        return symbols, dyn(), quad_cost()
 
     def plot_state_init(self):
         

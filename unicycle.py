@@ -5,13 +5,14 @@ from costs import *
 class Unicycle(DynamicalSystem):
     """http://mlg.eng.cam.ac.uk/pub/pdf/Dei10.pdf"""
     def __init__(self,**kwargs):
+        
         DynamicalSystem.__init__(self,
-                np.array((
-                        0,0,0,0,0,
-                        0.4,0.3,
-                        0,0,0,0,0)),
+                None,
                 -1.0,0.15,0.0,
                 **kwargs)       
+
+        np.random.seed(3)
+        self.state = .25*np.random.normal(size = self.nx)
 
     def symbolics(self):
 
@@ -23,33 +24,34 @@ class Unicycle(DynamicalSystem):
             theta,  phi,  psiw,  psi,  psit,
             V,U
             """)
+  
+        mt = 10.0    # turntable mass
+        mw =  1.0    # wheel mass
+        mf = 23.5    # frame mass
+        rw =  0.225  # wheel radius 
+        rf =  0.54   # frame center of mass to wheel
+        rt =  0.27   # frame centre of mass to turntable
+        r =  rf+rt   # distance wheel to turntable
+        Cw = 0.0484  # moment of inertia of wheel around axle
+        Aw = 0.0242  # moment of inertia of wheel perpendicular to axle
+        Cf = 0.8292  # moment of inertia of frame
+        Bf = 0.4608  # moment of inertia of frame
+        Af = 0.4248  # moment of inertia of frame
+        Ct = 0.2     # moment of inertia of turntable around axle
+        At = 1.3     # moment of inertia of turntable perpendicular to axle
+        g = 9.82     # acceleration of gravity 
+        u_max = 10   # maximum controls
+        v_max = 50   # maximum controls
+        T = 0        # no friction
+        
+        width = 1    # used by pilco cost function
 
-        v = sympy.Matrix((dtheta,dphi,dpsiw,dpsi,dpsit,x,y,phi,psi,psit))
-        cost = (v.T*v)[0] + V*V + U*U
-        
-        cos, sin = sympy.cos, sympy.sin
+        cos, sin,exp = sympy.cos, sympy.sin, sympy.exp
         st,ct,sf,cf = sin(theta), cos(theta), sin(psi), cos(psi)
-        
+
+
         @memoize_to_disk
         def dyn(): 
-            mt = 10.0    # turntable mass
-            mw =  1.0    # wheel mass
-            mf = 23.5    # frame mass
-            rw =  0.225  # wheel radius 
-            rf =  0.54   # frame center of mass to wheel
-            rt =  0.27   # frame centre of mass to turntable
-            r =  rf+rt   # distance wheel to turntable
-            Cw = 0.0484  # moment of inertia of wheel around axle
-            Aw = 0.0242  # moment of inertia of wheel perpendicular to axle
-            Cf = 0.8292  # moment of inertia of frame
-            Bf = 0.4608  # moment of inertia of frame
-            Af = 0.4248  # moment of inertia of frame
-            Ct = 0.2     # moment of inertia of turntable around axle
-            At = 1.3     # moment of inertia of turntable perpendicular to axle
-            g = 9.82     # acceleration of gravity 
-            u_max = 10   # maximum controls
-            v_max = 50   # maximum controls
-            T = 0        # no friction
 
             A = (
             (Ct*sf,Ct*cf*ct,0,0,Ct),
@@ -77,7 +79,19 @@ class Unicycle(DynamicalSystem):
             return exprs
 
 
-        return symbols, dyn(), cost
+
+        def pilco_cost():
+            
+            dx = rw + rf - rw*ct - rf*ct*cf
+
+            return V*0
+
+        def quad_cost():
+
+            v = sympy.Matrix((dtheta,dphi,dpsiw,dpsi,dpsit,x,y,phi,psi,psit))
+            return (v.T*v)[0] + V*V + U*U
+
+        return symbols, dyn(), quad_cost()
         
     def set_location(self,x,y):
         self.state[5:7] = (x,y)

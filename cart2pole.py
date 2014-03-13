@@ -3,37 +3,10 @@ from costs import *
  
 class CartDoublePole(DynamicalSystem,TargetCost):
     def __init__(self,**kwargs):
-
         DynamicalSystem.__init__(self,
                 np.array([0,0,0,np.pi,np.pi,0]),
                 -1.0,0.05,0.0,
                 **kwargs)
-
-#    def get_cost(self,x,u):
-#        # dimensions
-#        T = x.shape[0]
-#        Dx = x.shape[1]
-#        Du = u.shape[1]
-#        
-#        # compute augmented state with sine/cosine terms and u
-#        xaug = [x[:,5],x[:,2],x[:,0],x[:,1],x[:,3],x[:,4],np.sin(x[:,3]),np.cos(x[:,3]),np.sin(x[:,4]),np.cos(x[:,4]),u]
-#        xtgt = [0,0,0,0,0,0,np.sin(0),np.cos(0),np.sin(0),np.cos(0),0]
-#        
-#        # PILCO weighting matrix
-#        W = [[4,0,0,0,0,0,-4,0,-4,0],
-#             [0,0,0,0,0,0,0,0,0,0],
-#             [0,0,0,0,0,0,0,0,0,0],
-#             [0,0,0,0,0,0,0,0,0,0],
-#             [0,0,0,0,0,0,0,0,0,0],
-#             [0,0,0,0,0,0,0,0,0,0],
-#             [-4,0,0,0,0,0,4,0,4,0],
-#             [0,0,0,0,0,0,0,4,0,4],
-#             [-4,0,0,0,0,0,4,0,4,0],
-#             [0,0,0,0,0,0,0,4,0,4]]
-#        
-#        # compute cost
-#        l = 1-np.exp(-0.5*np.sum((xaug-xtgt)*((xaug-xtgt).dot(W)),axis=1))
-    
 
     def symbolics(self):
         symbols = sympy.var("""
@@ -43,34 +16,47 @@ class CartDoublePole(DynamicalSystem,TargetCost):
                             t1, t2, x
                             u""")
 
-        cos,sin = sympy.cos, sympy.sin
+        m1 = 0.5;  # [kg]     mass of cart
+        m2 = 0.5;  # [kg]     mass of 1st pendulum
+        m3 = 0.5;  # [kg]     mass of 2nd pendulum
+        l2 = 0.6;  # [m]      length of 1st pendulum
+        l3 = 0.6;  # [m]      length of 2nd pendulum
+        b  = 0.1;  # [Ns/m]   coefficient of friction between cart and ground
+        g  = 9.82; # [m/s^2]  acceleration of gravity
+        um = 20    # max control
+
+        width = .5 # [m]      width used in pilco cost function
+
+        cos,sin,exp = sympy.cos, sympy.sin, sympy.exp
 
         def pilco_cost():
 
-            return u*0
+            dx = (x - l2 *sin(t1)  - l3*sin(t2))/width
+            dy = (l2 + l3 - l2*cos(t1) - l3*cos(t2))/width
+            dist = dx*dx + dy*dy
+            cost = 1 - exp(- .5 * dist)
+
+            return cost
 
         def quad_cost():
             return .5*(u*u + x*x + t1*t1 + t2*t2)
 
         def dyn():
-            m1,m2,m3,l2,l3,b,g,um = (.5,.5,.5,.6,.6,.1,9.82, 20.0)
-
-            costs = .5*u*u + .5*(t1*t2 + t2*t2 + x*x) 
-
             A = [[2*(m1+m2+m3), -(m2+2*m3)*l2*cos(t1), -m3*l3*cos(t2)],
                  [  -(3*m2+6*m3)*cos(t1), (2*m2+6*m3)*l2, 3*m3*l3*cos(t1-t2)],
                  [  -3*cos(t2), 3*l2*cos(t1-t2), 2*l3]];
-            b = [2*u*um-2*b*v-(m2+2*m3)*l2*w1*w1*sin(t1)-m3*l3*w2*w2*sin(t2),
+            B = [2*u*um-2*b*v-(m2+2*m3)*l2*w1*w1*sin(t1)-m3*l3*w2*w2*sin(t2),
                    (3*m2+6*m3)*g*sin(t1)-3*m3*l3*w2*w2*sin(t1-t2),
                    3*l2*w1*w1*sin(t1-t2)+3*g*sin(t2)];
 
-            exa = sympy.Matrix(b) - sympy.Matrix(A)*sympy.Matrix((dv,dw1,dw2)) 
+            exa = sympy.Matrix(B) - sympy.Matrix(A)*sympy.Matrix((dv,dw1,dw2)) 
             exa = tuple(e for e in exa)
 
             exb = tuple( -i + j for i,j in zip(symbols[3:6],symbols[6:9]))
             exprs = exa + exb
             
             return exprs
+
         return symbols, dyn(), quad_cost()
     def plot_state_init(self):
           
