@@ -245,12 +245,15 @@ class DynamicalSystem:
                 log_h_init = -1.0, 
                 dt = 0.01, noise = 0.0):
 
-        symbols, exprs = self.symbolic_dynamics()
+        symbols, exprs, cost = self.symbolic_dynamics()
 
-        self.nx = len(exprs)
-        self.nu = len(symbols) - 2*self.nx
+        self.exprs = tuple(exprs)
+        self.symbols = tuple(symbols)
 
-        self.codegen(exprs, symbols)
+        self.nx = len(self.exprs)
+        self.nu = len(self.symbols) - 2*self.nx
+
+        self.codegen()
 
         if state is None:
             state = np.zeros(self.nx)
@@ -314,10 +317,8 @@ class DynamicalSystem:
 
         return fn1,fn2,fn3,fn4, weights, nf, nfa 
 
-    def codegen(self, exprs, symbols):
+    def codegen(self):
 
-        self.exprs = tuple(exprs)
-        self.symbols = tuple(symbols)
         nx = self.nx
 
         ret  = self.__codegen(self.exprs, self.symbols,self.nx)

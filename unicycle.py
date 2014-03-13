@@ -3,6 +3,7 @@ from mpl_toolkits.mplot3d import Axes3D
 from costs import *
 
 class Unicycle(DynamicalSystem,TargetCost):
+    """http://mlg.eng.cam.ac.uk/pub/pdf/Dei10.pdf"""
     def __init__(self,**kwargs):
 
         nan = np.float('nan')
