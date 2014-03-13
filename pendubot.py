@@ -6,17 +6,13 @@ class Pendubot(DynamicalSystem,TargetCost):
     Dynamics taken from: http://mlg.eng.cam.ac.uk/pub/pdf/Dei10.pdf
     """
     def __init__(self,**kwargs):
-        self.cost_wu = 1e-5
-        self.cost_wp = 1.0
-        nan = np.float('nan')
         DynamicalSystem.__init__(self,
                 np.array([0,0,np.pi,np.pi]), 
-                np.array([nan,nan,0,0]), 
                 -1.0,0.05,0.0,
                 **kwargs)       
 
     @staticmethod
-    def symbolic_dynamics():
+    def symbolics():
 
         m1 = 0.5   # [kg]     mass of 1st link
         m2 = 0.5   # [kg]     mass of 2nd link
@@ -46,7 +42,8 @@ class Pendubot(DynamicalSystem,TargetCost):
             (-dt2 + w2)
         )
         
-        return symbols, exprs
+        cost = .5*(t1*t1 + t2*t2 ) + 1e-5*(u*u)
+        return symbols, exprs, cost
 
 
     def plot_init(self):

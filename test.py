@@ -1382,6 +1382,16 @@ class TestsDynamicalSystem(unittest.TestCase):
         print 'state derivative: '
         print  self.ds.dstate2str(r)
         
+    def test_cost(self):
+        ds = self.ds
+
+        np.random.seed(6)
+        x = np.random.random(self.ds.nx)-0.5
+        u = np.random.random(self.ds.nu)-0.5
+
+        self.ds.get_cost(x[np.newaxis,:],u[np.newaxis,:])
+        
+
     def test_ddp(self):
         # constants
         T = 100

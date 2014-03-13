@@ -1,6 +1,6 @@
 all: ft
 
-CMD = python test.py TestsCartDoublePole.test_accs
+CMD = python test.py TestsCartDoublePole.test_cost
 noft: 
 	$(CMD)
 ft:
