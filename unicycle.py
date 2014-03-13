@@ -11,9 +11,12 @@ class Unicycle(DynamicalSystem,TargetCost):
         self.cost_wp = 1.0
 
         DynamicalSystem.__init__(self,
-                None,
                 np.array((
                         0,0,0,0,0,
+                        0.4,0.3,
+                        0,0,0,0,0)),
+                np.array((
+                        nan,nan,nan,nan,nan,
                         0,0,
                         0,nan,nan,0,0)),
                 -1.0,0.15,0.0,

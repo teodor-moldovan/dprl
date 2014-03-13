@@ -1414,7 +1414,7 @@ class DDPPlanner():
             fdyngrad = lambda x_,u_ : self.continuation_dyngrad(x_,u_)
             
             # call DDP optimizer
-            policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,self.ds.nx,self.ds.nu+self.ds.nx,self.T,x,u,verbosity=1)
+            policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,self.ds.nx,self.ds.nu+self.ds.nx,self.T,x,u,verbosity=4)
             
             # compute cost
             totcost = np.sum(self.ds.get_cost(x,u[:,:self.ds.nu])[0])
