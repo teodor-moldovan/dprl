@@ -1,6 +1,7 @@
 from planning import *
 
 class Unicycle(DynamicalSystem):
+    """http://mlg.eng.cam.ac.uk/pub/pdf/Dei10.pdf"""
     def __init__(self,**kwargs):
 
         nan = np.float('nan')
