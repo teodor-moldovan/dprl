@@ -1665,7 +1665,8 @@ class DDPPlanner():
                 mu = np.max((mumin,mu*delc))
                 if verbosity > 0:
                     print 'LINESEARCH FAILED! Increasing regularizer:',mu
-                    break
+                    if itr > 0:
+                        break
                 
                 # resest trajectory
                 if best_cost < cost:
