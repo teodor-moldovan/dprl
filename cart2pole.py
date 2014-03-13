@@ -29,6 +29,16 @@ class CartDoublePole(DynamicalSystem,TargetCost):
 
         cos,sin,exp = sympy.cos, sympy.sin, sympy.exp
 
+        def pilco_cost_reg():
+
+            dx = (x - l2 *sin(t1)  - l3*sin(t2))/width
+            dy = (l2 + l3 - l2*cos(t1) - l3*cos(t2))/width
+            dist = dx*dx + dy*dy
+            cost = 1 - exp(- .5 * dist) + 1e-5*u*u
+            #cost = .5 * dist + 1e-5*u*u
+
+            return cost
+
         def pilco_cost():
 
             dx = (x - l2 *sin(t1)  - l3*sin(t2))/width
@@ -57,7 +67,9 @@ class CartDoublePole(DynamicalSystem,TargetCost):
             
             return exprs
 
-        return symbols, dyn(), quad_cost()
+        #return symbols, dyn(), quad_cost()
+        return symbols, dyn(), pilco_cost_reg()
+        
     def plot_state_init(self):
           
         x = self.anim_x[0]

@@ -1412,8 +1412,8 @@ class TestsDynamicalSystem(unittest.TestCase):
         
         # run DDP planner
         #policy,x,u = ddp.direct_plan()
-        #policy,x,u = ddp.incremental_plan(20,40)
-        policy,x,u = ddp.continuation_plan()
+        policy,x,u = ddp.incremental_plan(20,40)
+        #policy,x,u = ddp.continuation_plan()
         
         # execute
         env = self.ds

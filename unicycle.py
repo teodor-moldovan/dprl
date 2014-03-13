@@ -75,7 +75,15 @@ class Unicycle(DynamicalSystem):
 
             return exprs
 
+        def pilco_cost_reg():
+            
+            dx = rw + rf - rw*ct - rf*ct*cf
+            dy = rw + rf - rw*ct - .5*rf*cos(theta-psif) - .5*rf*cos(theta+psif)
 
+            dist = (dx*dx + dy*dy)/(width*width)
+            cost = 1 - exp(- .5 * dist) + 1e-5*V*V + 1e-5*U*U
+
+            return cost
 
         def pilco_cost():
             
@@ -92,7 +100,8 @@ class Unicycle(DynamicalSystem):
             v = sympy.Matrix((dtheta,dphi,dpsiw,dpsif,dpsit,x,y,phi,psif,psit))
             return (v.T*v)[0] + V*V + U*U
 
-        return symbols, dyn(), pilco_cost()
+        #return symbols, dyn(), pilco_cost()
+        return symbols, dyn(), pilco_cost_reg()
         
     def set_location(self,x,y):
         self.state[5:7] = (x,y)

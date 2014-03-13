@@ -1388,6 +1388,7 @@ class DDPPlanner():
         
         # return result
         return policy,x,u
+        
     # run incremental DDP planning
     def incremental_plan(self,stride,horizon):
         # constants
@@ -1400,7 +1401,8 @@ class DDPPlanner():
         
         # initial rollout to get nominal trajectory
         print 'Running initial rollout for incremental planning'
-        u = 0.1*np.random.randn(T,Du) # use random initial actions
+        #u = 0.1*np.random.randn(T,Du) # use random initial actions
+        u = 0.0000000000000000000000000000000001*np.random.randn(T,Du) # use random initial actions
         x,u,policy = self.rollout(u,np.zeros((T,Dx)),K,np.zeros((T,Du)))
         
         # run incremental planning
@@ -1449,7 +1451,7 @@ class DDPPlanner():
         # initial rollout to get nominal trajectory
         print 'Running initial rollout for continuation planning'
         u = 0.0000000000000000000000000000000001*np.random.randn(T,Du) # use random initial actions
-        #u = 0.1*np.random.randn(T,Du) # use random initial actions
+        #u = 0.5*np.random.randn(T,Du) # use random initial actions
         x,u,policy = self.rollout(u,np.zeros((T,Dx)),np.zeros((T,Du,Dx)),np.zeros((T,Du)))
         u = np.append(u,np.zeros(x.shape),axis=1)
         
@@ -1509,7 +1511,8 @@ class DDPPlanner():
         if lsx == None:
             if verbosity > 3:
                 print 'Running initial rollout'
-            u = 0.1*np.random.randn(T,Du) # use random initial actions
+            #u = 0.1*np.random.randn(T,Du) # use random initial actions
+            u = 0.0000000000000000000000000000000001*np.random.randn(T,Du) # use random initial actions
             lsx,lsu,policy = frollout(u,np.zeros((T,Dx)),np.zeros((T,Du,Dx)),np.zeros((T,Du)))
         
         # allocate arrays
