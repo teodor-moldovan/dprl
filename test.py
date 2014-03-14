@@ -1391,6 +1391,44 @@ class TestsDynamicalSystem(unittest.TestCase):
 
         self.ds.get_cost(x[np.newaxis,:],u[np.newaxis,:])
         
+    def test_pilco_compare(self):
+        # constants
+        ddp_itr = 50
+        #ddp_itr = 1
+        seed = 1
+        
+        # get dynamical system
+        env = self.ds
+        T = env.H # get time horizon from dynamical system
+        
+        # sample initial state
+        np.random.seed(seed)
+        x0 = env.state
+        #x0 = 2*np.pi*2*(np.random.random(env.nx)-0.5)
+        
+        # create DDP planner
+        ddp = DDPPlanner(env,x0,T,ddp_itr)
+        
+        # run DDP planner
+        #policy,x,u = ddp.direct_plan()
+        #policy,x,u = ddp.incremental_plan(20,40)
+        policy,x,u = ddp.continuation_plan()
+        
+        # evaluate PILCO cost
+        _,_,self.ds.cost = self.ds.symbolics(cost=0) # switch to PILCO cost
+        self.ds.codegen() # recompile the costs
+        totcost = np.sum(self.ds.get_cost(x,u[:,:self.ds.nu])[0]) # compute PICLO cost
+        print 'PILCO cost:',totcost # print result
+        
+        # execute
+        env = self.ds
+        env.state = x0
+        env.t = 0
+        x,u = env.discrete_time_rollout(policy,env.state,T)
+
+        # render result
+        env.plot_state_seq(x)
+        plt.show()
 
     def test_ddp(self):
         # constants

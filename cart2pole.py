@@ -5,10 +5,10 @@ class CartDoublePole(DynamicalSystem,TargetCost):
     def __init__(self,**kwargs):
         DynamicalSystem.__init__(self,
                 np.array([0,0,0,np.pi,np.pi,0]),
-                -1.0,0.05,0.0,
+                -1.0,0.05,0.0,100,1e-1,
                 **kwargs)
 
-    def symbolics(self):
+    def symbolics(self,cost = 2):
         symbols = sympy.var("""
                             dw1, dw2, dv, 
                             dt1, dt2, dx,
@@ -67,8 +67,14 @@ class CartDoublePole(DynamicalSystem,TargetCost):
             
             return exprs
 
-        #return symbols, dyn(), quad_cost()
-        return symbols, dyn(), pilco_cost_reg()
+        if cost == 0:
+            costf = pilco_cost_reg()
+        elif cost == 1:
+            costf = pilco_cost()
+        elif cost == 2:
+            costf = quad_cost()
+        return symbols, dyn(), costf
+        #return symbols, dyn(), pilco_cost_reg()
         
     def plot_state_init(self):
           

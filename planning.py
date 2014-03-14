@@ -243,12 +243,15 @@ class LinearFeedbackPolicy:
 class DynamicalSystem:
     def __init__(self, state=None,
                 log_h_init = -1.0, 
-                dt = 0.01, noise = 0.0):
+                dt = 0.01, noise = 0.0,
+                H = 100, init_u_var = 1e-1):
 
         symbols, exprs, cost = self.symbolics()
         self.symbols = tuple(symbols)
         self.exprs = tuple(exprs)
         self.cost = cost
+        self.H = H
+        self.init_u_var = init_u_var
 
         self.nx = len(self.exprs)
         self.nu = len(self.symbols) - 2*self.nx
@@ -1401,8 +1404,7 @@ class DDPPlanner():
         
         # initial rollout to get nominal trajectory
         print 'Running initial rollout for incremental planning'
-        #u = 0.1*np.random.randn(T,Du) # use random initial actions
-        u = 0.0000000000000000000000000000000001*np.random.randn(T,Du) # use random initial actions
+        u = self.ds.init_u_var*np.random.randn(T,Du) # use random initial actions
         x,u,policy = self.rollout(u,np.zeros((T,Dx)),K,np.zeros((T,Du)))
         
         # run incremental planning
@@ -1450,8 +1452,7 @@ class DDPPlanner():
         
         # initial rollout to get nominal trajectory
         print 'Running initial rollout for continuation planning'
-        u = 0.0000000000000000000000000000000001*np.random.randn(T,Du) # use random initial actions
-        #u = 0.5*np.random.randn(T,Du) # use random initial actions
+        u = self.ds.init_u_var*np.random.randn(T,Du) # use random initial actions
         x,u,policy = self.rollout(u,np.zeros((T,Dx)),np.zeros((T,Du,Dx)),np.zeros((T,Du)))
         u = np.append(u,np.zeros(x.shape),axis=1)
         
@@ -1463,7 +1464,7 @@ class DDPPlanner():
             fdyngrad = lambda x_,u_ : self.continuation_dyngrad(x_,u_)
             
             # call DDP optimizer
-            policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,self.ds.nx,self.ds.nu+self.ds.nx,self.T,x,u,verbosity=4)
+            policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,self.ds.nx,self.ds.nu+self.ds.nx,self.T,x,u,verbosity=1)
             
             # compute cost
             totcost = np.sum(self.ds.get_cost(x,u[:,:self.ds.nu])[0])
@@ -1511,8 +1512,7 @@ class DDPPlanner():
         if lsx == None:
             if verbosity > 3:
                 print 'Running initial rollout'
-            #u = 0.1*np.random.randn(T,Du) # use random initial actions
-            u = 0.0000000000000000000000000000000001*np.random.randn(T,Du) # use random initial actions
+            u = self.ds.init_u_var*np.random.randn(T,Du) # use random initial actions
             lsx,lsu,policy = frollout(u,np.zeros((T,Dx)),np.zeros((T,Du,Dx)),np.zeros((T,Du)))
         
         # allocate arrays

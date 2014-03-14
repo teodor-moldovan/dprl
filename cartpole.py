@@ -11,7 +11,7 @@ class CartPole(DynamicalSystem,TargetCost):
                 **kwargs)       
 
     @staticmethod
-    def symbolics():
+    def symbolics(cost = 2):
         symbols = sympy.var(" dw, dv, dt, dx, w, v, t, x, u ")
 
         l = 0.5   # [m]      length of pendulum
@@ -49,7 +49,13 @@ class CartPole(DynamicalSystem,TargetCost):
         def quad_cost(): 
             return .5*( w**2 + v**2 + t**2 + x**2 )
 
-        return symbols, dyn(), quad_cost()
+        if cost == 0:
+            costf = pilco_cost()
+        elif cost == 1:
+            costf = pilco_cost()
+        elif cost == 2:
+            costf = quad_cost()
+        return symbols, dyn(), costf
 
     def plot_state_init(self):
         
