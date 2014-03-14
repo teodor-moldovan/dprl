@@ -1411,7 +1411,11 @@ class TestsDynamicalSystem(unittest.TestCase):
         
         # run DDP planner
         #policy,x,u = ddp.direct_plan()
-        #policy,x,u = ddp.incremental_plan(20,40)
+        
+        # uncomment this line to run unicycle
+        #policy,x,u = ddp.incremental_plan(2,4)
+        
+        # run continuation method
         policy,x,u = ddp.continuation_plan()
         
         # evaluate PILCO cost
