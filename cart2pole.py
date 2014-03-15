@@ -48,7 +48,7 @@ class CartDoublePole(DynamicalSystem):
             return cost
 
         def quad_cost():
-            return .5*(u*u + x*x + t1*t1 + t2*t2)
+            return .5*(1e-2*u*u + x*x + t1*t1 + t2*t2)
 
         def dyn():
             A = [[2*(m1+m2+m3), -(m2+2*m3)*l2*cos(t1), -m3*l3*cos(t2)],

@@ -44,7 +44,7 @@ class CartPole(DynamicalSystem):
 
         def quad_cost(): 
             #return .5*( w**2 + v**2 + t**2 + x**2 )
-            return .5*( (t-np.pi)**2 + x**2 + 1e-4*u**2 )
+            return .5*( (t-np.pi)**2 + x**2 + 1e-2*u**2 )
 
         return locals()
 

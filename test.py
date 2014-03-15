@@ -1398,7 +1398,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         seed = 1
         
         # get dynamical system
-        env = self.DS(cost_type = 'quad_cost', squashing_function = sympy.sin)
+        env = self.DS(cost_type = 'quad_cost', squashing_function = sympy.tanh)
         T = env.H # get time horizon from dynamical system
         
         # sample initial state
@@ -1436,8 +1436,8 @@ class TestsDynamicalSystem(unittest.TestCase):
 
     def test_ddp(self):
         # constants
-        ddp_itr = 50
-        #ddp_itr = 10
+        #ddp_itr = 1
+        ddp_itr = 10
         seed = 1
         
         # get dynamical system
