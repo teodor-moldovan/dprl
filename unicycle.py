@@ -9,7 +9,7 @@ class Unicycle(DynamicalSystem):
                 -1.0,0.15,0.0,60,0,
                 **kwargs)
 
-        np.random.seed(3)
+        np.random.seed(5)
         self.state[self.nx/2-1:] = .25*np.random.normal(size = self.nx/2+1)
 
     def symbolics(self):

@@ -1333,7 +1333,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         ds.implf_jac(z)
 
     def test_explicit(self):
-        ds = self.ds
+        ds = self.DS()
 
         l,nx,nu = 11*8*32, ds.nx, ds.nu
         n = 2*nx+nu
@@ -1355,9 +1355,9 @@ class TestsDynamicalSystem(unittest.TestCase):
         seed = 44 # 11,15,22
         np.random.seed(seed)
 
-        env = self.ds
+        env = self.DS()
         #env.state = 2*np.pi*2*(np.random.random(self.ds.nx)-0.5)
-        env.state = 0.001*(np.random.random(self.ds.nx)-0.5)
+        env.state = 0.001*(np.random.random(env.nx)-0.5)
         #trj = env.step(ZeroPolicy(env.nu), 200)
         #env.plot_state_seq(trj[2])
         x,u = env.discrete_time_rollout(ZeroPolicy(env.nu),env.state,100)
@@ -1365,31 +1365,31 @@ class TestsDynamicalSystem(unittest.TestCase):
         plt.show()
 
     def test_accs(self):
-        ds = self.ds
+        ds = self.DS()
 
         np.random.seed(6)
-        x = 2*np.pi*2*(np.random.random(self.ds.nx)-0.5)
-        u = np.zeros(self.ds.nu)
+        x = 2*np.pi*2*(np.random.random(ds.nx)-0.5)
+        u = np.zeros(ds.nu)
 
         print
         print 'state: '
-        print self.ds.state2str(x)
+        print ds.state2str(x)
         print 
         print 'controls: '
-        print  self.ds.control2str(u)
+        print  ds.control2str(u)
         r = ds.explf(to_gpu(x[np.newaxis,:]),to_gpu(u[np.newaxis,:])).get()[0]
         print 
         print 'state derivative: '
-        print  self.ds.dstate2str(r)
+        print  ds.dstate2str(r)
         
     def test_cost(self):
-        ds = self.ds
+        ds = self.DS()
 
         np.random.seed(6)
-        x = np.random.random(self.ds.nx)-0.5
-        u = np.random.random(self.ds.nu)-0.5
+        x = np.random.random(ds.nx)-0.5
+        u = np.random.random(ds.nu)-0.5
 
-        self.ds.get_cost(x[np.newaxis,:],u[np.newaxis,:])
+        ds.get_cost(x[np.newaxis,:],u[np.newaxis,:])
         
     def test_pilco_compare(self):
         # constants
@@ -1398,7 +1398,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         seed = 1
         
         # get dynamical system
-        env = self.ds
+        env = self.DS()
         T = env.H # get time horizon from dynamical system
         
         # sample initial state
@@ -1419,13 +1419,12 @@ class TestsDynamicalSystem(unittest.TestCase):
         policy,x,u = ddp.continuation_plan()
         
         # evaluate PILCO cost
-        _,_,self.ds.cost = self.ds.symbolics(cost=0) # switch to PILCO cost
-        self.ds.codegen() # recompile the costs
-        totcost = np.sum(self.ds.get_cost(x,u[:,:self.ds.nu])[0]) # compute PICLO cost
+        _,_,env.cost = env.symbolics(cost=0) # switch to PILCO cost
+        env.ds.codegen() # recompile the costs
+        totcost = np.sum(env.get_cost(x,u[:,:env.nu])[0]) # compute PICLO cost
         print 'PILCO cost:',totcost # print result
         
         # execute
-        env = self.ds
         env.state = x0
         env.t = 0
         x,u = env.discrete_time_rollout(policy,env.state,T)
@@ -1442,7 +1441,11 @@ class TestsDynamicalSystem(unittest.TestCase):
         seed = 1
         
         # get dynamical system
-        env = self.ds
+        # no squashing
+        #env = self.DS(cost_type = 'quad_cost', squashing_function=None)
+        
+        # example with squashing
+        env = self.DS(cost_type = 'quad_cost', squashing_function = sympy.sin)
         
         # sample initial state
         np.random.seed(seed)
@@ -1458,7 +1461,6 @@ class TestsDynamicalSystem(unittest.TestCase):
         policy,x,u = ddp.continuation_plan()
         
         # execute
-        env = self.ds
         env.state = x0
         env.t = 0
         x,u = env.discrete_time_rollout(policy,env.state,T)
@@ -1468,7 +1470,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         plt.show()
         
     def test_discrete_time(self):
-        ds = self.ds
+        ds = self.DS()
         np.random.seed(10)
         
         l,nx,nu = 11*8, ds.nx, ds.nu
@@ -1486,17 +1488,11 @@ class TestsDynamicalSystem(unittest.TestCase):
         toc(t)
 
 class TestsCartpole(TestsDynamicalSystem):
-    def setUp(self):
-        import cartpole
-        self.ds = cartpole.CartPole()
+    from cartpole import CartPole as DS
 class TestsCartDoublePole(TestsDynamicalSystem):
-    def setUp(self):
-        import cart2pole
-        self.ds = cart2pole.CartDoublePole()
+    from cart2pole import CartDoublePole as DS
 class TestsPendubot(TestsDynamicalSystem):
-    def setUp(self):
-        import pendubot
-        self.ds = pendubot.Pendubot()
+    from pendubot import Pendubot as DS
     def test_cca(self):
         ds = self.ds
         np.random.seed(10)
@@ -1516,10 +1512,7 @@ class TestsPendubot(TestsDynamicalSystem):
 
 
 class TestsUnicycle(TestsDynamicalSystem):
-    def setUp(self):
-        import unicycle
-        self.ds = unicycle.Unicycle()
-
+    from unicycle import Unicycle as DS
     def test_cca(self):
         ds = Unicycle()
         np.random.seed(10)
@@ -1582,9 +1575,7 @@ class TestsUnicycle(TestsDynamicalSystem):
         
         
 class TestsSwimmer(TestsDynamicalSystem):
-    def setUp(self):
-        import swimmer
-        self.ds = swimmer.Swimmer(7)
+    from swimmer import Swimmer as DS
 class TestsPP(unittest.TestCase):
     def test_int(self):
         i = ExplicitRK('rk4')

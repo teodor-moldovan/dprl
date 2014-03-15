@@ -1,14 +1,13 @@
 from planning import *
 
 class CartPole(DynamicalSystem):
-    def __init__(self,**kwargs):
+    def __init__(self,*args,**kwargs):
         DynamicalSystem.__init__(self,
                 np.array((0,0,np.pi,0)),
                 -1.0,0.10,0.0,
                 **kwargs)       
         
-    @staticmethod
-    def symbolics():
+    def symbolics(self):
         symbols = sympy.var(" dw, dv, dt, dx, w, v, t, x, u ")
 
         l = 0.5   # [m]      length of pendulum

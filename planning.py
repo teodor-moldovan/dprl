@@ -245,7 +245,8 @@ class DynamicalSystem:
                 log_h_init = -1.0, 
                 dt = 0.01, noise = 0.0,
                 H = 100, init_u_var = 1e-1,
-                cost_type = 'quad_cost'
+                cost_type = 'quad_cost',
+                squashing_function = None,
                 ):
 
         dct = self.symbolics()
@@ -253,12 +254,19 @@ class DynamicalSystem:
         self.symbols = tuple(dct['symbols'])
         self.exprs = tuple(dct['dyn']())
         self.cost = dct[cost_type]()
-        
-        self.H = H
-        self.init_u_var = init_u_var
 
         self.nx = len(self.exprs)
         self.nu = len(self.symbols) - 2*self.nx
+         
+        if not squashing_function is None:
+            squ = [(u,squashing_function(u)) for u in self.symbols[-self.nu:]]
+            
+            self.exprs = tuple(( e.subs(squ) for e in self.exprs))
+            #self.cost = self.cost.subs(squ) 
+            
+        self.H = H
+        self.init_u_var = init_u_var
+
 
         self.set_target()
         self.codegen()
@@ -1322,7 +1330,7 @@ class SlpNlp():
         return ret
         
         
-    def iterate(self,z,n_iters=10000):
+    def iterate(self,z,n_iters=1000000):
 
         cost = float('inf')
         old_cost = cost
@@ -1351,11 +1359,11 @@ class SlpNlp():
                 a,b = self.nlp.line_search(z,dz,al)
                 
                 # find first local minimum
-                #ae = np.concatenate(([float('inf')],b,[float('inf')]))
-                #inds  = np.where(np.logical_and(b<=ae[2:],b<ae[:-2] ) )[0]
+                ae = np.concatenate(([float('inf')],b,[float('inf')]))
+                inds  = np.where(np.logical_and(b<=ae[2:],b<ae[:-2] ) )[0]
                 
-                i = np.argmin(b)
-                #i = inds[0]
+                #i = np.argmin(b)
+                i = inds[0]
                 cost = b[i]
                 r = al[i]
 
