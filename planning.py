@@ -253,12 +253,14 @@ class DynamicalSystem:
         self.symbols = tuple(dct['symbols'])
         self.exprs = tuple(dct['dyn']())
         self.cost = dct[cost_type]()
+        
         self.H = H
         self.init_u_var = init_u_var
 
         self.nx = len(self.exprs)
         self.nu = len(self.symbols) - 2*self.nx
 
+        self.set_target()
         self.codegen()
 
         if state is None:
@@ -326,6 +328,18 @@ class DynamicalSystem:
 
         return codegen_cse(exprs, syms)
 
+
+    def set_target(self):
+        """ hack """
+        self.target = np.zeros(self.nx)
+        self.c_ignore = np.zeros(self.nx)==0
+        v,k = zip(*tuple(enumerate(self.symbols[self.nx:])))
+        dct = dict(zip(k,v))
+        inds =  np.array([dct[s] for s in self.cost.free_symbols 
+                        if s in self.symbols[self.nx:-self.nu]])
+        
+        self.c_ignore[inds] = False
+        
 
     def codegen(self):
 
@@ -630,13 +644,13 @@ class DynamicalSystem:
         ode.set_initial_value(self.state, 0)
         
         trj = []
-        stp = 0
-        #while ode.successful() and ode.t + self.dt <= h:
-        while ode.successful() and stp < n:
+        #stp = 0
+        while ode.successful() and ode.t + self.dt <= h:
+        #while ode.successful() and stp < n:
             ode.integrate(ode.t+self.dt) 
             dx,u = f(ode.t,ode.y)
             trj.append((self.t+ode.t,dx,ode.y,u))
-            stp = stp + 1
+            #stp = stp + 1
         
         if len(trj)==0:
             ode.integrate(h) 
@@ -709,11 +723,12 @@ class DynamicalSystem:
     def print_state(self,s = None):
         if s is None:
             s = self.state
+        print self.__symvals2str((self.t,),('time(s)',))
         print self.state2str(s)
             
     @staticmethod
     def __symvals2str(s,syms):
-        out = ['{:6} {: 8.4f}'.format(str(n),x)
+        out = ['{:8} {: 8.4f}'.format(str(n),x)
             for x, n in zip(s, syms)
             ]
         

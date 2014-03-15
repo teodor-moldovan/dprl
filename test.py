@@ -1519,6 +1519,7 @@ class TestsUnicycle(TestsDynamicalSystem):
     def setUp(self):
         import unicycle
         self.ds = unicycle.Unicycle()
+
     def test_cca(self):
         ds = Unicycle()
         np.random.seed(10)
@@ -1542,7 +1543,7 @@ class TestsUnicycle(TestsDynamicalSystem):
         np.random.seed(seed)
 
         env = self.ds
-        env.set_location(1.0,1.0)
+        env.dt = .01
 
         pp = SlpNlp(GPMcompact(env,55))
 

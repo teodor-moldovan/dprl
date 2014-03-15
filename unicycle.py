@@ -4,14 +4,13 @@ from mpl_toolkits.mplot3d import Axes3D
 class Unicycle(DynamicalSystem):
     """http://mlg.eng.cam.ac.uk/pub/pdf/Dei10.pdf"""
     def __init__(self , **kwargs):
-        
         DynamicalSystem.__init__(self,
                 None,
                 -1.0,0.15,0.0,60,0,
                 **kwargs)
 
         np.random.seed(3)
-        self.state = .25*np.random.normal(size = self.nx)
+        self.state[self.nx/2-1:] = .25*np.random.normal(size = self.nx/2+1)
 
     def symbolics(self):
         symbols = sympy.var("""
@@ -96,7 +95,7 @@ class Unicycle(DynamicalSystem):
 
         def quad_cost():
 
-            v = sympy.Matrix((dtheta,dphi,dpsiw,dpsif,dpsit,x,y,phi,psif,psit))
+            v = sympy.Matrix((dtheta, dpsiw, dpsif,theta,psif))
             return (v.T*v)[0] + V*V + U*U
 
         return locals()
