@@ -36,7 +36,7 @@ class CartPole(DynamicalSystem):
         def pilco_cost():
 
             dx = (x + l*sin(t))/width
-            dy = l*(cos(t)-1)/width
+            dy = l*(cos(t)+1)/width
             dist = dx*dx + dy*dy
             cost = 0.5*(1 - exp(- .5 * dist))
 
