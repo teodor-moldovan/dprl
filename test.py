@@ -1398,7 +1398,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         seed = 1
         
         # get dynamical system
-        env = self.DS()
+        env = self.DS(cost_type = 'quad_cost', squashing_function = sympy.sin)
         T = env.H # get time horizon from dynamical system
         
         # sample initial state
@@ -1419,8 +1419,9 @@ class TestsDynamicalSystem(unittest.TestCase):
         policy,x,u = ddp.continuation_plan()
         
         # evaluate PILCO cost
-        _,_,env.cost = env.symbolics(cost=0) # switch to PILCO cost
-        env.ds.codegen() # recompile the costs
+        dct = env.symbolics() # switch to PILCO cost
+        env.cost = dct['pilco_cost']()
+        env.codegen() # recompile the costs
         totcost = np.sum(env.get_cost(x,u[:,:env.nu])[0]) # compute PICLO cost
         print 'PILCO cost:',totcost # print result
         
@@ -1435,9 +1436,8 @@ class TestsDynamicalSystem(unittest.TestCase):
 
     def test_ddp(self):
         # constants
-        T = 100
-        #ddp_itr = 200
         ddp_itr = 50
+        #ddp_itr = 10
         seed = 1
         
         # get dynamical system
@@ -1446,6 +1446,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         
         # example with squashing
         env = self.DS(cost_type = 'quad_cost', squashing_function = sympy.sin)
+        T = env.H
         
         # sample initial state
         np.random.seed(seed)

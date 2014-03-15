@@ -1483,7 +1483,7 @@ class DDPPlanner():
         u = np.append(u,np.zeros(x.shape),axis=1)
         
         # repeat for desired number of iterations
-        for itr in range(50):
+        for itr in range(100):
             # set up DDP input functions
             frollout = lambda u_,x_,K_,k_ : self.continuation_rollout(u_,x_,K_,k_)
             fcost = lambda x_,u_ : self.continuation_cost(x_,u_,qp_wt)
@@ -1495,6 +1495,12 @@ class DDPPlanner():
             # compute cost
             totcost = np.sum(self.ds.get_cost(x,u[:,:self.ds.nu])[0])
             
+            # generate fully physical rollout to see if it's good enough
+            px,pu,phypolicy = self.rollout(u[:,:self.ds.nu],x,policy.K[:,:self.ds.nu,:],np.zeros((self.T,self.ds.nu,1)))
+            
+            # compute cost
+            physcost = np.sum(self.ds.get_cost(px,pu)[0])
+            
             # compute nonphysical forces
             nonphys = np.sum(u[:,self.ds.nu:]**2)
             print 'Itr',itr,'physics weight:',qp_wt,'constraint violation:',nonphys,'total cost:',totcost
@@ -1503,7 +1509,7 @@ class DDPPlanner():
             qp_wt = qp_wt*2
             
             # check convergence
-            if nonphys < 1e-10:
+            if nonphys < 1e-20 or np.abs(physcost-totcost) < 1.0:
                 break
         
         # generate new policy for fully physical domain and generate trajectory

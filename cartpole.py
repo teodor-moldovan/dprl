@@ -3,8 +3,8 @@ from planning import *
 class CartPole(DynamicalSystem):
     def __init__(self,*args,**kwargs):
         DynamicalSystem.__init__(self,
-                np.array((0,0,np.pi,0)),
-                -1.0,0.10,0.0,
+                np.array((0,0,0,0)),
+                -1.0,0.050,0.0,200,1e-1,
                 **kwargs)       
         
     def symbolics(self):
@@ -38,12 +38,13 @@ class CartPole(DynamicalSystem):
             dx = (x + l*sin(t))/width
             dy = l*(cos(t)-1)/width
             dist = dx*dx + dy*dy
-            cost = 1 - exp(- .5 * dist)
+            cost = 0.5*(1 - exp(- .5 * dist))
 
             return cost
 
         def quad_cost(): 
-            return .5*( w**2 + v**2 + t**2 + x**2 )
+            #return .5*( w**2 + v**2 + t**2 + x**2 )
+            return .5*( (t-np.pi)**2 + x**2 + 1e-4*u**2 )
 
         return locals()
 
