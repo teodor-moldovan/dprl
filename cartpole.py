@@ -1,7 +1,6 @@
 from planning import *
-from costs import *
 
-class CartPole(DynamicalSystem,TargetCost):
+class CartPole(DynamicalSystem):
     def __init__(self,**kwargs):
 
         nan = np.float('nan')

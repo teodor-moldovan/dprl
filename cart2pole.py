@@ -1,7 +1,6 @@
 from planning import *
-from costs import *
  
-class CartDoublePole(DynamicalSystem,TargetCost):
+class CartDoublePole(DynamicalSystem):
     def __init__(self,**kwargs):
         DynamicalSystem.__init__(self,
                 np.array([0,0,0,np.pi,np.pi,0]),

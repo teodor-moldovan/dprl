@@ -572,9 +572,9 @@ class DynamicalSystem:
         # return result
         return x,u
         
-    # this variant of the rollout function works with a policy that returns non-physical
-    # actions that get added directly to state, producing a quasi-physical simulation
     def discrete_time_rollout_quasiphysical(self,policy,x0,T):
+        # this variant of the rollout function works with a policy that returns non-physical
+        # actions that get added directly to state, producing a quasi-physical simulation
                 
         # allocate space for states and actions
         x = np.zeros((T,self.nx))

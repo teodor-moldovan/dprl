@@ -1,7 +1,6 @@
 from planning import *
-from costs import *
  
-class Pendubot(DynamicalSystem,TargetCost):
+class Pendubot(DynamicalSystem):
     """
     Dynamics taken from: http://mlg.eng.cam.ac.uk/pub/pdf/Dei10.pdf
     """
