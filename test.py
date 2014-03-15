@@ -1393,8 +1393,6 @@ class TestsDynamicalSystem(unittest.TestCase):
         
     def test_pilco_compare(self):
         # constants
-        ddp_itr = 50
-        #ddp_itr = 1
         seed = 1
         
         # get dynamical system
@@ -1407,16 +1405,16 @@ class TestsDynamicalSystem(unittest.TestCase):
         #x0 = 2*np.pi*2*(np.random.random(env.nx)-0.5)
         
         # create DDP planner
-        ddp = DDPPlanner(env,x0,T,ddp_itr)
+        ddp = DDPPlanner(env,x0,T)
         
         # run DDP planner
-        #policy,x,u = ddp.direct_plan()
+        #policy,x,u = ddp.direct_plan(500)
         
         # uncomment this line to run unicycle
-        #policy,x,u = ddp.incremental_plan(2,4)
+        #policy,x,u = ddp.incremental_plan(50,500,2,4)
         
         # run continuation method
-        policy,x,u = ddp.continuation_plan()
+        policy,x,u = ddp.continuation_plan(10,500)
         
         # evaluate PILCO cost
         dct = env.symbolics() # switch to PILCO cost
@@ -1436,9 +1434,6 @@ class TestsDynamicalSystem(unittest.TestCase):
 
     def test_ddp(self):
         # constants
-        ddp_itr = 10
-        #ddp_itr = 50
-        #ddp_itr = 500
         seed = 1
         
         # get dynamical system
@@ -1455,12 +1450,12 @@ class TestsDynamicalSystem(unittest.TestCase):
         #x0 = 2*np.pi*2*(np.random.random(env.nx)-0.5)
         
         # create DDP planner
-        ddp = DDPPlanner(env,x0,T,ddp_itr)
+        ddp = DDPPlanner(env,x0,T)
         
         # run DDP planner
-        #policy,x,u = ddp.direct_plan()
-        #policy,x,u = ddp.incremental_plan(20,40)
-        policy,x,u = ddp.continuation_plan(500)
+        #policy,x,u = ddp.direct_plan(500)
+        policy,x,u = ddp.incremental_plan(100,500,2,4)
+        #policy,x,u = ddp.continuation_plan(10,500)
         
         # execute
         env.state = x0
