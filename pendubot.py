@@ -55,7 +55,7 @@ class Pendubot(DynamicalSystem):
 
             return cost
 
-        return symbols, dyn(), quad_cost()
+        return locals()
 
 
     def plot_init(self):

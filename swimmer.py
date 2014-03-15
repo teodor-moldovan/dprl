@@ -19,8 +19,9 @@ class Swimmer(DynamicalSystem):
         symbols = (dvx, dvy) + dw + (dx,dy) + dt + (vx,vy) + w + (x,y) +t + u
         
         um = sympy.Matrix(u)
-        cost = x*x + y*y + (um.T*um)[0]
         
+        def quad_cost():
+            return x*x + y*y + (um.T*um)[0]
         def dyn(n):
             # parameters
 
@@ -86,5 +87,5 @@ class Swimmer(DynamicalSystem):
             
             return exprs
 
-        return symbols, dyn(n), cost
+        return locals()
         

@@ -2,15 +2,13 @@ from planning import *
 
 class CartPole(DynamicalSystem):
     def __init__(self,**kwargs):
-
-        nan = np.float('nan')
         DynamicalSystem.__init__(self,
                 np.array((0,0,np.pi,0)),
                 -1.0,0.10,0.0,
                 **kwargs)       
-
+        
     @staticmethod
-    def symbolics(cost = 2):
+    def symbolics():
         symbols = sympy.var(" dw, dv, dt, dx, w, v, t, x, u ")
 
         l = 0.5   # [m]      length of pendulum
@@ -48,13 +46,7 @@ class CartPole(DynamicalSystem):
         def quad_cost(): 
             return .5*( w**2 + v**2 + t**2 + x**2 )
 
-        if cost == 0:
-            costf = pilco_cost()
-        elif cost == 1:
-            costf = pilco_cost()
-        elif cost == 2:
-            costf = quad_cost()
-        return symbols, dyn(), costf
+        return locals()
 
     def plot_state_init(self):
         

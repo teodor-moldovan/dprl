@@ -3,7 +3,7 @@ from mpl_toolkits.mplot3d import Axes3D
 
 class Unicycle(DynamicalSystem):
     """http://mlg.eng.cam.ac.uk/pub/pdf/Dei10.pdf"""
-    def __init__(self,**kwargs):
+    def __init__(self , **kwargs):
         
         DynamicalSystem.__init__(self,
                 None,
@@ -13,7 +13,7 @@ class Unicycle(DynamicalSystem):
         np.random.seed(3)
         self.state = .25*np.random.normal(size = self.nx)
 
-    def symbolics(self,cost=2):
+    def symbolics(self):
         symbols = sympy.var("""
             adtheta, adphi, adpsiw, adpsif, adpsit, 
             ax, ay, atheta, aphi, apsiw, apsif, apsit,
@@ -99,13 +99,7 @@ class Unicycle(DynamicalSystem):
             v = sympy.Matrix((dtheta,dphi,dpsiw,dpsif,dpsit,x,y,phi,psif,psit))
             return (v.T*v)[0] + V*V + U*U
 
-        if cost == 0:
-            costf = pilco_cost_reg()
-        elif cost == 1:
-            costf = pilco_cost()
-        elif cost == 2:
-            costf = quad_cost()
-        return symbols, dyn(), costf
+        return locals()
         
     def set_location(self,x,y):
         self.state[5:7] = (x,y)

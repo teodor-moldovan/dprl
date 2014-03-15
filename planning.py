@@ -244,12 +244,15 @@ class DynamicalSystem:
     def __init__(self, state=None,
                 log_h_init = -1.0, 
                 dt = 0.01, noise = 0.0,
-                H = 100, init_u_var = 1e-1):
+                H = 100, init_u_var = 1e-1,
+                cost_type = 'quad_cost'
+                ):
 
-        symbols, exprs, cost = self.symbolics()
-        self.symbols = tuple(symbols)
-        self.exprs = tuple(exprs)
-        self.cost = cost
+        dct = self.symbolics()
+
+        self.symbols = tuple(dct['symbols'])
+        self.exprs = tuple(dct['dyn']())
+        self.cost = dct[cost_type]()
         self.H = H
         self.init_u_var = init_u_var
 
