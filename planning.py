@@ -1472,7 +1472,7 @@ class DDPPlanner():
         return policy,x,u
         
     # run relaxed dynamics continuation method DDP planning
-    def continuation_plan(self):        
+    def continuation_plan(self,final_iterations):        
         # constants
         qp_wt = 1e-1
         T = self.T
@@ -1526,13 +1526,13 @@ class DDPPlanner():
         frollout = lambda u_,x_,K_,k_ : self.rollout(u_,x_,K_,k_)
         fcost = lambda x_,u_ : self.ds.get_cost(x_,u_)
         fdyngrad = lambda x_,u_ : self.ds.discrete_time_linearization(x_,u_)
-        policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,x.shape[1],u.shape[1],self.T,x,u,verbosity=1)
+        policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,x.shape[1],u.shape[1],self.T,x,u,verbosity=1,iterations=final_iterations)
         
         # return result
         return policy,x,u
         
     # DDP-based trajectory optimization with modular dynamics and cost computation
-    def ddpopt(self,x0,frollout,fcost,fdyngrad,Dx,Du,T,lsx=None,lsu=None,verbosity=4):
+    def ddpopt(self,x0,frollout,fcost,fdyngrad,Dx,Du,T,lsx=None,lsu=None,verbosity=4,iterations=0):
         if verbosity > 1:
             print 'Running DDP solver with horizon',T
                 
@@ -1549,6 +1549,10 @@ class DDPPlanner():
                 print 'Running initial rollout'
             u = self.ds.init_u_var*np.random.randn(T,Du) # use random initial actions
             lsx,lsu,policy = frollout(u,np.zeros((T,Dx)),np.zeros((T,Du,Dx)),np.zeros((T,Du)))
+            
+        # set iteration count
+        if iterations == 0:
+            iterations = self.iterations
         
         # allocate arrays
         Qx = np.zeros((T,Dx,1))
@@ -1560,7 +1564,7 @@ class DDPPlanner():
         # run optimization
         if verbosity > 3:
             print 'Running optimization'
-        for itr in range(self.iterations):
+        for itr in range(iterations):
             # use result from previous line search
             x = lsx.copy()
             u = lsu.copy()        

@@ -1436,8 +1436,9 @@ class TestsDynamicalSystem(unittest.TestCase):
 
     def test_ddp(self):
         # constants
-        #ddp_itr = 1
         ddp_itr = 10
+        #ddp_itr = 50
+        #ddp_itr = 500
         seed = 1
         
         # get dynamical system
@@ -1459,7 +1460,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         # run DDP planner
         #policy,x,u = ddp.direct_plan()
         #policy,x,u = ddp.incremental_plan(20,40)
-        policy,x,u = ddp.continuation_plan()
+        policy,x,u = ddp.continuation_plan(500)
         
         # execute
         env.state = x0
