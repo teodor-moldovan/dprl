@@ -1445,8 +1445,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         #env = self.DS(cost_type = 'quad_cost', squashing_function=None)
         
         # example with squashing
-        #env = self.DS(cost_type = 'quad_cost', squashing_function = (lambda u : (1.0-2.0/(1.0+sympy.exp(-u)))))
-        env = self.DS(cost_type = 'quad_cost', squashing_function = (lambda u : sympy.tanh(u)))
+        env = self.DS(cost_type = 'quad_cost', squashing_function = sympy.tanh)
         T = env.H
         
         # sample initial state
