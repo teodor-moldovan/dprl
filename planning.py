@@ -257,19 +257,12 @@ class DynamicalSystem:
 
         self.nx = len(self.exprs)
         self.nu = len(self.symbols) - 2*self.nx
-         
-        if not squashing_function is None:
-            squ = [(u,squashing_function(u)) for u in self.symbols[-self.nu:]]
-            
-            self.exprs = tuple(( e.subs(squ) for e in self.exprs))
-            #self.cost = self.cost.subs(squ) 
-            
+                     
         self.H = H
         self.init_u_var = init_u_var
 
-
         self.set_target()
-        self.codegen()
+        self.codegen(squashing_function)
 
         if state is None:
             state = np.zeros(self.nx)
@@ -288,9 +281,7 @@ class DynamicalSystem:
     @staticmethod
     @memoize_to_disk
     def __codegen(exprs, symbols,nx):
-        simplify = lambda e: e.rewrite(sympy.exp).expand().rewrite(sympy.sin).expand()
-        exprs = [simplify(e) for e in exprs]
-
+        
         # separate weights from features
         exprs = [e.as_coefficients_dict().items() for e in exprs]
         features = set(zip(*sum(exprs,[]))[0])
@@ -348,12 +339,24 @@ class DynamicalSystem:
         
         self.c_ignore[inds] = False
         
+    @staticmethod
+    @memoize_to_disk
+    def __simplify(e):
+        return e.rewrite(sympy.exp).expand().rewrite(sympy.sin).expand()
 
-    def codegen(self):
+    def codegen(self, squashing_function):
 
         nx = self.nx
 
-        ret  = self.__codegen(self.exprs, self.symbols,self.nx)
+        exprs = [self.__simplify(e) for e in self.exprs]
+
+        if not squashing_function is None:
+            squ = [(u,squashing_function(u)) for u in self.symbols[-self.nu:]]
+            
+            exprs = tuple(( e.subs(squ) for e in exprs))
+            #self.cost = self.cost.subs(squ) 
+
+        ret  = self.__codegen(exprs, self.symbols,self.nx)
         fn1,fn2,fn3,fn4, weights, nf, nfa  = ret
 
         fc = self.__codegen_cost(self.cost,self.symbols[self.nx:])
