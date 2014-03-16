@@ -1411,7 +1411,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         #policy,x,u = ddp.direct_plan(500)
         
         # uncomment this line to run unicycle
-        #policy,x,u = ddp.incremental_plan(50,500,2,4)
+        #policy,x,u = ddp.incremental_plan(50,500,1,10)
         
         # run continuation method
         policy,x,u = ddp.continuation_plan(10,500)
@@ -1454,7 +1454,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         
         # run DDP planner
         #policy,x,u = ddp.direct_plan(500)
-        #policy,x,u = ddp.incremental_plan(100,500,2,4)
+        #policy,x,u = ddp.incremental_plan(50,500,1,10)
         policy,x,u = ddp.continuation_plan(10,500)
         
         # execute

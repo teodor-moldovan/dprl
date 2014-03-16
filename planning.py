@@ -594,8 +594,6 @@ class DynamicalSystem:
             # compute next state
             if t < T-1:
                 x[t+1] = x[t] + dx.get()
-                x[t+1][x[t+1] > 1e4] = 1e4
-                x[t+1][x[t+1] < -1e4] = -1e4
         
         # return result
         return x,u
@@ -628,8 +626,6 @@ class DynamicalSystem:
             # compute next state
             if t < T-1:
                 x[t+1] = x[t] + dx.get() + u[t,self.nu:]
-                x[t+1][x[t+1] > 1e4] = 1e4
-                x[t+1][x[t+1] < -1e4] = -1e4
         
         # return result
         return x,u
@@ -1450,11 +1446,16 @@ class DDPPlanner():
             frollout = lambda u_,x_,K_,k_ : self.rollout(u_,x_,K_,k_,x[tinit],itrhorizon)
             fcost = lambda x_,u_ : self.ds.get_cost(x_,u_)
             fdyngrad = lambda x_,u_ : self.ds.discrete_time_linearization(x_,u_)
+            
+            # rerun rollout for this block
+            x[tinit:(tlast+1),:],u[tinit:(tlast+1),:],policy = self.rollout(
+                u[tinit:(tlast+1),:],x[tinit:(tlast+1),:],K[tinit:(tlast+1),:,:],np.zeros((itrhorizon,Du)),x[tinit],itrhorizon)
         
             # call DDP optimizer with initialization
             #policyitr,xitr,uitr = self.ddpopt(x[tinit],frollout,fcost,fdyngrad,Dx,Du,itrhorizon,
             #                                  x[tinit:(tlast+1),:],u[tinit:(tlast+1),:])
-            policyitr,xitr,uitr = self.ddpopt(x[tinit],frollout,fcost,fdyngrad,Dx,Du,itrhorizon,verbosity=0,iterations=iterations)
+            policyitr,xitr,uitr = self.ddpopt(x[tinit],frollout,fcost,fdyngrad,Dx,Du,itrhorizon,
+                                              x[tinit:(tlast+1),:],u[tinit:(tlast+1),:],verbosity=1,iterations=iterations)
         
             # place result back into x, u, and K
             x[tinit:(tlast+1),:] = xitr
@@ -1715,6 +1716,9 @@ class DDPPlanner():
                     lsu = best_lsu
                     alpha = best_alpha
                     policy = best_policy
+                elif itr == 0:
+                    policy = lspolicy
+                    k = k*alpha
                 else:
                     lsx = x
                     lsu = u
