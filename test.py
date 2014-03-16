@@ -1536,8 +1536,9 @@ class TestsUnicycle(TestsDynamicalSystem):
         seed = 45 # 11,15,22
         np.random.seed(seed)
 
-        env = self.ds
+        env = self.DS(cost_type = 'quad_simple', squashing_function = None)
         env.dt = .01
+        env.log_h_init = -2.0
 
         pp = SlpNlp(GPMcompact(env,55))
 

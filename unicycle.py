@@ -37,8 +37,8 @@ class Unicycle(DynamicalSystem):
         Ct = 0.2     # moment of inertia of turntable around axle
         At = 1.3     # moment of inertia of turntable perpendicular to axle
         g = 9.82     # acceleration of gravity 
-        u_max = 10   # maximum controls
-        v_max = 50   # maximum controls
+        u_max = 50   # maximum controls
+        v_max = 10   # maximum controls
         T = 0        # no friction
         
         width = 1    # used by pilco cost function
@@ -97,6 +97,11 @@ class Unicycle(DynamicalSystem):
 
             v = sympy.Matrix((dtheta, dpsiw, dpsif,theta,psif))
             return (v.T*v)[0] + V*V + U*U
+
+        def quad_simple():
+
+            v = sympy.Matrix((dtheta, dpsiw, dpsif,theta,psif))
+            return (v.T*v)[0] 
 
         return locals()
         
