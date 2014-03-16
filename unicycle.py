@@ -101,7 +101,7 @@ class Unicycle(DynamicalSystem):
 
         def quad_cost():
 
-            v = sympy.Matrix((dtheta, dpsiw, dpsif,theta,psif))
+            v = sympy.Matrix((dtheta, dpsiw, dpsif, theta, psif))
             return (v.T*v)[0] + 1e-2*V*V + 1e-2*U*U
 
         def state_target():
