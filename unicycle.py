@@ -2,17 +2,21 @@ from planning import *
 
 class Unicycle(DynamicalSystem):
     """http://mlg.eng.cam.ac.uk/pub/pdf/Dei10.pdf"""
-    def __init__(self , **kwargs):
+    def __init__(self, **kwargs):
         DynamicalSystem.__init__(self,
                 None,
                 -1.0,0.15,0.0,60,0,
                 **kwargs)
 
-        np.random.seed(1)
-        #self.state[self.nx/2-1:] = .25*np.random.normal(size = self.nx/2+1)
-        self.state[-5:] = .25*np.random.normal(size = 5)
-        #print self.state        
-        
+    def reset_if_need_be(self):
+        if np.abs(self.state[7]) >= 1.0 or np.abs(self.state[10]) >= 1.0:
+            print 'State reset'
+            self.randomize_state()
+
+    def randomize_state(self):
+        self.state = np.zeros(self.nx)
+        self.state[self.nx/2-1:] = .25*np.random.normal(size = self.nx/2+1)
+
     def symbolics(self):
         symbols = sympy.var("""
             adtheta, adphi, adpsiw, adpsif, adpsit, 
@@ -99,9 +103,9 @@ class Unicycle(DynamicalSystem):
             v = sympy.Matrix((dtheta, dpsiw, dpsif, theta, psif))
             return (v.T*v)[0] + 1e-2*V*V + 1e-2*U*U
 
-        def quad_simple():
+        def state_target():
 
-            v = sympy.Matrix((dtheta, dpsiw, dpsif,theta,psif))
+            v = sympy.Matrix((dtheta,dpsiw, dpsif,theta,psif))
             return (v.T*v)[0] 
 
         return locals()

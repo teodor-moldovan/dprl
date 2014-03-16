@@ -1446,6 +1446,8 @@ class TestsDynamicalSystem(unittest.TestCase):
         
         # sample initial state
         np.random.seed(seed)
+        env.randomize_state()
+
         x0 = env.state
         #x0 = 2*np.pi*2*(np.random.random(env.nx)-0.5)
         
@@ -1488,6 +1490,23 @@ class TestsCartpole(TestsDynamicalSystem):
     from cartpole import CartPole as DS
 class TestsCartDoublePole(TestsDynamicalSystem):
     from cart2pole import CartDoublePole as DS
+    def test_pp_iter(self):
+
+        env = self.DS( 
+                cost_type = 'state_target', squashing_function = None)
+        env.dt = .01
+        env.log_h_init = -1.0
+
+        pp = SlpNlp(GPMcompact(env,55))
+
+        for t in range(10000):
+            s = env.state
+            env.print_state()
+            pi = pp.solve()
+
+            trj = env.step(pi,5)
+
+
 class TestsPendubot(TestsDynamicalSystem):
     from pendubot import Pendubot as DS
     def test_cca(self):
@@ -1529,21 +1548,48 @@ class TestsUnicycle(TestsDynamicalSystem):
          
     def test_pp_iter(self):
 
-        seed = 45 # 11,15,22
-        np.random.seed(seed)
-
-        env = self.DS(cost_type = 'quad_simple', squashing_function = None)
+        env = self.DS(cost_type = 'state_target', squashing_function = None)
         env.dt = .01
-        env.log_h_init = -2.0
-
-        pp = SlpNlp(GPMcompact(env,55))
+        env.log_h_init = -1.0
+        env.randomize_state()
+        
+        pp = SlpNlp(GPMcompact(env,25))
 
         for t in range(10000):
             s = env.state
             env.print_state()
             pi = pp.solve()
 
-            trj = env.step(pi,10)
+            trj = env.step(pi,5)
+
+
+    def test_learning(self):
+
+        env = self.DS(cost_type = 'state_target', squashing_function = None)
+        env.dt = .01
+        env.noise = .01
+
+        ds = self.DS(cost_type = 'state_target', squashing_function = None)
+        ds.log_h_init = -1.0
+        
+        pp = SlpNlp(GPMcompact(ds,55))
+
+        for it in range(5):
+            env.randomize_state()
+            trj = env.step(ZeroPolicy(env.nu),25) 
+            ds.update(trj)
+
+        for t in range(10000):
+
+            env.reset_if_need_be()
+            env.print_state()
+                
+            ds.state = env.state.copy()
+            pi = pp.solve()
+
+            trj = env.step(pi,5)
+            ds.update(trj)
+
 
 
     def test_dyn(self):
