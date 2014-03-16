@@ -22,7 +22,7 @@ class CartDoublePole(DynamicalSystem):
         l3 = 0.6;  # [m]      length of 2nd pendulum
         b  = 0.1;  # [Ns/m]   coefficient of friction between cart and ground
         g  = 9.82; # [m/s^2]  acceleration of gravity
-        um = 20    # max control
+        um = 20.0  # max control
 
         width = .5 # [m]      width used in pilco cost function
 
@@ -49,6 +49,11 @@ class CartDoublePole(DynamicalSystem):
 
         def quad_cost():
             return .5*(1e-2*u*u + x*x + t1*t1 + t2*t2)
+
+
+        def state_target():
+            vc = sympy.Matrix((v,w1,w2,x,t1,t2))
+            return (vc.T*vc)[0] 
 
         def dyn():
             A = [[2*(m1+m2+m3), -(m2+2*m3)*l2*cos(t1), -m3*l3*cos(t2)],

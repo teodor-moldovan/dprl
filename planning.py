@@ -278,6 +278,9 @@ class DynamicalSystem:
         self.noise = noise
         self.model_slack_bounds = 0.0*np.ones(self.nx)
         
+    def randomize_state(self):
+        pass
+
     @staticmethod
     @memoize_to_disk
     def __codegen(exprs, symbols,nx):
@@ -687,6 +690,8 @@ class DynamicalSystem:
 
     def update(self,traj,prior=0.0):
         
+        if traj is None:
+            return
         n,k = self.nf,self.nfa
 
         try:
@@ -694,6 +699,7 @@ class DynamicalSystem:
         except:
             self.psi = prior*np.eye((n))
             self.n_obs = prior
+        
         
         z = to_gpu(np.hstack((traj[1],traj[2],traj[3])))
         f = self.features(z).get()
@@ -1334,7 +1340,7 @@ class SlpNlp():
         return ret
         
         
-    def iterate(self,z,n_iters=1000000):
+    def iterate(self,z,n_iters=100000):
 
         cost = float('inf')
         old_cost = cost
@@ -1363,11 +1369,11 @@ class SlpNlp():
                 a,b = self.nlp.line_search(z,dz,al)
                 
                 # find first local minimum
-                #ae = np.concatenate(([float('inf')],b,[float('inf')]))
-                #inds  = np.where(np.logical_and(b<=ae[2:],b<ae[:-2] ) )[0]
+                ae = np.concatenate(([float('inf')],b,[float('inf')]))
+                inds  = np.where(np.logical_and(b<=ae[2:],b<ae[:-2] ) )[0]
                 
-                i = np.argmin(b)
-                #i = inds[0]
+                #i = np.argmin(b)
+                i = inds[0]
                 cost = b[i]
                 r = al[i]
 
@@ -1380,7 +1386,7 @@ class SlpNlp():
             #print z[self.nlp.iv_model_slack]
                 
             hi = z[self.nlp.iv_h]
-            if np.abs(old_cost - cost)<1e-5:
+            if np.abs(old_cost - cost)<1e-4:
                 break
             old_cost = cost
 
