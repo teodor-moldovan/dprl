@@ -9,9 +9,11 @@ class Unicycle(DynamicalSystem):
                 -1.0,0.15,0.0,60,0,
                 **kwargs)
 
-        np.random.seed(5)
-        self.state[self.nx/2-1:] = .25*np.random.normal(size = self.nx/2+1)
-
+        np.random.seed(1)
+        #self.state[self.nx/2-1:] = .25*np.random.normal(size = self.nx/2+1)
+        self.state[-5:] = .25*np.random.normal(size = 5)
+        #print self.state        
+        
     def symbolics(self):
         symbols = sympy.var("""
             adtheta, adphi, adpsiw, adpsif, adpsit, 
@@ -96,7 +98,7 @@ class Unicycle(DynamicalSystem):
         def quad_cost():
 
             v = sympy.Matrix((dtheta, dpsiw, dpsif,theta,psif))
-            return (v.T*v)[0] + 1e-2*V*V + 1e-2*U*U
+            return (v.T*v)[0] + V*V + U*U
 
         return locals()
         
