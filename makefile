@@ -1,6 +1,6 @@
 all: ft
 
-CMD = python test.py TestsCartpole.test_ddp
+CMD = python test.py TestsUnicycle.test_pp_iter
 noft: 
 	$(CMD)
 ft:

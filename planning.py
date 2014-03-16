@@ -1022,6 +1022,7 @@ class GPMcompact():
 
         z[self.iv_h] = hi
         m = hi*(np.array(self.ds.target)-np.array(self.ds.state))
+        m[self.ds.c_ignore] = 0
         z[self.iv_a] = np.tile(m[np.newaxis,:]/ws,(self.l,1))
         return z 
 
@@ -1362,11 +1363,11 @@ class SlpNlp():
                 a,b = self.nlp.line_search(z,dz,al)
                 
                 # find first local minimum
-                ae = np.concatenate(([float('inf')],b,[float('inf')]))
-                inds  = np.where(np.logical_and(b<=ae[2:],b<ae[:-2] ) )[0]
+                #ae = np.concatenate(([float('inf')],b,[float('inf')]))
+                #inds  = np.where(np.logical_and(b<=ae[2:],b<ae[:-2] ) )[0]
                 
-                #i = np.argmin(b)
-                i = inds[0]
+                i = np.argmin(b)
+                #i = inds[0]
                 cost = b[i]
                 r = al[i]
 
