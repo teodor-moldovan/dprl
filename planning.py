@@ -238,6 +238,8 @@ class LinearFeedbackPolicy:
         return u
         
     def discu(self,t,x):
+        #if np.any(np.isnan(self.us[t]+self.K[t].dot(x-self.xs[t]))):
+        #    print self.us[t],self.K[t],self.xs[t],x
         return self.us[t]+self.K[t].dot(x-self.xs[t])
 
 class DynamicalSystem:
@@ -1431,7 +1433,9 @@ class DDPPlanner():
         # initial rollout to get nominal trajectory
         print 'Running initial rollout for incremental planning'
         u = self.ds.init_u_var*np.random.randn(T,Du) # use random initial actions
-        x,u,policy = self.rollout(u,np.zeros((T,Dx)),K,np.zeros((T,Du)))
+        x = np.zeros((T,Dx))
+        x[0] = self.x0
+        #x,u,policy = self.rollout(u,np.zeros((T,Dx)),K,np.zeros((T,Du)))
         
         # run incremental planning
         for tinit in range(0,T,stride):
