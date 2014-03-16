@@ -1403,27 +1403,27 @@ class SlpNlp():
 
 class DDPPlanner():
     """DDP solver for planning """
-    def __init__(self,ds,x0,T,iterations):
+    def __init__(self,ds,x0,T):
         # set user-specified parameters
         self.ds = ds
         self.x0 = x0
         self.T = T
-        self.iterations = iterations
+        
     # run standard DDP planning
-    def direct_plan(self):
+    def direct_plan(self,iterations):
         # set up DDP input functions
         frollout = lambda u_,x_,K_,k_ : self.rollout(u_,x_,K_,k_)
         fcost = lambda x_,u_ : self.ds.get_cost(x_,u_)
         fdyngrad = lambda x_,u_ : self.ds.discrete_time_linearization(x_,u_)
         
         # call DDP optimizer
-        policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,self.ds.nx,self.ds.nu,self.T)
+        policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,self.ds.nx,self.ds.nu,self.T,iterations=iterations)
         
         # return result
         return policy,x,u
         
     # run incremental DDP planning
-    def incremental_plan(self,stride,horizon):
+    def incremental_plan(self,iterations,final_iterations,stride,horizon):
         # constants
         T = self.T
         Dx = self.ds.nx
@@ -1454,7 +1454,7 @@ class DDPPlanner():
             # call DDP optimizer with initialization
             #policyitr,xitr,uitr = self.ddpopt(x[tinit],frollout,fcost,fdyngrad,Dx,Du,itrhorizon,
             #                                  x[tinit:(tlast+1),:],u[tinit:(tlast+1),:])
-            policyitr,xitr,uitr = self.ddpopt(x[tinit],frollout,fcost,fdyngrad,Dx,Du,itrhorizon,verbosity=0)
+            policyitr,xitr,uitr = self.ddpopt(x[tinit],frollout,fcost,fdyngrad,Dx,Du,itrhorizon,verbosity=0,iterations=iterations)
         
             # place result back into x, u, and K
             x[tinit:(tlast+1),:] = xitr
@@ -1467,13 +1467,13 @@ class DDPPlanner():
         frollout = lambda u_,x_,K_,k_ : self.rollout(u_,x_,K_,k_)
         fcost = lambda x_,u_ : self.ds.get_cost(x_,u_)
         fdyngrad = lambda x_,u_ : self.ds.discrete_time_linearization(x_,u_)
-        policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,Dx,Du,T,x,u)
+        policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,Dx,Du,T,x,u,iterations=final_iterations)
         
         # return result
         return policy,x,u
         
     # run relaxed dynamics continuation method DDP planning
-    def continuation_plan(self):        
+    def continuation_plan(self,iterations,final_iterations):        
         # constants
         qp_wt = 1e-1
         T = self.T
@@ -1494,7 +1494,7 @@ class DDPPlanner():
             fdyngrad = lambda x_,u_ : self.continuation_dyngrad(x_,u_)
             
             # call DDP optimizer
-            policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,self.ds.nx,self.ds.nu+self.ds.nx,self.T,x,u,verbosity=1)
+            policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,self.ds.nx,self.ds.nu+self.ds.nx,self.T,x,u,verbosity=1,iterations=iterations)
             
             # compute cost
             totcost = np.sum(self.ds.get_cost(x,u[:,:self.ds.nu])[0])
@@ -1527,13 +1527,13 @@ class DDPPlanner():
         frollout = lambda u_,x_,K_,k_ : self.rollout(u_,x_,K_,k_)
         fcost = lambda x_,u_ : self.ds.get_cost(x_,u_)
         fdyngrad = lambda x_,u_ : self.ds.discrete_time_linearization(x_,u_)
-        policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,x.shape[1],u.shape[1],self.T,x,u,verbosity=1)
+        policy,x,u = self.ddpopt(self.x0,frollout,fcost,fdyngrad,x.shape[1],u.shape[1],self.T,x,u,verbosity=1,iterations=final_iterations)
         
         # return result
         return policy,x,u
         
     # DDP-based trajectory optimization with modular dynamics and cost computation
-    def ddpopt(self,x0,frollout,fcost,fdyngrad,Dx,Du,T,lsx=None,lsu=None,verbosity=4):
+    def ddpopt(self,x0,frollout,fcost,fdyngrad,Dx,Du,T,lsx=None,lsu=None,verbosity=4,iterations=0):
         if verbosity > 1:
             print 'Running DDP solver with horizon',T
                 
@@ -1561,7 +1561,7 @@ class DDPPlanner():
         # run optimization
         if verbosity > 3:
             print 'Running optimization'
-        for itr in range(self.iterations):
+        for itr in range(iterations):
             # use result from previous line search
             x = lsx.copy()
             u = lsu.copy()        
