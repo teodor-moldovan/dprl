@@ -203,7 +203,6 @@ class CollocationPolicy:
         r = (2.0 * t / self.max_h) - 1.0
         w = self.col.interp_coefficients(r)
         us = np.dot(w,self.us)
-        #hack
 
         return us
 
@@ -256,6 +255,7 @@ class DynamicalSystem:
         self.symbols = tuple(dct['symbols'])
         self.exprs = tuple(dct['dyn']())
         self.cost = dct[cost_type]()
+        target_expr = tuple(dct['state_target']())
 
         self.nx = len(self.exprs)
         self.nu = len(self.symbols) - 2*self.nx
@@ -263,7 +263,14 @@ class DynamicalSystem:
         self.H = H
         self.init_u_var = init_u_var
 
-        self.set_target()
+        self.target = np.zeros(self.nx)
+        self.c_ignore = self.target == 0
+
+        i,v = self.state_assignment(target_expr)
+        
+        self.target[i] = v
+        self.c_ignore[i] = False 
+
         self.codegen(squashing_function)
 
         if state is None:
@@ -333,16 +340,18 @@ class DynamicalSystem:
         return codegen_cse(exprs, syms)
 
 
-    def set_target(self):
+    def state_assignment(self, target_expr):
         """ hack """
-        self.target = np.zeros(self.nx)
-        self.c_ignore = np.zeros(self.nx)==0
+
         v,k = zip(*tuple(enumerate(self.symbols[self.nx:])))
         dct = dict(zip(k,v))
-        inds =  np.array([dct[s] for s in self.cost.free_symbols 
-                        if s in self.symbols[self.nx:-self.nu]])
         
-        self.c_ignore[inds] = False
+        ind, val  = [],[]
+        for e in target_expr:
+            s = tuple(e.free_symbols)[0]
+            ind.append(dct[s])
+            val.append(-e+s)
+        return ind,val
         
     @staticmethod
     @memoize_to_disk

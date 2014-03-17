@@ -46,6 +46,9 @@ class CartPole(DynamicalSystem):
             return .5*( (t-np.pi)**2 + x**2 + 1e-2*u**2 )
             #return .5*( t**2 + x**2 + 1e-2*u**2 )
 
+        def state_target():
+            return (w,v,t-np.pi,x)
+
         return locals()
 
     def plot_state_init(self):

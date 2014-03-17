@@ -1369,7 +1369,7 @@ class TestsDynamicalSystem(unittest.TestCase):
 
         np.random.seed(6)
         x = 2*np.pi*2*(np.random.random(ds.nx)-0.5)
-        u = np.zeros(ds.nu)
+        u = 2*(np.random.random(ds.nu)-0.50)
 
         print
         print 'state: '
@@ -1492,8 +1492,7 @@ class TestsCartDoublePole(TestsDynamicalSystem):
     from cart2pole import CartDoublePole as DS
     def test_pp_iter(self):
 
-        env = self.DS( 
-                cost_type = 'state_target', squashing_function = None)
+        env = self.DS()
         env.dt = .01
         env.log_h_init = -1.0
 
@@ -1548,7 +1547,7 @@ class TestsUnicycle(TestsDynamicalSystem):
          
     def test_pp_iter(self):
 
-        env = self.DS(cost_type = 'state_target', squashing_function = None)
+        env = self.DS()
         env.dt = .01
         env.log_h_init = -1.0
         env.randomize_state()
@@ -1565,11 +1564,11 @@ class TestsUnicycle(TestsDynamicalSystem):
 
     def test_learning(self):
 
-        env = self.DS(cost_type = 'state_target', squashing_function = None)
+        env = self.DS()
         env.dt = .01
         env.noise = .01
 
-        ds = self.DS(cost_type = 'state_target', squashing_function = None)
+        ds = self.DS()
         ds.log_h_init = -1.0
         
         pp = SlpNlp(GPMcompact(ds,55))
@@ -1620,6 +1619,23 @@ class TestsUnicycle(TestsDynamicalSystem):
         
 class TestsSwimmer(TestsDynamicalSystem):
     from swimmer import Swimmer as DS 
+    def test_pp_iter(self):
+
+        env = self.DS()
+        env.dt = .01
+        env.log_h_init = -1.0
+        env.randomize_state()
+        
+        pp = SlpNlp(GPMcompact(env,55))
+
+        for t in range(10000):
+            s = env.state
+            env.print_state()
+            pi = pp.solve()
+
+            trj = env.step(pi,5)
+
+
 class TestsPP(unittest.TestCase):
     def test_int(self):
         i = ExplicitRK('rk4')

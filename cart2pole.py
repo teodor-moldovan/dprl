@@ -52,8 +52,7 @@ class CartDoublePole(DynamicalSystem):
 
 
         def state_target():
-            vc = sympy.Matrix((v,w1,w2,x,t1,t2))
-            return (vc.T*vc)[0] 
+            return (v,w1,w2,x,t1,t2)
 
         def dyn():
             A = [[2*(m1+m2+m3), -(m2+2*m3)*l2*cos(t1), -m3*l3*cos(t2)],

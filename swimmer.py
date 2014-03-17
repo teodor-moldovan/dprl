@@ -1,5 +1,7 @@
 from planning import *
-
+""" should also implement this one:
+http://papers.nips.cc/paper/3297-receding-horizon-differential-dynamic-programming.pdf
+"""
 class Swimmer(DynamicalSystem):
     """ same parameters and dynamics as used here:
     http://remi.coulom.free.fr/Publications/Thesis.pdf"""
@@ -8,30 +10,27 @@ class Swimmer(DynamicalSystem):
         DynamicalSystem.__init__(self, **kwargs)       
 
     def symbolics(self):
-        n = self.num_links
+        nl = self.num_links
         sympy.var("dvx,dvy,dx,dy, vx,vy,x,y")
         
-        t = sympy.var(','.join(['t'+str(i) for i in range(n)]) )
-        w = sympy.var(','.join(['w'+str(i) for i in range(n)]) )
-        dt = sympy.var(','.join(['dt'+str(i) for i in range(n)]) )
-        dw = sympy.var(','.join(['dw'+str(i) for i in range(n)]) )
-        u = sympy.var(','.join(['u'+str(i) for i in range(n-1)]) )
+        t = sympy.var(','.join(['t'+str(i) for i in range(nl)]) )
+        w = sympy.var(','.join(['w'+str(i) for i in range(nl)]) )
+        dt = sympy.var(','.join(['dt'+str(i) for i in range(nl)]) )
+        dw = sympy.var(','.join(['dw'+str(i) for i in range(nl)]) )
+        u = sympy.var(','.join(['u'+str(i) for i in range(nl-1)]) )
 
         k = 10.0        # friction
-        U = [5.0]*(n-1) # max control values
-        m = [1]*n       # masses
-        l = [1]*n       # lengths
+        U = [5.0]*(nl-1) # max control values
+        m = [1]*nl       # masses
+        l = [1]*nl       # lengths
 
-        symbols = (dvx, dvy) + dw + (dx,dy) + dt + (vx,vy) + w + (x,y) +t + u
+        symbols = (dvx, dvy) + dw + (dx,dy) + dt + (vx,vy) + w + (x,y) + t + u
         
         def quad_cost():
             return x*x + y*y
 
-
         def state_target():
-
-            v = sympy.Matrix((x,y)+w)
-            return (v.T*v)[0] 
+            return (x-2,vx,vy)+w
 
         def dyn():
             # parameters
@@ -75,17 +74,16 @@ class Swimmer(DynamicalSystem):
                 f.append(fi)
             
             exprf = [f[-1][0], f[-1][1]] 
+            #f[-1] = Mat(0,0)
 
-            zr = [Mat(0,0)]
-            f_ = zr + f[1:-1] + zr
-            fm = [fi+fn for fi,fn in zip(f_[1:],f_[:-1]) ]
+            fm = [fi+fn for fi,fn in zip(f[1:],f[:-1]) ]
             
-            u_ = (0,) + u + (0,)
+            u_ = (0,) + tuple(ui*Ui for ui,Ui in zip(u,U)) + (0,)
             um = [-ui+un for ui,un in zip(u_[1:],u_[:-1]) ]
             
-            tm = [.5*li*Mat(-cos(ti),-sin(ti)) for li,ti in zip(l,t)]
+            tm = [.5*li*Mat(cos(ti),sin(ti)) for li,ti in zip(l,t)]
 
-            exprt = [ ti.row_join(fi).det() + Mi + ui - mi*li/12*dwi
+            exprt = [ (ti.row_join(fi)).det() + Mi + ui - mi*li/12*dwi
                     for fi,ti,ui,Mi,mi,dwi in zip(fm,tm,um,M,m,dw)]
 
             exprs = exprf + exprt 
@@ -94,4 +92,10 @@ class Swimmer(DynamicalSystem):
             return exprs
 
         return locals() 
+
+    def randomize_state(self):
+        self.state = np.zeros(self.nx)
+        n = self.num_links
+        self.state[-n-2:] = .25*np.random.normal(size = n+2)
+
 

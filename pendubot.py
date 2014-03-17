@@ -55,6 +55,10 @@ class Pendubot(DynamicalSystem):
 
             return cost
 
+        def state_target():
+            return (w1,w2,t1,t2)
+
+
         return locals()
 
 

@@ -5,7 +5,6 @@ class Unicycle(DynamicalSystem):
     def __init__(self, **kwargs):
 
         DynamicalSystem.__init__(self,
-                None,
                 -1.0,0.15,0.0,60,0,
                 **kwargs)
 
@@ -96,9 +95,10 @@ class Unicycle(DynamicalSystem):
             return (v.T*v)[0] + 1e-2*V*V + 1e-2*U*U
 
         def state_target():
+            return (dtheta,dpsiw, dpsif,theta,psif)
 
-            v = sympy.Matrix((dtheta,dpsiw, dpsif,theta,psif))
-            return (v.T*v)[0] 
+        def state_start():
+            return (0,)
 
         return locals()
         
