@@ -3,19 +3,11 @@ from planning import *
 class Unicycle(DynamicalSystem):
     """http://mlg.eng.cam.ac.uk/pub/pdf/Dei10.pdf"""
     def __init__(self, **kwargs):
+
         DynamicalSystem.__init__(self,
                 None,
                 -1.0,0.15,0.0,60,0,
                 **kwargs)
-
-    def reset_if_need_be(self):
-        if np.abs(self.state[7]) >= 1.0 or np.abs(self.state[10]) >= 1.0:
-            print 'State reset'
-            self.randomize_state()
-
-    def randomize_state(self):
-        self.state = np.zeros(self.nx)
-        self.state[self.nx/2-1:] = .25*np.random.normal(size = self.nx/2+1)
 
     def symbolics(self):
         symbols = sympy.var("""
@@ -26,7 +18,7 @@ class Unicycle(DynamicalSystem):
             theta,  phi,  psiw,  psif,  psit,
             V,U
             """)
-
+        
         mt = 10.0    # turntable mass
         mw =  1.0    # wheel mass
         mf = 23.5    # frame mass
@@ -110,6 +102,15 @@ class Unicycle(DynamicalSystem):
 
         return locals()
         
+    def reset_if_need_be(self):
+        if np.abs(self.state[7]) >= 1.0 or np.abs(self.state[10]) >= 1.0:
+            print 'State reset'
+            self.randomize_state()
+
+    def randomize_state(self):
+        self.state = np.zeros(self.nx)
+        self.state[self.nx/2-1:] = .25*np.random.normal(size = self.nx/2+1)
+
     def set_location(self,x,y):
         self.state[5:7] = (x,y)
         

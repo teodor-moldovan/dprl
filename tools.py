@@ -85,7 +85,7 @@ if False:   # set True to disable caching
     memoize = lambda x : x
     memoize_one = lambda x : x
     memoize_to_disk = lambda x : x
-memoize_to_disk = lambda x : x
+    memoize_to_disk = lambda x : x
 
 ## end settings
 cublas_handle = cublas.cublasCreate()

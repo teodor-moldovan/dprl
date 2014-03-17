@@ -1619,7 +1619,7 @@ class TestsUnicycle(TestsDynamicalSystem):
         
         
 class TestsSwimmer(TestsDynamicalSystem):
-    from swimmer import Swimmer as DS
+    from swimmer import Swimmer as DS 
 class TestsPP(unittest.TestCase):
     def test_int(self):
         i = ExplicitRK('rk4')

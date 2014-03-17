@@ -10,31 +10,37 @@ class Swimmer(DynamicalSystem):
     def symbolics(self):
         n = self.num_links
         sympy.var("dvx,dvy,dx,dy, vx,vy,x,y")
+        
         t = sympy.var(','.join(['t'+str(i) for i in range(n)]) )
         w = sympy.var(','.join(['w'+str(i) for i in range(n)]) )
         dt = sympy.var(','.join(['dt'+str(i) for i in range(n)]) )
         dw = sympy.var(','.join(['dw'+str(i) for i in range(n)]) )
         u = sympy.var(','.join(['u'+str(i) for i in range(n-1)]) )
 
+        k = 10.0        # friction
+        U = [5.0]*(n-1) # max control values
+        m = [1]*n       # masses
+        l = [1]*n       # lengths
+
         symbols = (dvx, dvy) + dw + (dx,dy) + dt + (vx,vy) + w + (x,y) +t + u
         
-        um = sympy.Matrix(u)
-        
         def quad_cost():
-            return x*x + y*y + (um.T*um)[0]
-        def dyn(n):
+            return x*x + y*y
+
+
+        def state_target():
+
+            v = sympy.Matrix((x,y)+w)
+            return (v.T*v)[0] 
+
+        def dyn():
             # parameters
 
             #k = sympy.var("k")
             #U = sympy.var(','.join(['U'+str(i) for i in range(n-1)]) )
             #m = sympy.var(','.join(['m'+str(i) for i in range(n)]) )
             #l = sympy.var(','.join(['l'+str(i) for i in range(n)]) )
-            
-            k = 10.0        # friction
-            U = [5.0]*(n-1) # max control values
-            m = [1]*n       # masses
-            l = [1]*n       # lengths
-            
+                        
             # dynamics symbolics
             
             Mat = lambda *x: sympy.Matrix(x)
@@ -87,5 +93,5 @@ class Swimmer(DynamicalSystem):
             
             return exprs
 
-        return locals()
-        
+        return locals() 
+

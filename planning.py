@@ -295,7 +295,7 @@ class DynamicalSystem:
         f1 = set((f for f in features 
                 if len(f.free_symbols.intersection(accs))>0 ))
         f2 = features.difference(f1)
-        features = list(tuple(f1)+ tuple(f2))
+        features = tuple(f1)+ tuple(f2)
         
         nf, nfa = len(features), len(f1)
 
