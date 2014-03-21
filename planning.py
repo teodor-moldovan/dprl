@@ -242,9 +242,10 @@ class LinearFeedbackPolicy:
         return self.us[t]+self.K[t].dot(x-self.xs[t])
 
 class DynamicalSystem:
-    init_u_var,H,dt, log_h_init = 1e-1, 100, 0.01, -1.0
+    init_u_var,H,dt, log_h_init,noise = 1e-1, 100, 0.01, -1.0,0
     cost_type = "quad_cost"
-    squashing_function = None
+    squashing_function, optimize_var = None, None
+    fixed_horizon= False
     integrator, differentiator = ExplicitRK(), NumDiff(1e-6,1)
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
@@ -265,7 +266,7 @@ class DynamicalSystem:
         if weights is not None:
             self.weights = to_gpu(weights)
 
-        self.nf, self.nfa, self.features = nf, nfa, features
+        self.nf, self.nfa = nf, nfa
 
         self.target = np.zeros(self.nx)
         self.c_ignore = self.target == 0
@@ -275,9 +276,10 @@ class DynamicalSystem:
         self.target[i] = v
         self.c_ignore[i] = False 
 
-        self.codegen(self.squashing_function)
+        self.codegen(features, self.squashing_function)
 
         self.initialize_state()
+        self.t = 0
 
 
     @staticmethod
@@ -358,12 +360,10 @@ class DynamicalSystem:
         return codegen_cse(exprs, syms)
 
 
-    def codegen(self, squashing_function):
+    def codegen(self, feat, squashing_function):
 
         nx = self.nx
 
-        feat = self.features
-        
         if not squashing_function is None:
             squ = [(u,squashing_function(u)) for u in self.symbols[-self.nu:]]
             feat = tuple(( e.subs(squ) for e in feat))
@@ -800,7 +800,7 @@ class GPMcompact():
             c = self.obj_cost(z)
         else:
             c = self.obj_feas(z)
-        return np.arange(self.nv), c
+        return c
         
     def obj_cost(self,z = None):
         A,w = self.int_formulation(self.l)
@@ -887,7 +887,15 @@ class GPMcompact():
         bl = -b
         bu = b
         
-        bl[self.iv_h] = .01
+        
+        if self.ds.fixed_horizon:
+            hi = np.exp(-self.ds.log_h_init)
+            bl[self.iv_h] = hi
+            bu[self.iv_h] = hi
+        else:
+            bl[self.iv_h] = .01
+
+
         bl[self.iv_slack] = 0.0
         #bu[self.iv_slack[:,2:]] = 0.0
         if self.no_slack:
@@ -940,7 +948,10 @@ class GPMcompact():
         jac = np.zeros((nx,self.nv))
         jac[:,self.iv_h] = np.einsum('t,ti->i',w,mfh)
         jac[:,self.iv_u] = np.einsum('t,tisk->isk',w,mfu)
-        jac[:,self.iv_h] -= np.array(self.ds.target) - np.array(self.ds.state) 
+        
+        sdiff = np.array(self.ds.target) - np.array(self.ds.state)
+        sdiff[self.ds.c_ignore] = 0
+        jac[:,self.iv_h] -= sdiff 
 
         tmp = np.einsum('t,tisj->isj',w,mfs)
 
@@ -1306,8 +1317,16 @@ class SlpNlp():
 
         self.put_var_bounds(z,r)
 
-        j,c =  self.nlp.obj(z)
-        task.putclist(j,c)
+        c =  self.nlp.obj(z)
+        
+        # hack
+        j = self.nlp.ds.optimize_var
+        if not j is None:
+            c[0] = 0
+            c += jac[j]
+        
+        task.putclist(np.arange(self.nlp.nv),c)
+        # endhack
 
         task.optimize()
 
@@ -1388,6 +1407,9 @@ class SlpNlp():
             #print z[self.nlp.iv_model_slack]
                 
             hi = z[self.nlp.iv_h]
+
+            print ('{:9.5f} '*3).format( hi, cost, r) + ret
+
             if np.abs(old_cost - cost)<1e-4:
                 break
             old_cost = cost
@@ -1396,7 +1418,6 @@ class SlpNlp():
             
             #p = 2*np.abs(r*dz)
 
-            print ('{:9.5f} '*3).format( hi, cost, r) + ret
 
         return cost, z 
 

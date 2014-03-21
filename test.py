@@ -1365,7 +1365,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         plt.show()
 
     def test_accs(self):
-        ds = self.DS(squashing_function = sympy.tanh)
+        ds = self.DS()
 
         np.random.seed(6)
         x = 2*np.pi*2*(np.random.random(ds.nx)-0.5)
@@ -1574,9 +1574,9 @@ class TestsUnicycle(TestsDynamicalSystem):
         pp = SlpNlp(GPMcompact(ds,55))
 
         for it in range(5):
-            env.randomize_state()
             trj = env.step(ZeroPolicy(env.nu),25) 
             ds.update(trj)
+            env.initizalize_state()
 
         for t in range(10000):
 
@@ -1619,17 +1619,31 @@ class TestsUnicycle(TestsDynamicalSystem):
         
 class TestsSwimmer(TestsDynamicalSystem):
     from swimmer import Swimmer as DS 
+
+    def test_learning(self):
+
+        env = self.DS(dt = .01, noise = .01)
+
+        ds = self.DS() 
+        pp = SlpNlp(GPMcompact(ds,55))
+
+        for t in range(10000):
+            env.print_state()
+                
+            ds.state = env.state.copy()
+            pi = pp.solve()
+
+            trj = env.step(pi,5)
+            ds.update(trj, prior = 1e-6)
+
+
+
     def test_pp_iter(self):
 
-        env = self.DS()
-        env.dt = .01
-        env.log_h_init = -1.0
-        env.randomize_state()
-        
+        env = self.DS(dt = .01)
         pp = SlpNlp(GPMcompact(env,55))
 
         for t in range(10000):
-            s = env.state
             env.print_state()
             pi = pp.solve()
 

@@ -4,11 +4,16 @@ http://papers.nips.cc/paper/3297-receding-horizon-differential-dynamic-programmi
 """
 class Swimmer(DynamicalSystem):
     """ same parameters and dynamics as used here:
-    http://remi.coulom.free.fr/Publications/Thesis.pdf"""    
+    http://homes.cs.washington.edu/~tassa/papers/SDynamics.pdf
+    """    
     num_links = 3
+    #optimize_var = 0
+    #log_h_init = 0
+    #fixed_horizon = True
+
     def symbolics(self):
         nl = self.num_links
-        sympy.var("dvx,dvy,dx,dy, vx,vy,x,y")
+        sympy.var("dvx,dvy, vx,vy ")
         
         t = sympy.var(','.join(['t'+str(i) for i in range(nl)]) )
         w = sympy.var(','.join(['w'+str(i) for i in range(nl)]) )
@@ -16,76 +21,67 @@ class Swimmer(DynamicalSystem):
         dw = sympy.var(','.join(['dw'+str(i) for i in range(nl)]) )
         u = sympy.var(','.join(['u'+str(i) for i in range(nl-1)]) )
 
-        k = 10.0        # friction
+        k1 = 10.0        # viscous friction
+        k2 = 0.00        # laminar friction
         U = [5.0]*(nl-1) # max control values
         m = [1]*nl       # masses
         l = [1]*nl       # lengths
 
-        symbols = (dvx, dvy) + dw + (dx,dy) + dt + (vx,vy) + w + (x,y) + t + u
+        symbols = (dvx, dvy) + dw + dt + (vx,vy) + w + t + u
         
         def quad_cost():
-            return x*x + y*y
+            return (vx+1)*(vx+1) + vy*vy
 
         def state_target():
-            return (x-2,vx,vy)+w
+            return (vy,vx+.2 ) + w 
 
         def dyn():
-            # parameters
-
-            #k = sympy.var("k")
-            #U = sympy.var(','.join(['U'+str(i) for i in range(n-1)]) )
-            #m = sympy.var(','.join(['m'+str(i) for i in range(n)]) )
-            #l = sympy.var(','.join(['l'+str(i) for i in range(n)]) )
-                        
             # dynamics symbolics
             
-            Mat = lambda *x: sympy.Matrix(x)
+            Mat, diag = sympy.Matrix, sympy.diag
             sin, cos = sympy.sin, sympy.cos
-
-            A   = [Mat(x,y)]
-            dA  = [Mat(vx,vy)]
-            ddA = [Mat(dvx,dvy)]
-
-            for li,ti,wi,dwi in zip(l,t,w,dw):
-                Ai   =  A[-1] + li* Mat(cos(ti),sin(ti))
-                dAi  =  dA[-1] + li* wi*Mat(-sin(ti),cos(ti))
-                ddAi =  ddA[-1] + li* (
-                              dwi*Mat(-sin(ti),cos(ti)) 
-                          + wi*wi*Mat(-cos(ti),-sin(ti)) 
-                                 )
-                A.append(Ai)
-                dA.append(dAi)
-                ddA.append(ddAi)
             
-            G   = [.5*(A + An) for A,An in zip(  A[:-1],  A[1:])]
-            dG  = [.5*(A + An) for A,An in zip( dA[:-1], dA[1:])]
-            ddG = [.5*(A + An) for A,An in zip(ddA[:-1],ddA[1:])]
+            L = diag(*l)
+            M = diag(*m)
+            I = M * L*L/12.0
+            Tx = diag(*[ cos(ti) for ti in t])
+            Ty = diag(*[ sin(ti) for ti in t])
+            Nx = diag(*[-sin(ti) for ti in t])
+            Ny = diag(*[ cos(ti) for ti in t])
 
-            n = [Mat(-sin(ti),cos(ti)) for ti in t]
-            F = [ -k*li*ni*(dGi.dot(ni)) for dGi, ni, li in zip(dG,n,l)]
-            M = [ -k*wi*(li**3)/12 for wi, li in zip(w,l) ]
-            
-            f = [Mat(0,0)]
-            for Fi,mi,ddGi in zip(F,m,ddG):
-                fi = f[-1] - Fi + mi*ddGi
-                f.append(fi)
-            
-            exprf = [f[-1][0], f[-1][1]] 
-            #f[-1] = Mat(0,0)
+            Q = np.diag(np.ones(nl-1),k=1) - np.diag(np.ones(nl))
+            Q = Mat(Q)
+            Q[-1,:] = Mat(m).T
 
-            fm = [fi+fn for fi,fn in zip(f[1:],f[:-1]) ]
+            A = np.diag(np.ones(nl-1),k=1) + np.diag(np.ones(nl))
+            A[-1,:] = 0 
+            A = Mat(A)
+             
+            P = .5*Q.inv()*A*L
+            G = P.T*M*P
             
-            u_ = (0,) + tuple(ui*Ui for ui,Ui in zip(u,U)) + (0,)
-            um = [-ui+un for ui,un in zip(u_[1:],u_[:-1]) ]
-            
-            tm = [.5*li*Mat(cos(ti),sin(ti)) for li,ti in zip(l,t)]
+            vn  = Nx*(P*Nx*Mat(w) + sympy.ones(nl,1)*vx) 
+            vn += Ny*(P*Ny*Mat(w) + sympy.ones(nl,1)*vy)
 
-            exprt = [ (ti.row_join(fi)).det() + Mi + ui - mi*li/12*dwi
-                    for fi,ti,ui,Mi,mi,dwi in zip(fm,tm,um,M,m,dw)]
+            vt  = Tx*(P*Nx*Mat(w) + sympy.ones(nl,1)*vx) 
+            vt += Ty*(P*Ny*Mat(w) + sympy.ones(nl,1)*vy)
 
-            exprs = exprf + exprt 
-            exprs += [ -i + j for i,j in zip((dx,dy) + dt, (vx,vy) + w)]
+            et  = (sympy.eye(nl) + Nx*G*Nx + Ny*G*Ny)*Mat(dw) 
+            et -= 2*(Nx*G*Tx + Ny*G*Ty)* diag(*w)* Mat(w)
             
+            et += k1*(Nx*P.T*Nx + Ny*P.T*Ny)*L*vn
+            et += k2*(Nx*P.T*Tx + Ny*P.T*Ty)*L*vt
+            et += k1/12.0 * L*L*L * Mat(w)
+            
+            et += Mat( [ui-u_ for ui,u_ in zip((0,) + u,u + (0,)) ])
+            
+            ex = dvx*sum(m) + sum( k1*Nx * vn + k2*Tx*vt)
+            ey = dvy*sum(m) + sum( k1*Ny * vn + k2*Ty*vt)
+            
+            ew = tuple([i-j for i,j in zip(dt,w)] )
+
+            exprs = tuple(et) + (ex, ey) + ew
+
             return exprs
 
         return locals() 
@@ -93,7 +89,7 @@ class Swimmer(DynamicalSystem):
     def initial_state(self):
         state = np.zeros(self.nx)
         n = self.num_links
-        state[-n-2:] = .25*np.random.normal(size = n+2)
+        state = .1*np.random.normal(size = self.nx)
         return state
 
 
