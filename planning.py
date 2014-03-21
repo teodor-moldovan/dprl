@@ -258,7 +258,15 @@ class DynamicalSystem:
 
         self.nx = len(self.exprs)
         self.nu = len(self.symbols) - 2*self.nx
-                     
+
+        features, weights, nfa, nf = self.__extract_features(
+                self.exprs,self.symbols,self.nx)
+        
+        if weights is not None:
+            self.weights = to_gpu(weights)
+
+        self.nf, self.nfa, self.features = nf, nfa, features
+
         self.target = np.zeros(self.nx)
         self.c_ignore = self.target == 0
 
@@ -271,16 +279,13 @@ class DynamicalSystem:
 
         self.initialize_state()
 
-        self.model_slack_bounds = 0.0*np.ones(self.nx)
-
-    def initialize_state(self):
-        self.state = self.initial_state()
-    def initial_state(self):
-        return np.zeros(self.nx)
 
     @staticmethod
     @memoize_to_disk
-    def __codegen(exprs, symbols,nx):
+    def __extract_features(exprs, symbols,nx):
+
+        spl=lambda e : e.rewrite(sympy.exp).expand().rewrite(sympy.sin).expand()
+        exprs = [spl(e) for e in exprs]
         
         # separate weights from features
         exprs = [e.as_coefficients_dict().items() for e in exprs]
@@ -290,43 +295,23 @@ class DynamicalSystem:
         f1 = set((f for f in features 
                 if len(f.free_symbols.intersection(accs))>0 ))
         f2 = features.difference(f1)
-        features = tuple(f1)+ tuple(f2)
+        features = tuple(f1) + tuple(f2)
         
-        nf, nfa = len(features), len(f1)
-
         feat_ind =  dict(zip(features,range(len(features))))
         
         weights = tuple((i,feat_ind[c],float(d)) 
                 for i,ex in enumerate(exprs) for c,d in ex)
 
-        # done with weights
-        
-        jac = [sympy.diff(f,s) for s in symbols for f in features]
-        
-        # generate cuda code
-        
-        m_inds = [s*nf + f  for s in range(nx) for f in range(nfa)]
-        msym = [jac[i] for i in m_inds]
-        gsym = features[nfa:]
 
-        fn1 = codegen_cse(features, symbols)
-        fn2 = codegen_cse(jac, symbols)
-        fn3 = codegen_cse(msym, symbols[nx:])
-        fn4 = codegen_cse(gsym, symbols[nx:])
+        i,j,d = zip(*weights)
+        weights = scipy.sparse.coo_matrix((d, (i,j))).todense()
 
-        return fn1,fn2,fn3,fn4, weights, nf, nfa 
+        return features, weights, len(f1), len(features)
 
-    @staticmethod
-    @memoize_to_disk
-    def __codegen_cost(cost,syms):
-
-        exprs = (cost, ) 
-        exprs += tuple((sympy.diff(cost, s) for s in syms))
-        exprs += tuple((sympy.diff(sympy.diff(cost, s),s_ )
-                    for s in syms for s_ in syms))
-
-        return codegen_cse(exprs, syms)
-
+    def initialize_state(self):
+        self.state = self.initial_state()
+    def initial_state(self):
+        return np.zeros(self.nx)
 
     def state_assignment(self, target_expr):
         """ hack """
@@ -341,33 +326,52 @@ class DynamicalSystem:
             val.append(-e+s)
         return ind,val
         
+
     @staticmethod
     @memoize_to_disk
-    def __simplify(e):
-        return e.rewrite(sympy.exp).expand().rewrite(sympy.sin).expand()
+    def __codegen(features, symbols,nx,nf, nfa):
+        
+        jac = [sympy.diff(f,s) for s in symbols for f in features]
+        
+        # generate cuda code
+        
+        m_inds = [s*nf + f  for s in range(nx) for f in range(nfa)]
+        msym = [jac[i] for i in m_inds]
+        gsym = features[nfa:]
+
+        fn1 = codegen_cse(features, symbols)
+        fn2 = codegen_cse(jac, symbols)
+        fn3 = codegen_cse(msym, symbols[nx:])
+        fn4 = codegen_cse(gsym, symbols[nx:])
+
+        return fn1,fn2,fn3,fn4
+
+    @staticmethod
+    @memoize_to_disk
+    def __codegen_cost(cost,syms):
+
+        exprs = (cost, ) 
+        exprs += tuple((sympy.diff(cost, s) for s in syms))
+        exprs += tuple((sympy.diff(sympy.diff(cost, s),s_ )
+                    for s in syms for s_ in syms))
+
+        return codegen_cse(exprs, syms)
+
 
     def codegen(self, squashing_function):
 
         nx = self.nx
 
-        exprs = [self.__simplify(e) for e in self.exprs]
-
+        feat = self.features
+        
         if not squashing_function is None:
             squ = [(u,squashing_function(u)) for u in self.symbols[-self.nu:]]
-            
-            exprs = tuple(( e.subs(squ) for e in exprs))
-            #self.cost = self.cost.subs(squ) 
+            feat = tuple(( e.subs(squ) for e in feat))
 
-        ret  = self.__codegen(exprs, self.symbols,self.nx)
-        fn1,fn2,fn3,fn4, weights, nf, nfa  = ret
+        fn1,fn2,fn3,fn4  = self.__codegen(
+                feat, self.symbols,self.nx,self.nf,self.nfa)
 
         fc = self.__codegen_cost(self.cost,self.symbols[self.nx:])
-
-        self.nf, self.nfa = nf, nfa
-
-        i,j,d = zip(*weights)
-        weights = scipy.sparse.coo_matrix((d, (i,j))).todense()
-        self.weights = to_gpu(weights)
 
         # compile cuda code
         self.k_features = rowwise(fn1,'features')
@@ -875,7 +879,10 @@ class GPMcompact():
         
         b = float('inf')*np.ones(self.nv)
         b[self.iv_linf] = 1.0
-        b[self.iv_model_slack] = self.ds.model_slack_bounds
+        try:
+            b[self.iv_model_slack] = self.ds.model_slack_bounds
+        except:
+            b[self.iv_model_slack] = 0
         
         bl = -b
         bu = b
