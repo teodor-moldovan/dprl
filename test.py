@@ -1365,7 +1365,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         plt.show()
 
     def test_accs(self):
-        ds = self.DS()
+        ds = self.DS(squashing_function = sympy.tanh)
 
         np.random.seed(6)
         x = 2*np.pi*2*(np.random.random(ds.nx)-0.5)

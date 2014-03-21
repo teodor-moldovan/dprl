@@ -4,12 +4,9 @@ class Pendubot(DynamicalSystem):
     """
     Dynamics taken from: http://mlg.eng.cam.ac.uk/pub/pdf/Dei10.pdf
     """
-    def __init__(self,**kwargs):
-        DynamicalSystem.__init__(self,
-                np.array([0,0,np.pi,np.pi]), 
-                -1.0,0.05,0.0,
-                **kwargs)       
-
+    noise = 0.05
+    def initial_state(self):
+        return np.array([0,0,np.pi,np.pi]) 
     @staticmethod
     def symbolics():
 

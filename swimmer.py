@@ -4,11 +4,8 @@ http://papers.nips.cc/paper/3297-receding-horizon-differential-dynamic-programmi
 """
 class Swimmer(DynamicalSystem):
     """ same parameters and dynamics as used here:
-    http://remi.coulom.free.fr/Publications/Thesis.pdf"""
-    def __init__(self,num_links = 3, **kwargs):
-        self.num_links = num_links
-        DynamicalSystem.__init__(self, **kwargs)       
-
+    http://remi.coulom.free.fr/Publications/Thesis.pdf"""    
+    num_links = 3
     def symbolics(self):
         nl = self.num_links
         sympy.var("dvx,dvy,dx,dy, vx,vy,x,y")
@@ -93,9 +90,10 @@ class Swimmer(DynamicalSystem):
 
         return locals() 
 
-    def randomize_state(self):
-        self.state = np.zeros(self.nx)
+    def initial_state(self):
+        state = np.zeros(self.nx)
         n = self.num_links
-        self.state[-n-2:] = .25*np.random.normal(size = n+2)
+        state[-n-2:] = .25*np.random.normal(size = n+2)
+        return state
 
 

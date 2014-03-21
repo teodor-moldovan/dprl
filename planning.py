@@ -242,27 +242,23 @@ class LinearFeedbackPolicy:
         return self.us[t]+self.K[t].dot(x-self.xs[t])
 
 class DynamicalSystem:
-    def __init__(self, state=None,
-                log_h_init = -1.0, 
-                dt = 0.01, noise = 0.0,
-                H = 100, init_u_var = 1e-1,
-                cost_type = 'quad_cost',
-                squashing_function = None,
-                ):
+    init_u_var,H,dt, log_h_init = 1e-1, 100, 0.01, -1.0
+    cost_type = "quad_cost"
+    squashing_function = None
+    integrator, differentiator = ExplicitRK(), NumDiff(1e-6,1)
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
 
         dct = self.symbolics()
 
         self.symbols = tuple(dct['symbols'])
         self.exprs = tuple(dct['dyn']())
-        self.cost = dct[cost_type]()
+        self.cost = dct[self.cost_type]()
         target_expr = tuple(dct['state_target']())
 
         self.nx = len(self.exprs)
         self.nu = len(self.symbols) - 2*self.nx
                      
-        self.H = H
-        self.init_u_var = init_u_var
-
         self.target = np.zeros(self.nx)
         self.c_ignore = self.target == 0
 
@@ -271,24 +267,16 @@ class DynamicalSystem:
         self.target[i] = v
         self.c_ignore[i] = False 
 
-        self.codegen(squashing_function)
+        self.codegen(self.squashing_function)
 
-        if state is None:
-            state = np.zeros(self.nx)
+        self.initialize_state()
 
-        self.state  = np.array(state)
-
-        self.log_h_init = log_h_init
-        self.integrator = ExplicitRK()
-        self.differentiator = NumDiff(1e-6,1)
-            
-        self.dt = dt
-        self.t = 0
-        self.noise = noise
         self.model_slack_bounds = 0.0*np.ones(self.nx)
-        
-    def randomize_state(self):
-        pass
+
+    def initialize_state(self):
+        self.state = self.initial_state()
+    def initial_state(self):
+        return np.zeros(self.nx)
 
     @staticmethod
     @memoize_to_disk

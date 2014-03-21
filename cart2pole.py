@@ -1,12 +1,9 @@
 from planning import *
  
 class CartDoublePole(DynamicalSystem):
-    def __init__(self,**kwargs):
-        DynamicalSystem.__init__(self,
-                np.array([0,0,0,np.pi,np.pi,0]),
-                -1.0,0.05,0.0,100,1e-1,
-                **kwargs)
-
+    noise, H = 0.05, 100
+    def initial_state(self):
+        return np.array([0,0,0,np.pi,np.pi,0]) 
     def symbolics(self):
         symbols = sympy.var("""
                             dw1, dw2, dv, 

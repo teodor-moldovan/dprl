@@ -2,12 +2,7 @@ from planning import *
 
 class Unicycle(DynamicalSystem):
     """http://mlg.eng.cam.ac.uk/pub/pdf/Dei10.pdf"""
-    def __init__(self, **kwargs):
-
-        DynamicalSystem.__init__(self,
-                -1.0,0.15,0.0,60,0,
-                **kwargs)
-
+    dt, H = .15, 60 
     def symbolics(self):
         symbols = sympy.var("""
             adtheta, adphi, adpsiw, adpsif, adpsit, 
@@ -105,11 +100,12 @@ class Unicycle(DynamicalSystem):
     def reset_if_need_be(self):
         if np.abs(self.state[7]) >= 1.0 or np.abs(self.state[10]) >= 1.0:
             print 'State reset'
-            self.randomize_state()
+            self.initialize_state()
 
-    def randomize_state(self):
-        self.state = np.zeros(self.nx)
-        self.state[self.nx/2-1:] = .25*np.random.normal(size = self.nx/2+1)
+    def initial_state(self):
+        state = np.zeros(self.nx)
+        state[self.nx/2-1:] = .25*np.random.normal(size = self.nx/2+1)
+        return state 
 
     def set_location(self,x,y):
         self.state[5:7] = (x,y)
