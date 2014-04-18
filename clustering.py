@@ -143,7 +143,7 @@ class NIW(object):
         
         ufunc('d = e / nu')(te0, slf.psi, slf.nu[:,np.newaxis,np.newaxis])
 
-        chol_batched(te0, te, bd = 4)
+        chol_batched(te0, te)
         
         chol2log_det(te,ld)
         
@@ -151,7 +151,7 @@ class NIW(object):
         ufunc('a=b')(tx[:,:,p:p+1],slf.mu[:,:,None])
         
 
-        solve_triangular(te,tx,bd = 4)        
+        solve_triangular(te,tx)        
 
         fc(ld, slf.n, slf.nu)
         
@@ -249,14 +249,14 @@ class NIW(object):
         f0(te0,slf.psi, slf.n[:,np.newaxis,np.newaxis],
             slf.nu[:,np.newaxis,np.newaxis])
 
-        chol_batched(te0, te, bd = 4)
+        chol_batched(te0, te)
         
         chol2log_det(te,ld)
 
         asgn(tx[:,:,:p],teye[None,:,:])
         asgn(tx[:,:,p:p+1],slf.mu[:,:,None])
 
-        solve_triangular(te,tx,bd = 4)        
+        solve_triangular(te,tx)        
 
         fc(ld, slf.nu)
 
@@ -326,13 +326,13 @@ class NIW(object):
         psi_xx_chol = array((l,px,px))
         
         ufunc('a=b/c')(psi_xx, self.psi[:,py:,py:], self.n[:,None,None])
-        chol_batched(psi_xx, psi_xx_chol , bd=4)
+        chol_batched(psi_xx, psi_xx_chol)
         
         te = array((l,px, p + 1 ))
         asgn(te[:,:,:px], eye)
         ufunc('a=b/c')(te[:,:,px:p], self.psi[:,py:p,:py],self.n[:,None,None])
         asgn(te[:,:,p:p+1], self.mu[:,py:,None])
-        solve_triangular(psi_xx_chol,te,bd=2)
+        solve_triangular(psi_xx_chol,te)
         
         # te now holds sqrt(n)* Psi_xx^(-1/2) * [ I, Psi_xy/n, m_x ]
 
@@ -486,13 +486,13 @@ class NIW(object):
         asgn = ufunc('a=b')
 
         ufunc('a=b/n')(te0,psib1,self.n[:,None,None])
-        chol_batched(te0, te,bd=4)
+        chol_batched(te0, te)
 
         ufunc('a =c - b')( td,x,mub1 )  
         ufunc('a=b/n')( txb1,psib2,self.n[:,None,None] )
         asgn( txb2,tdb1 )  
 
-        solve_triangular(te,tx,bd=16)
+        solve_triangular(te,tx)
 
         asgn( dst.nu, self.nu)
 
@@ -591,7 +591,7 @@ class NIW(object):
 
         ufunc('a=b/n')(psi_tmp,psi,n[:,None,None])
         ufunc('a=0')(sg)
-        chol_batched(psi_tmp,sg,bd=2)
+        chol_batched(psi_tmp,sg)
 
         orig_shape = xi.shape
         xi.shape= xi.shape +(1,)
@@ -616,7 +616,7 @@ class NIW(object):
 
         ufunc('a=b*(n+1.0)/n/(u - ' +str(p) + ' + 1.0)')(psi_tmp,psi,n[:,None,None],nu[:,None,None])
         ufunc('a=0')(sg)
-        chol_batched(psi_tmp,sg,bd=2)
+        chol_batched(psi_tmp,sg)
 
         orig_shape = xi.shape
         xi.shape= xi.shape +(1,)

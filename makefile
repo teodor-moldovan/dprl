@@ -1,6 +1,6 @@
-all: ft
+all: noft
 
-CMD = python test.py TestsSwimmer.test_learning
+CMD = python test.py TestsSwimmer.test_accs
 noft: 
 	$(CMD)
 ft:

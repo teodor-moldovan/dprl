@@ -432,19 +432,6 @@ class TestsTools(unittest.TestCase):
         np.testing.assert_almost_equal( e.get(),rs,3)
 
 
-    def test_inv(self):
-        l,m = 11*8*32,11
-        np.random.seed(1)
-        A = np.random.rand(l,m, m)
-        
-        a = to_gpu(A)
-        batch_matrix_inv(a)
-
-        A_ = np.array(map(np.linalg.inv,A))
-        
-        np.testing.assert_almost_equal( a.get(),A_,6)
-
-
 class TestsClustering(unittest.TestCase):
     def test_niw_ss(self):
         l,m = 32*8*11, 32

@@ -322,7 +322,7 @@ def grid_block_sizes_mem(mx, mem_per_thread, multiple_of):
     for i in reversed(range(multiple_of,256,multiple_of)):
         if tsz%i != 0:
             continue
-        if mem_per_thread*i*s > 16*1024: # 16*1024 for older graphics cards
+        if mem_per_thread*i*s >= 16*1024: # 16*1024 for older graphics cards
             continue
         
         break
@@ -340,7 +340,7 @@ cumsum_in = pycuda.scan.InclusiveScanKernel(np_dtype, "a+b")
 def k_chol_batched(m,bd):
 
     template = Template("""
-    #define MD {{ m*(m+1) }}/2
+    #define MD {{ md }}
 
     __global__ void cholesky({{ dtype }} *bf, {{ dtype }} *df ) {
 
@@ -393,9 +393,8 @@ def k_chol_batched(m,bd):
 
     """)
 
-    tmp = ''
-    #tmp += indexing_template.render(nds=nds)
-    tmp += template.render(m=int(m),bd=int(bd), dtype=cuda_dtype)
+    tmp = template.render(m=int(m),bd=int(bd),md = int(m*(m+1)/2),  
+                dtype=cuda_dtype)
 
     perm_mod = SourceModule(tmp)
     return perm_mod.get_function("cholesky").prepare('PP')
@@ -406,7 +405,7 @@ def chol_batched(s,d):
         raise NotImplementedError
 
     l,m,m = d.shape
-    g,b = grid_block_sizes_mem(l*m, (m+1)/2.0, m )
+    g,b = grid_block_sizes_mem(l*m, max((m+1)/2.0,4), m )
     bd = b/m
 
     d.newhash()
@@ -553,7 +552,7 @@ def solve_triangular(l,x,d=None, back_substitution = False, identity=False):
     if l.gpudata==x.gpudata:
         raise NotImplementedError
         
-    g,b = grid_block_sizes_mem(k*n, m, n )
+    g,b = grid_block_sizes_mem(k*n, max(m,4), n )
     bd = b/n
 
     d.newhash()
@@ -985,7 +984,6 @@ def matrix_mult(a,b,c):
     if cuda_dtype=='double':
         fnc = cublas.cublasDgemm
     
-    
     c.newhash()
     fnc(cublas_handle, tb, ta,
         n,m,k,
@@ -1051,131 +1049,6 @@ class row_reduction:
 
 row_max = row_reduction('a = b>a ? b : a')
 row_sum = row_reduction('a += b')
-# experimental
-@memoize
-def k_mm_batched(m,k,n,dm,dn):
-
-    template = Template("""
-
-    __global__ void mm({{ dtype }} *ag, {{ dtype }} *bg, {{ dtype }} *cg ) {
-
-        int i = threadIdx.x*{{ dm }};
-        int j = threadIdx.y*{{ dn }};
-        int l = blockIdx.z * blockDim.z + threadIdx.z;
-        
-        {% for rq,(sm,sn) in rng  %} 
-        if (i{{ sm }}{{ m - dm + 1}} and j{{ sn }}{{ n - dn + 1}}) {
-        
-        {% for r,q in rq %}
-        {{ dtype }} *a{{ r }}_{{ q }} = ag+l*{{ m*o }} + i*{{ o }} + {{ r*o }};
-        {{ dtype }} *b{{ r }}_{{ q }} = bg+l*{{ o*n }} + j + {{ q }};
-        {{ dtype }} *c{{ r }}_{{ q }} = cg+l*{{ m*n }} + i*{{ n }} + 
-                        {{ r*n }} + j + {{ q }}; 
-        {{ dtype }} s{{ r }}_{{ q }} = 0;
-        {% endfor %}
-
-        for (int k =0; k<{{ o }}; k++ ){
-
-            {% for r,q in rq %}
-            s{{ r }}_{{ q }} += *(a{{ r }}_{{ q }} + k)  * *(b{{ r }}_{{ q }} + k*{{ n }} );{% endfor %}
-        }
-        
-        {% for r,q in rq %}
-        *c{{ r }}_{{ q }} = s{{ r }}_{{ q }};{% endfor %}
-        return;
-        };
-        {% endfor %}
-    
-    }
-
-    """)
-
-    tmp = ''
-    #tmp += indexing_template.render(nds=nds)
-    
-    rng = [([(i,j) for i in range(ddm) for j in range(ddn) ],(sm,sn))
-            for ddm,sm in zip((dm, m%dm),('<','>=')) 
-            for ddn,sn in zip((dn, n%dn),('<','>=')) 
-            if ddm > 0 and ddn>0]
-    
-    tmp += template.render(m=int(m),n=int(n),o=int(k),dm = int(dm), dn=int(dn),
-            rng=rng,  dtype=cuda_dtype 
-             )
-
-    perm_mod = SourceModule(tmp)
-    f = perm_mod.get_function("mm")
-    return f.prepare('PPP')
-
-def mm_batched(a,b,c, dm=1,dn=2 ):
-
-    if not( a.shape[0]==b.shape[0] and b.shape[0]==c.shape[0] ):
-        raise TypeError
-
-    if not( a.shape[1]==c.shape[1] and b.shape[2]==c.shape[2] 
-            and a.shape[2]==b.shape[1] ):
-        raise TypeError
-    
-    l,m,k = a.shape
-    l,k,n = b.shape
-    l,m,n = c.shape
-    bs = (m/dm+int(m%dm>0),n/dn+int(n%dn>0),1)
-    
-
-    c.newhash()
-    return k_mm_batched(m,k,n,dm,dn).prepared_call((1,1,l),bs,
-        a.gpudata,b.gpudata,c.gpudata)
-
-
-
-
-
-
-@memoize
-def __batch_matrix_inv_ws(l,m):
-    c = array((l,m,m))
-    p = gpuarray.empty((l,m), np.int32)
-    i = gpuarray.zeros(l, np.int32)
-    return c, p, i
-
-def batch_matrix_inv(a):
-
-    l,m,m_ = a.shape
-
-    if m_!=m:
-        raise TypeError
-
-    if cuda_dtype=='float':
-        trf = cublas.cublasSgetrfBatched
-        tri = cublas.cublasSgetriBatched
-
-    if cuda_dtype=='double':
-        trf = cublas.cublasDgetrfBatched
-        tri = cublas.cublasDgetriBatched
-
-    print a.get()[0][2:4]
-    import scipy
-    P,L,U = scipy.linalg.lu(a.get()[0].T)
-
-    c, p, i = __batch_matrix_inv_ws(l,m)
-  
-    trf(cublas_handle, 
-        m, a.bptrs.gpudata, m, p.gpudata, 
-        i.gpudata, l)
-
-    print i.get()
-    print p.get()
-    print np.diag(U)
-    print np.diag(a.get()[0])
-    asdf
-
-    tri(cublas_handle, 
-        m, a.bptrs.gpudata, m, p.gpudata, 
-        c.bptrs.gpudata, m,
-        i.gpudata, l)
-
-    ufunc('a=b')(a,c)
-
-
 # symbolics, codegen
 def codegen_cse(exprs,symbols, temp_name = 'tmp',
                 input_name = 'z', output_name = 'out'):
