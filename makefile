@@ -1,6 +1,8 @@
-all: noft
+all: plots
 
-CMD = python test.py TestsSwimmer.test_accs
+CMD = python test.py TestsDoublePendulum.test_mm_learning
+plots:
+	python plots.py
 noft: 
 	$(CMD)
 ft:

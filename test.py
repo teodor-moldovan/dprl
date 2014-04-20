@@ -1473,8 +1473,71 @@ class TestsDynamicalSystem(unittest.TestCase):
         A,B = ds.discrete_time_linearization(x,u)
         toc(t)
 
+    def test_mm(self):
+
+        env = self.DS()
+        ds = self.DSMM()
+
+        l,nx,nu = 1000, ds.nx, ds.nu
+        n = 2*nx+nu
+        zn = 3+10*np.random.normal(size=l*n).reshape(l,n)
+        z = to_gpu(zn)
+        
+        x,u = zn[:,ds.nx:2*ds.nx],zn[:,2*ds.nx:]
+        a = env.explf(to_gpu(x),to_gpu(u)).get()
+        
+        a += 1e-3*np.random.normal(size=a.size).reshape(a.shape)
+        trj =  (None,a,x,u)
+
+        zt = to_gpu(np.hstack((a,x,u)))
+
+        ds.update(trj)
+        
+        ds.implf(zt)
+
+
+    def test_mm_learning(self):
+
+        env = self.DS()
+
+        while True:
+            ds = self.DSMM()
+            pp = SlpNlp(GPMcompact(ds,35))
+
+            env.initialize_state()
+            env.t = 0
+            env.dt = .01
+            env.noise = np.array([.01,0.0001,0.0001])
+
+            trj = env.step(ZeroPolicy(env.nu),2*ds.nf) 
+            ds.update(trj)
+            
+            env.noise = np.array([.01,0.0,0.0])
+
+            cnt = 0
+            while True:
+
+                env.print_state()
+                ds.state = env.state.copy()
+
+                pi = pp.solve()
+                
+                if pi.max_h < .1:
+                    cnt += 1
+                if cnt>20:
+                    break
+
+                trj = env.step(pi,5)
+                ds.update(trj)
+
+
+
 class TestsCartpole(TestsDynamicalSystem):
     from cartpole import CartPole as DS
+    from cartpole import CartPoleMM as DSMM
+class TestsDoublePendulum(TestsDynamicalSystem):
+    from doublependulum import DoublePendulum as DS
+    from doublependulum import DoublePendulumMM as DSMM
 class TestsCartDoublePole(TestsDynamicalSystem):
     from cart2pole import CartDoublePole as DS
     def test_pp_iter(self):
@@ -1496,7 +1559,7 @@ class TestsCartDoublePole(TestsDynamicalSystem):
 class TestsPendubot(TestsDynamicalSystem):
     from pendubot import Pendubot as DS
     def test_cca(self):
-        ds = self.ds
+        ds = self.DS()
         np.random.seed(10)
         
         l,nx,nu = 100, ds.nx,ds.nu
@@ -1606,7 +1669,6 @@ class TestsUnicycle(TestsDynamicalSystem):
         
 class TestsSwimmer(TestsDynamicalSystem):
     from swimmer import Swimmer as DS 
-
     def test_learning(self):
 
         env = self.DS(dt = .01, noise = .01)

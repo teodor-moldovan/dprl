@@ -1,9 +1,12 @@
 from planning import *
 
-class CartPole(DynamicalSystem):
+class CartPoleBase:
     noise, H = 0.05, 200
     def initial_state(self):
-        return np.array([0,0,0,0]) 
+        state = np.zeros(self.nx)
+        state[self.nx/2:] = .25*np.random.normal(size = self.nx/2)
+        return state 
+
         
     def symbolics(self):
         symbols = sympy.var(" dw, dv, dt, dx, w, v, t, x, u ")
@@ -18,9 +21,9 @@ class CartPole(DynamicalSystem):
         width = .25     # used by pilco cost function   
 
         sin,cos,exp = sympy.sin, sympy.cos, sympy.exp
+        s,c = sympy.sin(t), sympy.cos(t)
 
         def dyn():
-            s,c = sympy.sin(t), sympy.cos(t)
             denom = 4*(M+m)-3*m*c*c
 
             dyn = (
@@ -30,6 +33,9 @@ class CartPole(DynamicalSystem):
             -dx + v,
             )
             return dyn
+
+        def dpmm_features():
+            return (dw, dv, w, s,c,u)
 
         def pilco_cost():
 
@@ -75,3 +81,7 @@ class CartPole(DynamicalSystem):
         plt.clf()
         anim = animation.FuncAnimation(plt.figure(1),self.plot_state,frames=len(x),interval=20,blit=False,init_func=self.plot_state_init,repeat=False)
         anim._start()
+class CartPoleMM(CartPoleBase,MixtureDS):
+    pass
+class CartPole(CartPoleBase,DynamicalSystem):
+    pass

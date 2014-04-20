@@ -5,6 +5,8 @@ import scipy.integrate
 from  scipy.sparse import coo_matrix
 from sys import stdout
 import math
+import clustering
+import cPickle
 
 import re
 import sympy
@@ -145,27 +147,27 @@ class NumDiff(object):
 
     @staticmethod
     def __ws_x(o,l,n):
-        return array((o,l,n,n)) ##
+        return array((o,l,n,n)), array((o*l*n,n)) ##
 
     @staticmethod
     def __ws_df(l,n,m):
         return array((l,n,m))
 
     def diff(self,f,x):
-         
         o = self.order*2
         l,n = x.shape
 
-        xn = self.__ws_x(o,l,n)
-        dx,w = self.prep(n,self.h,self.order) 
+        xn,xf = self.__ws_x(o,l,n)
+        dx,w  = self.prep(n,self.h,self.order) 
 
         ufunc('a=b+c')(xn,x[None,:,None,:],dx)
         
         orig_shape = xn.shape
         xn.shape = (o*l*n,n)
-        y = f(xn)
-
+        ufunc('a=b')(xf,xn)
         xn.shape = orig_shape
+
+        y = f(xf)
 
         orig_shape,m = y.shape, y.shape[1]
 
@@ -241,7 +243,33 @@ class LinearFeedbackPolicy:
         #    print self.us[t],self.K[t],self.xs[t],x
         return self.us[t]+self.K[t].dot(x-self.xs[t])
 
-class DynamicalSystem:
+class DSbase:
+    def initialize_state(self):
+        self.state = self.initial_state() + 0.0
+    def initial_state(self):
+        return np.zeros(self.nx)
+
+    def initialize_target(self, target_expr):
+        """ hack """
+        
+        self.target = np.zeros(self.nx)
+        self.c_ignore = self.target == 0
+
+        v,k = zip(*tuple(enumerate(self.symbols[self.nx:])))
+        dct = dict(zip(k,v))
+        
+        ind, val  = [],[]
+        for e in target_expr:
+            s = tuple(e.free_symbols)[0]
+            ind.append(dct[s])
+            val.append(-e+s)
+
+        self.target[ind] = val
+        self.c_ignore[ind] = False 
+
+
+
+class DynamicalSystem(DSbase):
     init_u_var,H,dt, log_h_init,noise = 1e-1, 100, 0.01, -1.0,0
     cost_type = "quad_cost"
     squashing_function, optimize_var = None, None
@@ -268,19 +296,16 @@ class DynamicalSystem:
 
         self.nf, self.nfa = nf, nfa
 
-        self.target = np.zeros(self.nx)
-        self.c_ignore = self.target == 0
-
-        i,v = self.state_assignment(target_expr)
-        
-        self.target[i] = v
-        self.c_ignore[i] = False 
 
         self.codegen(features, self.squashing_function)
 
         self.initialize_state()
+        self.initialize_target(target_expr)
         self.t = 0
-
+        
+        self.log_file  = 'out/'+ str(self.__class__)+'_log.pkl'
+        open(self.log_file,'w').close()
+        
 
     @staticmethod
     @memoize_to_disk
@@ -304,30 +329,10 @@ class DynamicalSystem:
         weights = tuple((i,feat_ind[c],float(d)) 
                 for i,ex in enumerate(exprs) for c,d in ex)
 
-
         i,j,d = zip(*weights)
         weights = scipy.sparse.coo_matrix((d, (i,j))).todense()
 
         return features, weights, len(f1), len(features)
-
-    def initialize_state(self):
-        self.state = self.initial_state()
-    def initial_state(self):
-        return np.zeros(self.nx)
-
-    def state_assignment(self, target_expr):
-        """ hack """
-
-        v,k = zip(*tuple(enumerate(self.symbols[self.nx:])))
-        dct = dict(zip(k,v))
-        
-        ind, val  = [],[]
-        for e in target_expr:
-            s = tuple(e.free_symbols)[0]
-            ind.append(dct[s])
-            val.append(-e+s)
-        return ind,val
-        
 
     @staticmethod
     @memoize_to_disk
@@ -671,20 +676,25 @@ class DynamicalSystem:
             self.t += ode.t
             return None
             
-
         self.state[:] = ode.y
         self.t += ode.t
         t,dx,x,u = zip(*trj)
         t,dx,x,u = np.vstack(t), np.vstack(dx), np.vstack(x), np.vstack(u)
 
-        nz = self.noise*np.random.normal(size=dx.shape[0]*self.nx)
-        # hack
-        #print np.max(np.abs(dx[:,:2]),0)
-        dx += self.noise*np.random.normal(size= x.size).reshape( x.shape)
-        x  += self.noise*np.random.normal(size= x.size).reshape( x.shape)
-        u  += self.noise*np.random.normal(size= u.size).reshape( u.shape)
+        trj = t,dx,x,u
 
-        return t,dx,x,u
+        fle = open(self.log_file,'a')
+        cPickle.dump(trj, fle)
+        fle.close()
+
+        nz = self.noise * np.ones(3)
+        dx += nz[1]*np.random.normal(size= x.size).reshape( x.shape)
+        x  += nz[0]*np.random.normal(size= x.size).reshape( x.shape)
+        u  += nz[2]*np.random.normal(size= u.size).reshape( u.shape)
+
+        trj = t,dx,x,u
+
+        return trj
 
 
     def update(self,traj,prior=0.0):
@@ -759,6 +769,85 @@ class DynamicalSystem:
 
     def dstate2str(self,s):
         return self.__symvals2str(s,self.symbols[:self.nx])
+
+class MixtureDS(DSbase):
+    log_h_init = -1.0
+    differentiator = NumDiff(1e-6,3)
+    max_clusters = 100
+    fixed_horizon = False
+    optimize_var = None
+    model_slack_scale = 1.0
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+        dct = self.symbolics()
+
+        self.symbols = tuple(dct['symbols'])
+        self.features = tuple(dct['dpmm_features']())
+
+        self.nx = len(dct['dyn']())
+        self.nu = len(self.symbols) - 2*self.nx + self.nx/2
+
+        self.codegen()
+
+        self.initialize_state()
+        self.initialize_target(dct['state_target']())
+        self.t = 0
+        
+        c = clustering
+        p,k  = self.nf, self.max_clusters
+        self.dpmm = c.BatchVDP(c.Mixture(c.SBP(k), c.NIW(p, k)))
+
+        self.model_slack_bounds = 0
+
+    def codegen(self):
+        accs = set(self.symbols[:self.nx])
+        features = set(self.features)
+
+        f1 = set((f for f in features 
+                if len(f.free_symbols.intersection(accs))>0 ))
+        f2 = features.difference(f1)
+        features = tuple(f1) + tuple(f2)
+
+        self.nfa = len(f1)
+        self.nf = len(f1) + len(f2)
+        
+        fn1 = codegen_cse(features, self.symbols)
+        self.k_features = rowwise(fn1,'features')
+        
+
+    def implf(self,z):
+
+        fz = array((z.shape[0], self.nf))
+        fx = array((z.shape[0], self.nf-self.nfa))
+        fy = array((z.shape[0], self.nfa))
+        xi = array((z.shape[0], self.nx/2))
+        self.k_features(z,fz)
+        
+        ufunc('a=b')(fx,fz[:,self.nfa:])
+        ufunc('a=b')(fy,fz[:,:self.nfa])
+        ufunc('a=b')(xi, z[:,-self.nx/2:])
+        cls = self.dpmm.smooth(fx)        
+
+        mm =  cls.mean_plus_stdev(xi)
+
+        nx = self.nx
+        rs = array((z.shape[0], nx))
+        ufunc('a=b-c')(rs[:,:nx/2],fy, mm)
+        ufunc('a=b-c')(rs[:,nx/2:nx], z[:,nx/2:nx], z[:,nx:(nx+nx/2)] )
+        
+        return rs
+        
+    def implf_jac(self,z):
+        return self.differentiator.diff(self.implf, z)
+
+    def update(self,traj,prior=0.0):
+        if traj is None:
+            return
+        
+        trj = to_gpu(np.hstack((traj[1:])))
+        feat = array((trj.shape[0], self.nf))
+        self.k_features(trj,feat)
+        self.dpmm.update(feat)
 
 class GPMcompact():
     """ Gauss Pseudospectral Method

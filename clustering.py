@@ -605,43 +605,6 @@ class NIW(object):
         
         return out
 
-    @memoize_one
-    def mean_plus_stdev_n_inv(self,xi):
-        
-        k,p = xi.shape[0], self.p
-
-        sg,psi_tmp,out = self.__mean_plus_stdev_ws(k,p)
-        cls = self
-        mu,psi,n,nu = cls.mu,cls.psi,cls.n,cls.nu
-
-        ufunc('a=b*(n+1.0)/n/(u - ' +str(p) + ' + 1.0)')(psi_tmp,psi,n[:,None,None],nu[:,None,None])
-        ufunc('a=0')(sg)
-        chol_batched(psi_tmp,sg)
-
-        orig_shape = xi.shape
-        xi.shape= xi.shape +(1,)
-        out.shape= out.shape +(1,)
-
-        batch_matrix_mult(sg,xi,out) 
-        out.shape= orig_shape
-        xi.shape = orig_shape
-        
-        ufunc('a= n/(n+1)*m + a/(n+1)')(out,n[:,None],mu)
-        
-        return out
-
-    @memoize_one
-    def predict(self,x,xi):
-        
-        if x.shape[0] != self.l:
-            raise TypeError
-        
-        k,p,q = x.shape[0], x.shape[1]+xi.shape[1],x.shape[1]
-
-        cls = self.conditional(x)
-        return cls.mean_plus_stdev(xi)
-
-
 class SBP(object):
     """Truncated Stick Breaking Process"""
     def __init__(self,l):
@@ -805,10 +768,9 @@ class Mixture(object):
         return tau_,clusters_
 
     @memoize_one
-    def predict_joint(self,x,xi):
-
+    def smooth_joint(self,x):
         mix = self
-        k,p,q = x.shape[0], x.shape[1]+xi.shape[1],x.shape[1]
+        k,p,q = x.shape[0], self.clusters.p,x.shape[1]
         
         tau_,clusters_ = self.__predictor_predict_ws(k,p)
         tau = mix.clusters.get_nat()
@@ -820,14 +782,14 @@ class Mixture(object):
         matrix_mult(prob,tau,tau_) 
         clusters_.from_nat(tau_)
 
-        rt = clusters_.predict(x,xi)
+        rt = clusters_.conditional(x)
         return rt
 
     @memoize_one
-    def predict_kl(self,x,xi):
+    def smooth_kl(self,x):
 
         mix = self
-        k,p,q = x.shape[0], x.shape[1]+xi.shape[1],x.shape[1]
+        k,p,q = x.shape[0], self.clusters.p,x.shape[1]
         
         xclusters = mix.clusters.marginal(q)
 
@@ -835,11 +797,9 @@ class Mixture(object):
         prob = xmix.predictive_posterior_resps(x) 
         
         clusters_ = self.clusters.conditional_mix(prob,x)
+        return clusters_
 
-        rt = clusters_.mean_plus_stdev(xi)
-        return rt
-
-    predict = predict_joint
+    smooth = smooth_joint
 class StreamingNIW(object):
     def __init__(self,p):
         self.niw = NIW(p,1)        
@@ -865,23 +825,23 @@ class StreamingNIW(object):
 
     @staticmethod
     @memoize
-    def __predictor_predict_ws(k,p):
+    def __smooth_ws(k,p):
         clusters_ = NIW(p,k)
         return clusters_
 
 
-    def predict(self,x,xi):
+    def smooth(self,x):
 
         mix = self
         k,p,q = x.shape[0], x.shape[1]+xi.shape[1],x.shape[1]
 
-        clusters_ = self.__predictor_predict_ws(k,p)
+        clusters_ = self.__smooth_ws(k,p)
         ufunc('a=b')(clusters_.psi,self.niw.psi)
         ufunc('a=b')(clusters_.mu,self.niw.mu)
         ufunc('a=b')(clusters_.n,self.niw.n)
         ufunc('a=b')(clusters_.nu,self.niw.nu)
 
-        return clusters_.predict(x,xi)
+        return clusters_.conditional(x)
 
     @property
     def p(self):
@@ -932,8 +892,8 @@ class BatchVDP(object):
         self.learn(self.buff)
         
 
-    def predict(self,*args):
-        return self.mix.predict(*args)
+    def smooth(self,*args):
+        return self.mix.smooth(*args)
 
     @staticmethod
     @memoize
