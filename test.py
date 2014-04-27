@@ -1278,7 +1278,9 @@ class TestsClustering(unittest.TestCase):
 
         s = BatchVDP(Mixture(SBP(k),NIW(p,k)),buffer_size=l,w=.4)
         
+        t=tic()
         s.learn(to_gpu(data))
+        toc(t)
         #print s.mix.sbp.al.get() -1.0
         pmu = s.mix.clusters.cond_linear_forms(2)[1]
         r_ = pmu.get()[:3,:2,:3]
@@ -1522,7 +1524,9 @@ class TestsDynamicalSystem(unittest.TestCase):
 
                 pi = pp.solve()
                 
-                if pi.max_h < .1:
+                dst = np.nansum( 
+                    ((ds.state - ds.target)**2)[np.logical_not(ds.c_ignore)])
+                if pi.max_h < .1 or dst < 1e-5:
                     cnt += 1
                 if cnt>20:
                     break
@@ -1532,9 +1536,22 @@ class TestsDynamicalSystem(unittest.TestCase):
 
 
 
+    def test_pp_bfgs(self):
+
+        np.random.seed(1)
+        env = self.DS()
+
+        pp = BFGSPlanner(env,25)
+        pi = pp.solve()
+
+
+
 class TestsCartpole(TestsDynamicalSystem):
     from cartpole import CartPole as DS
     from cartpole import CartPoleMM as DSMM
+class TestsPendulum(TestsDynamicalSystem):
+    from pendulum import Pendulum as DS
+    from pendulum import PendulumMM as DSMM
 class TestsDoublePendulum(TestsDynamicalSystem):
     from doublependulum import DoublePendulum as DS
     from doublependulum import DoublePendulumMM as DSMM

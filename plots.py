@@ -4,6 +4,7 @@ from mpl_toolkits.mplot3d import proj3d
 from clustering import *
 from tools import *
 import cPickle
+import os
 
 def ellipse((x,y),(r1,r2),a):
 
@@ -206,7 +207,7 @@ def regression(basename = './out/regression_%s.pdf', l=100,k=80, sg = .01):
 
 def plot_log(name, inds, labels):
     
-    fname = 'out/'+name.lower()+'.'+name+'_log.pkl'
+    fname = 'out/'+name.lower()+'.'+name+'_bck.pkl'
     fout = 'out/'+name+'_log.pdf'
     f = open(fname) 
     trjs = []
@@ -219,6 +220,7 @@ def plot_log(name, inds, labels):
     f.close()
         
     lg = np.vstack([np.hstack((trj[0][:], trj[2][:,inds])) for trj in trjs])
+    lg[:,1] -= np.pi
     s = [0,] + list(np.where(lg[1:,0] < lg[:-1,0])[0]+1) 
     e = s[1:] + [lg.shape[0],]
     inds = zip(s,e)[:-1]
@@ -235,7 +237,7 @@ def plot_log(name, inds, labels):
     fig = plt.figure()
         
     for i in range(n):
-        ax = fig.add_subplot(n,1,1+i)
+        ax = fig.add_subplot(2,1,1+i)
 
         ax.set_ylabel(labels[i])
         if i == n-1:
@@ -251,9 +253,51 @@ def plot_log(name, inds, labels):
    
         
 
-plot_log('CartPole', [2,3], ['Angle (rad)', 'Location (m) '])
+def plot_heli():
+    base = '../../heli_data/'
 
+    fout = 'out/heli_log.pdf'
+        
+    plts = []
+    for filename in os.listdir(base):
+        trj = np.loadtxt(base+filename, delimiter=',')
+        trj[:,6] = -trj[:,6]
+        plts.append(trj[:,[0,2,6]])
+    
+    l = plts[0]
+    ts = np.array([l[np.abs(l[:,2])>=1e-1,:][-1,0] for l in plts])
+
+    print 'Mean: ', np.mean(ts)
+    print 'Standard Deviation: ', np.std(ts)
+    print 'Num Samples: ', len(ts)
+
+    labels = ('Orientation Quaternion','Altitude (m)')
+    n  = plts[0].shape[1]-1
+    
+    fig = plt.figure()
+        
+    for i in range(n):
+        ax = fig.add_subplot(2,1,1+i)
+
+        ax.set_ylabel(labels[i])
+        if i == n-1:
+            ax.set_xlabel('Time (s)')
+        else:
+            ax.set_xticklabels([])
+            ax.set_ylim(-.2, 1.2);
+        
+        for l in plts:
+            plot(l[:,0],l[:,i+1])
+    
+    
+    savefig(fout,bbox_inches='tight')
+
+
+
+#plot_log('CartPole', [2,3], ['Angle (radians)', 'Location (m) '])
+#plot_log('Pendulum', [1], ['Angle (radians)'])
+#plot_heli()
 #regression()
 #subspace()
-
+plot_log('DoublePendulum', [2,3], ['Inner pendulum angle (radians)','Outer pendulum angle (radians)'])
 

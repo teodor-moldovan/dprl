@@ -7,7 +7,6 @@ from sys import stdout
 import math
 import clustering
 import cPickle
-
 import re
 import sympy
 
@@ -15,6 +14,7 @@ import matplotlib as mpl
 #mpl.use('pdf')
 import matplotlib.pyplot as plt
 from matplotlib import animation 
+from scipy.optimize import fmin_l_bfgs_b as l_bfgs_b
 
 try:
     import mosek
@@ -861,6 +861,28 @@ class GPMcompact():
         
         self.no_slack = False
         
+        nx,nu = self.ds.nx, self.ds.nu
+
+        self.nv = 1 + l*nu + 2*l*nx + nx + nx 
+        self.nc = nx 
+        self.nv_full = self.nv + l*nx 
+        
+        self.iv = np.arange(self.nv)
+        
+        self.ic = np.arange(self.nc)
+        
+        self.ic_eq = np.arange(nx)
+
+        self.iv_h = 0
+        self.iv_u = 1 + np.arange(l*nu).reshape(l,nu)
+        self.iv_slack = 1 + l*nu + np.arange(2*l*nx).reshape(2,l,nx)
+        self.iv_model_slack = 1 + l*nu + 2*l*nx + np.arange(nx).reshape(nx)
+        
+        self.iv_a = 1+l*nu + 2*l*nx + nx + np.arange(l*nx).reshape(l,nx)
+        
+        self.iv_linf = self.iv_u
+        
+        self.iv_h = 0
         nx,nu = self.ds.nx, self.ds.nu
 
         self.nv = 1 + l*nu + 2*l*nx + nx + nx 
@@ -1919,3 +1941,150 @@ class DDPPlanner():
         
         # return result
         return A,B
+class BFGSPlanner():
+    def __init__(self,ds,l):
+        self.ds = ds
+        self.l = l
+        
+        nx,nu,nf = self.ds.nx, self.ds.nu, np.sum(ds.c_ignore)
+        self.nf = nf 
+        self.nv = 1 + l*nu + (l-1)*nx + nf
+        
+        self.iv_h = 0
+        self.iv_u = 1 + np.arange(l*nu).reshape(l,nu)
+        self.iv_a = 1+l*nu + np.arange((l-1)*nx).reshape(l-1,nx)
+        self.iv_l = 1+l*nu + (l-1)*nx + np.arange(nf)
+
+    def cost(self,z, lbd = 0):
+        A,w = self.int_formulation(self.l)
+
+        hi = z[self.iv_h]
+        u = z[self.iv_u]
+        a = np.zeros((self.l, self.ds.nx))    
+        
+        a[:-1,:] = z[self.iv_a]
+        a[-1,self.ds.c_ignore] = z[self.iv_l]
+
+        m = hi*(np.array(self.ds.target)-np.array(self.ds.state))
+        ind = np.logical_not(self.ds.c_ignore)
+        a[-1,ind] = (m[ind]-np.dot(w[:-1],a[:-1,ind]))/w[-1]
+         
+        x = np.dot(A,a)/hi
+        
+        arg = np.hstack((a,x,u))
+        
+        f =  self.ds.implf(to_gpu(arg)).get()
+
+        cost = np.dot(w,np.sum(f**2,1)) - lbd*hi
+        
+        return cost
+        
+    def solve(self):
+        
+        z = self.initialization()
+
+        for lbd in (.01, ):
+            res = l_bfgs_b( self.cost, z, m = 100,
+                approx_grad = 1,  bounds = self.bounds(),
+                disp = 1, 
+                args = (lbd,)
+                )    
+            print res
+            z = res[0]
+        
+
+    def initialization(self):
+        
+        A,w = self.int_formulation(self.l)
+        ws = np.sum(w)
+        z = np.zeros(self.nv)
+        
+        hi = np.exp(-self.ds.log_h_init)
+        z[self.iv_h] = hi
+
+        m = hi*(np.array(self.ds.target)-np.array(self.ds.state))
+        m[self.ds.c_ignore] = 0
+        accs = np.tile(m[np.newaxis,:]/ws,(self.l,1))
+        z[self.iv_a] = accs[:-1,:]
+        z[self.iv_l] = accs[-1,self.ds.c_ignore] 
+        
+        return z 
+
+    def bounds(self):
+        l,nx,nu = self.l, self.ds.nx, self.ds.nu
+        
+        b = 1000*np.ones(self.nv)
+        #b = float('inf')*np.ones(self.nv)
+        bl = -b
+        bu = b
+        bl[self.iv_h] = .01
+        bl[self.iv_u] = -1.0
+        bu[self.iv_u] = 1.0
+
+        bl[np.isinf(bl)] = None
+        bu[np.isinf(bu)] = None
+
+        return  zip(bl,bu)
+
+    # bad structure: methods below copy-pasted
+    @classmethod
+    @memoize
+    def quadrature(cls,N):
+
+        P = legendre.Legendre.basis
+        tauk = P(N).roots()
+
+        vs = P(N).deriv()(tauk)
+        int_w = 2.0/(vs*vs)/(1.0- tauk*tauk)
+
+        taui = np.hstack(([-1.0],tauk))
+        
+        wx = np.newaxis
+        
+        dn = taui[:,wx] - taui[wx,:]
+        dd = tauk[:,wx] - taui[wx,:]
+        dn[dn==0] = float('inf')
+
+        dd = dd[wx,:,:] + np.zeros(taui.size)[:,wx,wx]
+        dd[np.arange(taui.size),:,np.arange(taui.size)] = 1.0
+        
+        l = dd[:,:,wx,:]/dn[wx,wx,:,:]
+        l[:,:,np.arange(taui.size),np.arange(taui.size)] = 1.0
+        
+        l = np.prod(l,axis=3)
+        l[np.arange(taui.size),:,np.arange(taui.size)] = 0.0
+        D = np.sum(l,axis=0)
+
+        return tauk, D, int_w
+
+    @classmethod
+    @memoize
+    def __lagrange_poly_u_cache(cls,l):
+        tau,_ , __ = cls.quadrature(l)
+
+        rcp = 1.0/(tau[:,np.newaxis] - tau[np.newaxis,:]+np.eye(tau.size)) - np.eye(tau.size)
+
+        return rcp,tau
+
+    def lagrange_poly_u(self,r):
+        rcp,nds = self.__lagrange_poly_u_cache(self.l)
+
+        if r < -1 or r > 1:
+            raise TypeError
+
+        df = ((r - nds)[np.newaxis,:]*rcp) + np.eye(nds.size)
+        w = df.prod(axis=1)
+
+        return w
+
+    interp_coefficients = lagrange_poly_u
+    @classmethod
+    @memoize
+    def int_formulation(cls,N):
+        _, D, w = cls.quadrature(N)
+        A = np.linalg.inv(D[:,1:])
+        
+        return .5*A,.5*w
+        
+
+

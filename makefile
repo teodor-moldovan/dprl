@@ -1,6 +1,6 @@
-all: plots
+all: noft
 
-CMD = python test.py TestsDoublePendulum.test_mm_learning
+CMD = python test.py TestsUnicycle.test_pp_bfgs
 plots:
 	python plots.py
 noft: 
