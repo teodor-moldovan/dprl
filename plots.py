@@ -220,7 +220,7 @@ def plot_log(name, inds, labels):
     f.close()
         
     lg = np.vstack([np.hstack((trj[0][:], trj[2][:,inds])) for trj in trjs])
-    lg[:,1] -= np.pi
+    #lg[:,1] = -lg[:,1] + np.pi # hack for pendulum
     s = [0,] + list(np.where(lg[1:,0] < lg[:-1,0])[0]+1) 
     e = s[1:] + [lg.shape[0],]
     inds = zip(s,e)[:-1]
@@ -294,10 +294,10 @@ def plot_heli():
 
 
 
-#plot_log('CartPole', [2,3], ['Angle (radians)', 'Location (m) '])
-#plot_log('Pendulum', [1], ['Angle (radians)'])
-#plot_heli()
 #regression()
 #subspace()
-plot_log('DoublePendulum', [2,3], ['Inner pendulum angle (radians)','Outer pendulum angle (radians)'])
+#plot_log('CartPole', [2,3], ['Angle (radians)', 'Location (m) '])
+plot_log('Pendulum', [1], ['Angle (radians)'])
+#plot_heli()
+#plot_log('DoublePendulum', [2,3], ['Inner pendulum angle (radians)','Outer pendulum angle (radians)'])
 

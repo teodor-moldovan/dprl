@@ -1,4 +1,4 @@
-all: noft
+all: plots
 
 CMD = python test.py TestsUnicycle.test_pp_bfgs
 plots:
