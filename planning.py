@@ -1551,15 +1551,17 @@ class SlpNlp():
             #p = 2*np.abs(r*dz)
 
 
-        return cost, z 
+        return cost, z, it 
 
         
     def solve(self):
         z = self.nlp.initialization()
-        obj, z = self.iterate(z)
+        obj, z, ni = self.iterate(z)
         self.last_z = z
         
-        return self.nlp.get_policy(z)
+        pi = self.nlp.get_policy(z)
+        pi.iters = ni
+        return pi
         
 
 class DDPPlanner():

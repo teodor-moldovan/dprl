@@ -404,7 +404,7 @@ def animate_unicycle():
     h = 20
     speedup = .5
 
-    fin = 'out/unicycle.Unicycle_log.pkl'
+    fin = 'out/unicycle.Unicycle_bck.pkl'
     f = open(fin,'r') 
     trjs = []
     
@@ -458,7 +458,7 @@ def animate_unicycle():
             line.set_data(P[0,:],P[1,:])
             line.set_3d_properties(P[2,:])
 
-        if speedup != 1:
+        if speedup > 1:
             spm = ' '*5+'Speedup: '+str(speedup)+ 'x'
         else:
             spm = ''
@@ -469,7 +469,7 @@ def animate_unicycle():
     
     ax.set_axis_off()
 
-    X, Y = np.meshgrid(np.arange(-2,4), np.arange(-2,4))  
+    X, Y = np.meshgrid(np.linspace(-2,4,10), np.linspace(-2,4,10))  
     ax.plot_wireframe(X, Y, np.zeros(X.shape), rstride=1,cstride=1, color='gray',alpha = .5)
 
     # Setting the axes properties
@@ -488,6 +488,10 @@ def animate_unicycle():
     anim = animation.FuncAnimation(fig, animate, init_func=init,
                         frames=int(ts[-1]*1000/h/speedup), 
                         interval=h, blit=True)
+
+
+    anim.save('out/unicycle.mp4', writer='avconv', 
+            extra_args=['-vcodec', 'libx264'])
 
     plt.show()
         

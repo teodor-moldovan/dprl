@@ -1626,16 +1626,21 @@ class TestsUnicycle(TestsDynamicalSystem):
     def test_pp_iter(self):
 
         env = self.DS()
+        ds = self.DS()
         env.dt = .01
-        env.log_h_init = -1.0
-        env.randomize_state()
+        ds.log_h_init = 0.0
         
-        pp = SlpNlp(GPMcompact(env,25))
+        pp = SlpNlp(GPMcompact(ds,35))
 
         for t in range(10000):
+            env.reset_if_need_be()
             s = env.state
             env.print_state()
+            ds.state = env.state.copy()+1e-5*np.random.normal(size=env.nx)
             pi = pp.solve()
+
+            if pi.iters < 4:
+                pi = ZeroPolicy(env.nu)
 
             trj = env.step(pi,5)
 
@@ -1646,26 +1651,23 @@ class TestsUnicycle(TestsDynamicalSystem):
         env.dt = .01
         env.noise = .01
 
+        #from unicycle import UnicycleSpl as DSs
         ds = self.DS()
-        ds.log_h_init = -1.0
+        ds.log_h_init = 0.0
         
-        pp = SlpNlp(GPMcompact(ds,55))
-
-        for it in range(5):
-            trj = env.step(ZeroPolicy(env.nu),25) 
-            ds.update(trj)
-            env.initialize_state()
+        pp = SlpNlp(GPMcompact(ds,35))
 
         for t in range(10000):
 
             env.reset_if_need_be()
             env.print_state()
                 
-            ds.state = env.state.copy()
+            ds.state = env.state.copy()+1e-5*np.random.normal(size=env.nx)
             pi = pp.solve()
 
             trj = env.step(pi,5)
-            ds.update(trj)
+
+            ds.update(trj, prior = 1e-6)
 
 
 

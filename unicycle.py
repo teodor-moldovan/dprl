@@ -6,7 +6,8 @@ class Unicycle(DynamicalSystem):
     def symbolics(self):
         symbols = sympy.var("""
             adtheta, adphi, adpsiw, adpsif, adpsit, 
-            ax, ay, atheta, aphi, apsiw, apsif, apsit,
+            ax, ay, 
+            atheta, aphi, apsiw, apsif, apsit,
             dtheta, dphi, dpsiw, dpsif, dpsit, 
             x, y, 
             theta,  phi,  psiw,  psif,  psit,
@@ -90,7 +91,7 @@ class Unicycle(DynamicalSystem):
             return (v.T*v)[0] + 1e-2*V*V + 1e-2*U*U
 
         def state_target():
-            return (dtheta,dpsiw, dpsif,theta,psif)
+            return (dtheta,dpsiw, dpsif, dphi, theta,psif)
 
         def state_start():
             return (0,)
@@ -104,7 +105,8 @@ class Unicycle(DynamicalSystem):
 
     def initial_state(self):
         state = np.zeros(self.nx)
-        state[self.nx/2-1:] = .25*np.random.normal(size = self.nx/2+1)
+        sg = 2*np.array([0.02,0.02,0.02,0.02,0.02,0.1,0.1,0.02,0.02,0.02,0.02,0.02])
+        state = sg*np.random.normal(size = self.nx)
         return state 
 
     def set_location(self,x,y):

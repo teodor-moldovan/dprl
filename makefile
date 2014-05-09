@@ -1,4 +1,4 @@
-all: plots
+all: ft
 
 CMD = python test.py TestsUnicycle.test_learning
 plots:
