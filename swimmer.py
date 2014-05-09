@@ -6,14 +6,14 @@ class Swimmer(DynamicalSystem):
     """ same parameters and dynamics as used here:
     http://homes.cs.washington.edu/~tassa/papers/SDynamics.pdf
     """    
-    num_links = 3
+    num_links = 4
     #optimize_var = 0
-    #log_h_init = 0
+    log_h_init = 0
     #fixed_horizon = True
 
     def symbolics(self):
         nl = self.num_links
-        sympy.var("dvx,dvy, vx,vy ")
+        sympy.var("dvx,dvy,dx, vx,vy,x,")
         
         t = sympy.var(','.join(['t'+str(i) for i in range(nl)]) )
         w = sympy.var(','.join(['w'+str(i) for i in range(nl)]) )
@@ -22,24 +22,24 @@ class Swimmer(DynamicalSystem):
         u = sympy.var(','.join(['u'+str(i) for i in range(nl-1)]) )
 
         k1 = 10.0        # viscous friction
-        k2 = 0.00        # laminar friction
+        k2 = 0.5        # laminar friction
         U = [5.0]*(nl-1) # max control values
         m = [1]*nl       # masses
         l = [1]*nl       # lengths
 
-        symbols = (dvx, dvy) + dw + dt + (vx,vy) + w + t + u
+        symbols = (dvx, dvy,dx) + dw + dt + (vx,vy,x) + w + t + u
+        sin, cos = sympy.sin, sympy.cos
+        Mat, diag = sympy.Matrix, sympy.diag
         
         def quad_cost():
             return (vx+1)*(vx+1) + vy*vy
 
         def state_target():
-            return (vy,vx+.2 ) + w 
+            return (x+.5, )+ t
 
         def dyn():
             # dynamics symbolics
             
-            Mat, diag = sympy.Matrix, sympy.diag
-            sin, cos = sympy.sin, sympy.cos
             
             L = diag(*l)
             M = diag(*m)
@@ -80,16 +80,30 @@ class Swimmer(DynamicalSystem):
             
             ew = tuple([i-j for i,j in zip(dt,w)] )
 
-            exprs = tuple(et) + (ex, ey) + ew
+            exprs = tuple(et) + (ex, ey) + ew + (dx - vx, )
 
             return exprs
 
+        def geometry():
+            # only valid is links are identical
+            xs = [0] 
+            ys = [0] 
+            
+            for ti,li in zip(t,l):
+                xs.append(xs[-1] + li*cos(ti) )
+                ys.append(ys[-1] + li*sin(ti) )
+            
+            xcm =  sum([.5*(i+j) for i,j in zip(xs[:-1], xs[1:])])/float(nl)
+            ycm =  sum([.5*(i+j) for i,j in zip(ys[:-1], ys[1:])])/float(nl)
+
+            return tuple([xi - xcm for xi in xs] + [yi - ycm for yi in ys])
+            
         return locals() 
 
     def initial_state(self):
         state = np.zeros(self.nx)
         n = self.num_links
-        state = .1*np.random.normal(size = self.nx)
+        state = .01*np.random.normal(size = self.nx)
         return state
 
 

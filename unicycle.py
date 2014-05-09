@@ -111,13 +111,13 @@ class Unicycle(DynamicalSystem):
         self.state[5:7] = (x,y)
         
     def compute_geom(self,state):
-        x = state[0]
-        y = state[1]
-        theta = state[2]
-        phi = state[3]
-        psiw = -state[4]
-        psif = state[5]
-        psit = state[6]
+        x = state[5]
+        y = state[6]
+        theta = state[7]
+        phi = state[8]
+        psiw = -state[9]
+        psif = state[10]
+        psit = state[11]
         rw =  0.225; # wheel radius
         rf =  0.54;  # frame center of mass to wheel
         rt =  0.27;  # frame centre of mass to turntable

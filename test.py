@@ -1345,12 +1345,11 @@ class TestsDynamicalSystem(unittest.TestCase):
         np.random.seed(seed)
 
         env = self.DS()
+        env.dt = .01
         #env.state = 2*np.pi*2*(np.random.random(self.ds.nx)-0.5)
         env.state = 0.001*(np.random.random(env.nx)-0.5)
-        #trj = env.step(ZeroPolicy(env.nu), 200)
-        #env.plot_state_seq(trj[2])
-        x,u = env.discrete_time_rollout(ZeroPolicy(env.nu),env.state,100)
-        env.plot_state_seq(x)
+        trj = env.step(ZeroPolicy(env.nu), 100)
+        env.plot_state_seq(trj[1])
         plt.show()
 
     def test_accs(self):
@@ -1371,6 +1370,18 @@ class TestsDynamicalSystem(unittest.TestCase):
         print 'state derivative: '
         print  ds.dstate2str(r)
         
+    def test_geometry(self):
+        ds = self.DS()
+
+        np.random.seed(6)
+        x = 2*np.pi*2*(np.random.random(ds.nx)-0.5)
+        x = x[np.newaxis,:]
+
+        res = array((x.shape[0],ds.ng))
+        ds.k_geometry(to_gpu(x), res)
+
+        print res.get()
+
     def test_cost(self):
         ds = self.DS()
 
@@ -1643,7 +1654,7 @@ class TestsUnicycle(TestsDynamicalSystem):
         for it in range(5):
             trj = env.step(ZeroPolicy(env.nu),25) 
             ds.update(trj)
-            env.initizalize_state()
+            env.initialize_state()
 
         for t in range(10000):
 
@@ -1657,6 +1668,14 @@ class TestsUnicycle(TestsDynamicalSystem):
             ds.update(trj)
 
 
+
+    def test_geometry(self):
+        ds = self.DS()
+
+        np.random.seed(6)
+        x = 2*np.pi*2*(np.random.random(ds.nx)-0.5)
+
+        ds.compute_geom(x)
 
     def test_dyn(self):
         matvals = (
@@ -1691,15 +1710,16 @@ class TestsSwimmer(TestsDynamicalSystem):
         env = self.DS(dt = .01, noise = .01)
 
         ds = self.DS() 
-        pp = SlpNlp(GPMcompact(ds,55))
+        pp = SlpNlp(GPMcompact(ds,35))
 
         for t in range(10000):
             env.print_state()
                 
             ds.state = env.state.copy()
+            ds.state[2] = 0
             pi = pp.solve()
 
-            trj = env.step(pi,5)
+            trj = env.step(pi,100)
             ds.update(trj, prior = 1e-6)
 
 
@@ -1707,13 +1727,16 @@ class TestsSwimmer(TestsDynamicalSystem):
     def test_pp_iter(self):
 
         env = self.DS(dt = .01)
-        pp = SlpNlp(GPMcompact(env,55))
+        pp = SlpNlp(GPMcompact(env,35))
 
         for t in range(10000):
             env.print_state()
+            state = env.state.copy()
+            env.state[2]= 0
             pi = pp.solve()
+            env.state[:] = state
 
-            trj = env.step(pi,5)
+            trj = env.step(pi,100)
 
 
 class TestsPP(unittest.TestCase):

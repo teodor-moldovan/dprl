@@ -285,8 +285,19 @@ class DynamicalSystem(DSbase):
         self.cost = dct[self.cost_type]()
         target_expr = tuple(dct['state_target']())
 
+        try:
+            geom = tuple(dct['geometry']())
+        except:
+            geom = None
+
+
         self.nx = len(self.exprs)
         self.nu = len(self.symbols) - 2*self.nx
+
+        if not geom is None:
+            self.ng = len(geom)
+            f = codegen_cse(geom, self.symbols[self.nx:-self.nu])
+            self.k_geometry = rowwise(f,'geometry')
 
         features, weights, nfa, nf = self.__extract_features(
                 self.exprs,self.symbols,self.nx)
@@ -304,8 +315,6 @@ class DynamicalSystem(DSbase):
         self.t = 0
         
         self.log_file  = 'out/'+ str(self.__class__)+'_log.pkl'
-        open(self.log_file,'w').close()
-        
 
     @staticmethod
     @memoize_to_disk
@@ -683,7 +692,15 @@ class DynamicalSystem(DSbase):
 
         trj = t,dx,x,u
 
-        fle = open(self.log_file,'a')
+
+        try:
+            self.written
+            mode = 'a'
+        except:
+            self.written = True
+            mode = 'w'
+            
+        fle = open(self.log_file,mode)
         cPickle.dump(trj, fle)
         fle.close()
 
@@ -1394,7 +1411,10 @@ class SlpNlp():
         task.putboundlist(mosek.accmode.con, range(nc), [bdk.fx]*nc,b,b )
         
         # hack. 
-        i = np.where( self.nlp.ds.c_ignore)[0]
+        i = np.where( self.nlp.ds.c_ignore)[0] 
+        j = self.nlp.ds.optimize_var
+        if not j is None:
+            i += [j]
         b = [0]*len(i)
         task.putboundlist(mosek.accmode.con, i, [bdk.fr]*len(i),b,b )
         # end hack
@@ -1433,9 +1453,10 @@ class SlpNlp():
         # hack
         j = self.nlp.ds.optimize_var
         if not j is None:
-            c[0] = 0
-            c += jac[j]
-        
+            if c[0] != 0:
+                c[0] = 0
+                c += jac[j]
+            
         task.putclist(np.arange(self.nlp.nv),c)
         # endhack
 
