@@ -1,5 +1,5 @@
 import matplotlib as mpl
-#mpl.use('Agg')
+mpl.use('Agg')
 from pylab import *
 from mpl_toolkits.mplot3d.axes3d import Axes3D
 from mpl_toolkits.mplot3d import proj3d
@@ -400,11 +400,11 @@ def animate_swimmer():
 def animate_unicycle():
     time_limit = float('inf')
     #time_limit = 160
-    #time_limit = 1.0
+    #time_limit = 40
     h = 20
     speedup = .5
 
-    fin = 'out/unicycle.Unicycle_bck.pkl'
+    fin = 'out/unicycle.Unicycle_log.pkl'
     f = open(fin,'r') 
     trjs = []
     
@@ -493,7 +493,7 @@ def animate_unicycle():
     anim.save('out/unicycle.mp4', writer='avconv', 
             extra_args=['-vcodec', 'libx264'])
 
-    plt.show()
+    #plt.show()
         
 #regression()
 #subspace()

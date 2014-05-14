@@ -1623,6 +1623,15 @@ class TestsUnicycle(TestsDynamicalSystem):
         ds.update(trj)
         
          
+    def test_pp(self):
+
+        ds = self.DS()
+        ds.log_h_init = 0.0
+        
+        pp = SlpNlp(GPMcompact(ds,35))
+        pi = pp.solve()
+
+
     def test_pp_iter(self):
 
         env = self.DS()

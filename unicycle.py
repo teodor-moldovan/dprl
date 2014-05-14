@@ -91,7 +91,7 @@ class Unicycle(DynamicalSystem):
             return (v.T*v)[0] + 1e-2*V*V + 1e-2*U*U
 
         def state_target():
-            return (dtheta,dpsiw, dpsif, dphi, theta,psif)
+            return (dtheta,dpsiw, dpsif, dphi, theta,psif, x-.5, y-.5)
 
         def state_start():
             return (0,)
