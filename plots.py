@@ -1,5 +1,5 @@
 import matplotlib as mpl
-mpl.use('Agg')
+#mpl.use('Agg')
 from pylab import *
 from mpl_toolkits.mplot3d.axes3d import Axes3D
 from mpl_toolkits.mplot3d import proj3d
@@ -490,10 +490,10 @@ def animate_unicycle():
                         interval=h, blit=True)
 
 
-    anim.save('out/unicycle.mp4', writer='avconv', 
-            extra_args=['-vcodec', 'libx264'])
+    #anim.save('out/unicycle.mp4', writer='avconv', 
+    #        extra_args=['-vcodec', 'libx264'])
 
-    #plt.show()
+    plt.show()
         
 #regression()
 #subspace()

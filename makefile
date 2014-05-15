@@ -1,6 +1,6 @@
 all: ft
 
-CMD = python test.py TestsUnicycle.test_pp
+CMD = python test.py TestsUnicycle.test_learning
 plots:
 	python plots.py
 noft: 

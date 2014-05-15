@@ -3,6 +3,7 @@ from planning import *
 class Unicycle(DynamicalSystem):
     """http://mlg.eng.cam.ac.uk/pub/pdf/Dei10.pdf"""
     dt, H = .15, 60 
+    log_h_init = 0
     def symbolics(self):
         symbols = sympy.var("""
             adtheta, adphi, adpsiw, adpsif, adpsit, 
@@ -91,7 +92,7 @@ class Unicycle(DynamicalSystem):
             return (v.T*v)[0] + 1e-2*V*V + 1e-2*U*U
 
         def state_target():
-            return (dtheta,dpsiw, dpsif, dphi, theta,psif, x-.5, y-.5)
+            return (dtheta,dpsiw, dpsif, dphi, theta,psif, x+1, y-0.5)
 
         def state_start():
             return (0,)

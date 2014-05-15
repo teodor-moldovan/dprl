@@ -1547,6 +1547,31 @@ class TestsDynamicalSystem(unittest.TestCase):
 
 
 
+    def test_pp(self):
+
+        np.random.seed(3)
+        ds = self.DS()
+        
+        pp = SlpNlp(GPMcompact(ds,35))
+        pi = pp.solve()
+
+
+    def test_pp_iter(self):
+
+        env = self.DS()
+        ds = self.DS()
+        
+        np.random.seed(1)
+        pp = SlpNlp(GPMcompact(ds,55))
+
+        for t in range(10000):
+            s = env.state
+            env.print_state()
+            ds.state = env.state.copy()+1e-5*np.random.normal(size=env.nx)
+            pi = pp.solve()
+            trj = env.step(pi,5)
+
+
     def test_pp_bfgs(self):
 
         np.random.seed(1)
@@ -1623,15 +1648,6 @@ class TestsUnicycle(TestsDynamicalSystem):
         ds.update(trj)
         
          
-    def test_pp(self):
-
-        ds = self.DS()
-        ds.log_h_init = 0.0
-        
-        pp = SlpNlp(GPMcompact(ds,35))
-        pi = pp.solve()
-
-
     def test_pp_iter(self):
 
         env = self.DS()

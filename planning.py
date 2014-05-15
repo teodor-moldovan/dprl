@@ -1002,7 +1002,7 @@ class GPMcompact():
         
         return .5*A,.5*w
         
-    def bounds(self,z, r):
+    def bounds(self,z, r=None):
         l,nx,nu = self.l, self.ds.nx, self.ds.nu
         
         b = float('inf')*np.ones(self.nv)
@@ -1107,8 +1107,7 @@ class GPMcompact():
 
     def feas_proj(self,z):
 
-        if not len(z.shape)==2:
-            z = z[np.newaxis,:]
+        z = z.reshape(-1,z.shape[-1])
 
         nx,nu,l = self.ds.nx,self.ds.nu,self.l
             
@@ -1131,16 +1130,45 @@ class GPMcompact():
         return z
 
 
-    def line_search(self,z0,dz,al):
+    def grid_search(self,z0,dz,al):
 
-        z = z0[np.newaxis,:] + al[:,np.newaxis]*dz[np.newaxis,:]
+        if len(al)>1:
+            grid = np.meshgrid(*al)
+        else:
+            grid = al
+
+        # hack
+        bl0,bu0 = self.bounds(np.zeros(z0.shape))
+        bl = -float('inf')*np.ones(bl0.shape)
+        bl[self.iv_h] = bl0[self.iv_h]
+        bl[self.iv_u] = bl0[self.iv_u]
+        bl[self.iv_model_slack] = bl0[self.iv_model_slack]
+
+        bu = float('inf')*np.ones(bu0.shape)
+        bu[self.iv_h] = bu0[self.iv_h]
+        bu[self.iv_u] = bu0[self.iv_u]
+        bu[self.iv_model_slack] = bu0[self.iv_model_slack]
+        # end hack
+        
+        deltas = sum([x[...,np.newaxis]*y for x, y  in zip(grid, dz)])
+        deltas = deltas.reshape((-1,deltas.shape[-1]))
+
+        z = z0 + deltas 
         
         z = self.feas_proj(z)
-        a = self.obj_cost()
-        b = self.obj_feas()
-        
-        return np.dot(z[:,:self.nv],a), np.dot(z[:,:self.nv],b)
 
+        c = np.dot(z[:,:self.nv],self.obj_feas())
+        
+        il = np.any(z[:,:self.nv] < bl[np.newaxis,:],axis=1 )
+        iu = np.any(z[:,:self.nv] > bu[np.newaxis,:],axis=1 )
+        c[np.logical_or(il, iu)] = float('inf')
+
+        i = np.argmin(c)
+        coefs = [g.reshape(-1)[i] for g in grid]
+        
+        s = (z[i] - z0)/ max(coefs[-1], 1e-7)
+
+        return  c[i], z[i], s, coefs
 
     def get_policy(self,z):
         try:
@@ -1158,6 +1186,8 @@ class GPMcompact():
         pi.x = x
         pi.uxi = z[self.iv_u].copy()
         return pi
+
+        
 
     def initialization(self):
         
@@ -1423,8 +1453,8 @@ class SlpNlp():
         
         self.task = task
 
-    def put_var_bounds(self,z,r):
-        l,u = self.nlp.bounds(z,r)
+    def put_var_bounds(self,z):
+        l,u = self.nlp.bounds(z)
         i = self.nlp.iv
         bm = self.bm
         bm[np.logical_and(np.isinf(l), np.isinf(u))] = mosek.boundkey.fr
@@ -1434,7 +1464,7 @@ class SlpNlp():
 
         self.task.putboundlist(mosek.accmode.var,i,bm,l,u )
 
-    def solve_task(self,z,r):
+    def solve_task(self,z):
 
         task = self.task
         
@@ -1446,7 +1476,7 @@ class SlpNlp():
         
         task.putaijlist(i,j,d)
 
-        self.put_var_bounds(z,r)
+        self.put_var_bounds(z)
 
         c =  self.nlp.obj(z)
         
@@ -1495,65 +1525,53 @@ class SlpNlp():
         
     def iterate(self,z,n_iters=100000):
 
+        # todo: implement eq 3.1 from here:
+        # http://www.caam.rice.edu/~zhang/caam554/pdf/cgsurvey.pdf
+
         cost = float('inf')
         old_cost = cost
 
-        p = None
+        al = (  np.concatenate(([0],np.exp(np.linspace(-8,0,10)),
+                    -np.exp(np.linspace(-8,0,10)), ))
+                ,
+                np.concatenate(([0],np.exp(np.linspace(-8,0,40)),))
+            )
+        
+
+        dz = np.zeros((len(al), z.size))
+        
         for it in range(n_iters):  
 
             z = self.nlp.feas_proj(z)[0]
 
             self.nlp.no_slack = True
-            ret = self.solve_task(z,p)
+            ret = self.solve_task(z)
             if not ret == True:
                 ret = "Second solve"
                 self.nlp.no_slack = False
-                self.solve_task(z,p)
+                self.solve_task(z)
             else:
                 ret = ""
 
             ret_x = self.nlp.post_proc(self.ret_x)
-            dz = ret_x
+
+            dz[:-1] = dz[1:]
+            dz[-1] = ret_x
             
             # line search
+            cost, z, s,  grid = self.nlp.grid_search(z,dz,al)
+            dz[-1] = s
 
-            if True:
-                al = np.concatenate(([0],np.exp(np.linspace(-8,0,50)),))
-                a,b = self.nlp.line_search(z,dz,al)
-                
-                # find first local minimum
-                ae = np.concatenate(([float('inf')],b,[float('inf')]))
-                inds  = np.where(np.logical_and(b<=ae[2:],b<ae[:-2] ) )[0]
-                
-                #i = np.argmin(b)
-                i = inds[0]
-                cost = b[i]
-                r = al[i]
-
-            else:
-                r = 1.0/(it + 2.0)
-
-                c = self.nlp.obj_feas()
-                cost =  np.dot(z[:self.nlp.nv],c)
-        
-            #print z[self.nlp.iv_model_slack]
-                
             hi = z[self.nlp.iv_h]
+            print ('{:9.5f} '*(2+len(grid))).format(hi, cost, *grid) + ret
 
-            print ('{:9.5f} '*3).format( hi, cost, r) + ret
-
-            if np.abs(old_cost - cost)<1e-4:
+            if np.abs(old_cost - cost)<1e-5:
                 break
             old_cost = cost
-
-            z = z + r*dz
             
-            #p = 2*np.abs(r*dz)
-
-
         return cost, z, it 
 
-        
+
     def solve(self):
         z = self.nlp.initialization()
         obj, z, ni = self.iterate(z)
