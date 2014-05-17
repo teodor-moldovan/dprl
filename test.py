@@ -1506,8 +1506,45 @@ class TestsDynamicalSystem(unittest.TestCase):
 
         ds.update(trj)
         
+        
+        ds.explf(zt)
         ds.implf(zt)
 
+
+    def test_mm_discrete_time(self):
+
+        env = self.DS()
+        ds = self.DSMM(cost_type = 'quad_cost', squashing_function = sympy.tanh)
+
+        l,nx,nu = 1000, ds.nx, ds.nu
+        n = 2*nx+nu
+        zn = 3+10*np.random.normal(size=l*n).reshape(l,n)
+        z = to_gpu(zn)
+        
+        x,u = zn[:,ds.nx:2*ds.nx],zn[:,2*ds.nx:]
+        a = env.explf(to_gpu(x),to_gpu(u)).get()
+        
+        a += 1e-3*np.random.normal(size=a.size).reshape(a.shape)
+        trj =  (None,a,x,u)
+
+        zt = to_gpu(np.hstack((a,x,u)))
+
+        ds.update(trj)
+        
+        np.random.seed(3)
+        zn = np.random.random(l*n).reshape(l,n)
+
+        x,u = zn[:,ds.nx:-ds.nu],zn[:,-ds.nu:]
+
+        r = ds.integrate(to_gpu(x),to_gpu(u))
+        A,B = ds.discrete_time_linearization(x,u)
+        
+        t = tic()
+        A,B = ds.discrete_time_linearization(x,u)
+        toc(t)
+        
+        ds.get_cost(x,u)
+        
 
     def test_mm_learning(self):
 
@@ -1562,7 +1599,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         ds = self.DS()
         
         np.random.seed(1)
-        pp = SlpNlp(GPMcompact(ds,55))
+        pp = SlpNlp(GPMcompact(ds,35))
 
         for t in range(10000):
             s = env.state
@@ -1583,7 +1620,7 @@ class TestsDynamicalSystem(unittest.TestCase):
 
 
 class TestsCartpole(TestsDynamicalSystem):
-    from cartpole import CartPole as DS
+    from cartpole import CartPoleQ as DS
     from cartpole import CartPoleMM as DSMM
 class TestsPendulum(TestsDynamicalSystem):
     from pendulum import Pendulum as DS

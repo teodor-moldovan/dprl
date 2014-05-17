@@ -302,7 +302,7 @@ def animate_swimmer():
     h = 20
     speedup = 2
 
-    fin = 'out/swimmer.Swimmer_bck.pkl'
+    fin = 'out/swimmer.Swimmer_log.pkl'
     f = open(fin,'r') 
     trjs = []
     
@@ -391,16 +391,16 @@ def animate_swimmer():
     # your system: for more information, see
     # http://matplotlib.sourceforge.net/api/animation_api.html
 
-    anim.save('out/swimmer.mp4', writer='avconv',
-        extra_args=['-vcodec', 'libx264'])
+    #anim.save('out/swimmer.mp4', writer='avconv',
+    #    extra_args=['-vcodec', 'libx264'])
 
-    #plt.show()
+    plt.show()
 
 
 def animate_unicycle():
     time_limit = float('inf')
     #time_limit = 160
-    #time_limit = 40
+    time_limit = 140
     h = 20
     speedup = .5
 
@@ -501,5 +501,5 @@ def animate_unicycle():
 #plot_log('Pendulum', [1], ['Angle (radians)'])
 #plot_heli()
 #plot_log('DoublePendulum', [2,3], ['Inner pendulum angle (radians)','Outer pendulum angle (radians)'])
-#animate_swimmer()
-animate_unicycle()
+animate_swimmer()
+#animate_unicycle()

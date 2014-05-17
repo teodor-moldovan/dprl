@@ -51,9 +51,10 @@ class CartPoleBase:
             #return .5*( t**2 + x**2 + 1e-2*u**2 )
 
         def state_target():
-            #return (w,v,t-np.pi)
+            #return (t-np.pi,)
             return (w,v,t-np.pi,x)
 
+        cost = quad_cost
         return locals()
 
     def plot_state_init(self):
@@ -82,7 +83,11 @@ class CartPoleBase:
         plt.clf()
         anim = animation.FuncAnimation(plt.figure(1),self.plot_state,frames=len(x),interval=20,blit=False,init_func=self.plot_state_init,repeat=False)
         anim._start()
+
 class CartPoleMM(CartPoleBase,MixtureDS):
     pass
 class CartPole(CartPoleBase,DynamicalSystem):
     pass
+class CartPoleQ(CartPoleBase,DynamicalSystemQ):
+    pass
+    

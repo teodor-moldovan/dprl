@@ -267,6 +267,8 @@ class DSbase:
         self.target[ind] = val
         self.c_ignore[ind] = False 
 
+        if not self.optimize_var is None:
+            self.c_ignore[self.optimize_var] = True
 
 
 class DynamicalSystem(DSbase):
@@ -316,6 +318,8 @@ class DynamicalSystem(DSbase):
         
         self.log_file  = 'out/'+ str(self.__class__)+'_log.pkl'
 
+    def extract_features(self,*args):
+        return self.__extract_features(*args)
     @staticmethod
     @memoize_to_disk
     def __extract_features(exprs, symbols,nx):
@@ -361,6 +365,9 @@ class DynamicalSystem(DSbase):
         fn4 = codegen_cse(gsym, symbols[nx:])
 
         return fn1,fn2,fn3,fn4
+
+    def codegen_cost(self,*args):
+        return self.__codegen_cost(*args)
 
     @staticmethod
     @memoize_to_disk
@@ -787,7 +794,80 @@ class DynamicalSystem(DSbase):
     def dstate2str(self,s):
         return self.__symvals2str(s,self.symbols[:self.nx])
 
-class MixtureDS(DSbase):
+# experimental below
+class DynamicalSystemQ(DynamicalSystem):
+    optimize_var = -1
+    log_h_init = 0
+    fixed_horizon = True
+    def initialize_state(self):
+        self.nx -=1
+        self.state = np.append(self.initial_state() + 0.0,0)
+        self.nx +=1
+        
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+        dct = self.symbolics()
+
+        sym = tuple(dct['symbols'])
+        exprs = tuple(dct['dyn']())
+        costf = dct['cost']()
+        target_expr = tuple(dct['state_target']())
+        self.cost = costf
+
+        try:
+            geom = tuple(dct['geometry']())
+        except:
+            geom = None
+
+
+        nx = len(exprs)
+        nu = len(sym) - 2*nx
+        
+        self.nx = nx+1
+        self.nu = nu
+
+        cost, dcost = sympy.symbols('cost, dcost')
+        
+        target_expr =  target_expr + (cost,)
+        
+        sym = sym[:nx] + (dcost,) + sym[nx:2*nx] + (cost,) + sym[2*nx:]
+
+        self.symbols = sym
+
+        if not geom is None:
+            self.ng = len(geom)
+            f = codegen_cse(geom, self.symbols[self.nx:-self.nu])
+            self.k_geometry = rowwise(f,'geometry')
+
+        ft, weights, nfa, nf = self.extract_features(exprs,sym,nx)
+        
+        features = ft[:nfa] + (dcost, ) + ft[nfa:] + (costf, )
+        nfa += 1
+        nf += 2
+        
+        weights = np.insert(weights,nfa-1,0,axis=1)
+        weights = np.insert(weights,weights.shape[1],0,axis=1)
+        weights = np.insert(weights,weights.shape[0],0,axis=0)
+        
+        weights[-1,nfa-1] = -1
+        weights[-1,-1] = 1
+        
+        if weights is not None:
+            self.weights = to_gpu(weights)
+
+        self.nf, self.nfa = nf, nfa
+
+        self.codegen(features, self.squashing_function)
+
+        self.initialize_state()
+        self.initialize_target(target_expr)
+        self.c_ignore[0]=True
+        self.t = 0
+        
+        self.log_file  = 'out/'+ str(self.__class__)+'_log.pkl'
+
+class MixtureDS(DynamicalSystem):
     log_h_init = -1.0
     differentiator = NumDiff(1e-6,3)
     max_clusters = 100
@@ -800,6 +880,7 @@ class MixtureDS(DSbase):
 
         self.symbols = tuple(dct['symbols'])
         self.features = tuple(dct['dpmm_features']())
+        self.cost = dct[self.cost_type]()
 
         self.nx = len(dct['dyn']())
         self.nu = len(self.symbols) - 2*self.nx + self.nx/2
@@ -828,6 +909,9 @@ class MixtureDS(DSbase):
         self.nfa = len(f1)
         self.nf = len(f1) + len(f2)
         
+        fc = self.codegen_cost(self.cost,self.symbols[self.nx:])
+        self.k_cost = rowwise(fc,'cost')
+
         fn1 = codegen_cse(features, self.symbols)
         self.k_features = rowwise(fn1,'features')
         
@@ -854,6 +938,41 @@ class MixtureDS(DSbase):
         
         return rs
         
+    def explf(self,*args):
+        nx,nu,nf,nfa = self.nx, self.nu, self.nf, self.nfa
+        l = args[0].shape[0]
+
+        if len(args)==2:
+            x,u = args
+            z = array((l,nx+nu))
+            ufunc('a=b')(z[:,:nx],x)
+            ufunc('a=b')(z[:,nx:],u)
+        if len(args)==1:
+            z = args[0]
+
+        fz = array((z.shape[0], self.nf))
+        fx = array((z.shape[0], self.nf-self.nfa))
+        fy = array((z.shape[0], self.nfa))
+        xi = array((z.shape[0], self.nx/2))
+        self.k_features(z,fz)
+        
+        ufunc('a=b')(fx,fz[:,self.nfa:])
+        ufunc('a=b')(fy,fz[:,:self.nfa])
+        ufunc('a=b')(xi, z[:,-self.nx/2:])
+        cls = self.dpmm.smooth(fx)        
+
+        mm =  cls.mean_plus_stdev(xi)
+
+        nx = self.nx
+        rs = array((z.shape[0], nx))
+        ufunc('a=c')(rs[:,:nx/2], mm)
+        ufunc('a=c')(rs[:,nx/2:nx], z[:,nx:(nx+nx/2)] )
+        
+        return rs
+        
+    def explf_jac(self,z):
+        return self.differentiator.diff(self.explf, z)
+
     def implf_jac(self,z):
         return self.differentiator.diff(self.implf, z)
 
@@ -1021,6 +1140,7 @@ class GPMcompact():
             bl[self.iv_h] = hi
             bu[self.iv_h] = hi
         else:
+            bu[self.iv_h] = 10
             bl[self.iv_h] = .01
 
 
@@ -1086,7 +1206,7 @@ class GPMcompact():
         jac[:,self.iv_slack[0]] =  tmp
         jac[:,self.iv_slack[1]] = -tmp
         jac[:,self.iv_model_slack] = np.sum(tmp,1)
-
+        
         return  jac
 
     def post_proc(self,z):
@@ -1440,14 +1560,9 @@ class SlpNlp():
         b = [0]*nc
         task.putboundlist(mosek.accmode.con, range(nc), [bdk.fx]*nc,b,b )
         
-        # hack. 
         i = np.where( self.nlp.ds.c_ignore)[0] 
-        j = self.nlp.ds.optimize_var
-        if not j is None:
-            i += [j]
         b = [0]*len(i)
         task.putboundlist(mosek.accmode.con, i, [bdk.fr]*len(i),b,b )
-        # end hack
         
         task.putobjsense(mosek.objsense.minimize)
         
