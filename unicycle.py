@@ -1,6 +1,6 @@
 from planning import *
 
-class Unicycle(DynamicalSystem):
+class UnicycleBase:
     """http://mlg.eng.cam.ac.uk/pub/pdf/Dei10.pdf"""
     dt, H = .15, 60 
     log_h_init = 0
@@ -94,9 +94,15 @@ class Unicycle(DynamicalSystem):
         def state_target():
             return (dtheta,dpsiw, dpsif, dphi, theta,psif)
 
-        def state_start():
-            return (0,)
-
+        def dpmm_features():
+            return (adtheta, adphi, adpsiw, adpsif, adpsit, 
+                    #ax, ay, 
+                    dpsiw, dpsit, 
+                    #cos(phi), sin(phi),
+                    #st,ct,  sf,cf,
+                    theta, psif,
+                    V,U
+            )
         return locals()
         
     def reset_if_need_be(self):
@@ -171,41 +177,7 @@ class Unicycle(DynamicalSystem):
         # return geometries
         return R,P1,P2,P3,P4
 
-    def plot_state_init(self):
-          
-        x = self.anim_x[0]
-        self.ax = plt.gca()
-        
-        # ground
-        aa = 2*np.pi*np.array(range(201))/200.0
-        self.ax.plot(2*np.sin(aa),np.zeros(201),'k:',linewidth=2)
-        
-        # get geometries
-        R,P1,P2,P3,P4 = self.compute_geom(x)        
-        
-        # plot
-        self.c1p, = self.ax.plot(P1[0],P1[2],'r',linewidth=2)
-        self.c2p, = self.ax.plot(P2[0],P2[2],'r',linewidth=2)
-        self.c3p, = self.ax.plot(P3[0],P3[2],'b',linewidth=2)
-        self.c4p, = self.ax.plot(P4[0],P4[2],'b',linewidth=2)
-        self.ax.axis('equal')
-        self.ax.axis([-2.0,2.0,-0.5,1.5])
-        return self.ax,
-        
-    def plot_state(self,t):
-        
-        print 'Frame ' + str(t) + ': ' + str(self.anim_x[t])
-        x = self.anim_x[t]
-        R,P1,P2,P3,P4 = self.compute_geom(x)
-        self.c1p.set_data(P1[0],P1[2])
-        self.c2p.set_data(P2[0],P2[2])
-        self.c3p.set_data(P3[0],P3[2])
-        self.c4p.set_data(P4[0],P4[2])
-        return self.ax,
-        
-    def plot_state_seq(self,x):
-
-        self.anim_x = x
-        plt.clf()
-        anim = animation.FuncAnimation(plt.figure(1),self.plot_state,frames=len(x),interval=100,blit=False,init_func=self.plot_state_init,repeat=False)
-        anim._start()
+class Unicycle(UnicycleBase,DynamicalSystem):
+    pass
+class UnicycleMM(UnicycleBase,MixtureDS):
+    pass

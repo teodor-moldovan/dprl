@@ -243,40 +243,11 @@ class LinearFeedbackPolicy:
         #    print self.us[t],self.K[t],self.xs[t],x
         return self.us[t]+self.K[t].dot(x-self.xs[t])
 
-class DSbase:
-    def initialize_state(self):
-        self.state = self.initial_state() + 0.0
-    def initial_state(self):
-        return np.zeros(self.nx)
-
-    def initialize_target(self, target_expr):
-        """ hack """
-        
-        self.target = np.zeros(self.nx)
-        self.c_ignore = self.target == 0
-
-        v,k = zip(*tuple(enumerate(self.symbols[self.nx:])))
-        dct = dict(zip(k,v))
-        
-        ind, val  = [],[]
-        for e in target_expr:
-            s = tuple(e.free_symbols)[0]
-            ind.append(dct[s])
-            val.append(-e+s)
-
-        self.target[ind] = val
-        self.c_ignore[ind] = False 
-
-        if not self.optimize_var is None:
-            self.c_ignore[self.optimize_var] = True
-
-
-class DynamicalSystem(DSbase):
+class DynamicalSystem:
     init_u_var,H,dt, log_h_init,noise = 1e-1, 100, 0.01, -1.0,0
     cost_type = "quad_cost"
     squashing_function, optimize_var = None, None
     fixed_horizon= False
-    integrator, differentiator = ExplicitRK(), NumDiff(1e-6,1)
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
 
@@ -284,7 +255,6 @@ class DynamicalSystem(DSbase):
 
         self.symbols = tuple(dct['symbols'])
         self.exprs = tuple(dct['dyn']())
-        self.cost = dct[self.cost_type]()
         target_expr = tuple(dct['state_target']())
 
         try:
@@ -366,21 +336,6 @@ class DynamicalSystem(DSbase):
 
         return fn1,fn2,fn3,fn4
 
-    def codegen_cost(self,*args):
-        return self.__codegen_cost(*args)
-
-    @staticmethod
-    @memoize_to_disk
-    def __codegen_cost(cost,syms):
-
-        exprs = (cost, ) 
-        exprs += tuple((sympy.diff(cost, s) for s in syms))
-        exprs += tuple((sympy.diff(sympy.diff(cost, s),s_ )
-                    for s in syms for s_ in syms))
-
-        return codegen_cse(exprs, syms)
-
-
     def codegen(self, feat, squashing_function):
 
         nx = self.nx
@@ -392,47 +347,12 @@ class DynamicalSystem(DSbase):
         fn1,fn2,fn3,fn4  = self.__codegen(
                 feat, self.symbols,self.nx,self.nf,self.nfa)
 
-        fc = self.__codegen_cost(self.cost,self.symbols[self.nx:])
 
         # compile cuda code
         self.k_features = rowwise(fn1,'features')
         self.k_features_jacobian = rowwise(fn2,'features_jacobian')
         self.k_features_mass = rowwise(fn3,'features_mass')
         self.k_features_force = rowwise(fn4,'features_force')
-        self.k_cost = rowwise(fc,'cost')
-
-
-    @staticmethod
-    @memoize
-    def __cost_buffer(l,n):
-        y = array((l,n))
-        y.fill(0.0)
-        return y 
-
-    def get_cost(self,x,u):
-        nx,nu = self.nx, self.nu
-        k = x.shape[0]
-
-        z = array((k,nx+nu))
-        o = self.__cost_buffer(k,1+(nx+nu)+ (nx+nu)*(nx+nu) )
-        ufunc('a=b')(z[:,:nx],to_gpu(x))
-        ufunc('a=b')(z[:,nx:],to_gpu(u)) 
-
-        self.k_cost(z,o)
-        
-        o = o.get()
-        l = o[:,0]
-        j = o[:,1:1+nx+nu]
-        h = o[:,1+nx+nu:].reshape(-1,nx+nu,nx+nu)
-        
-        lx = j[:,:nx][:,:,np.newaxis]
-        lu = j[:,nx:][:,:,np.newaxis]
-        
-        lxx = h[:,:nx,:nx]
-        luu = h[:,-nu:,-nu:]
-        lux = h[:,-nu:,:nx]
-        
-        return l,lx,lu,lxx,luu,lux
 
 
     @staticmethod
@@ -557,105 +477,6 @@ class DynamicalSystem(DSbase):
         dx.shape = (l,nx)
 
         return dx
-
-    def integrate(self,*args):
-        
-        nx,nu = self.nx, self.nu
-        l = args[0].shape[0]
-
-        if len(args)==2:
-            x,u = args
-        if len(args)==1:
-            z = args[0]
-            x = array((l,nx))
-            u = array((l,nu))
-            ufunc('a=b')(x,z[:,:nx])
-            ufunc('a=b')(u,z[:,nx:])
-
-        fnc = lambda x_,t : self.explf(x_,u)
-        delta_x =  self.integrator.integrate(fnc,x, self.dt)
-        return delta_x
-
-    def discrete_time_linearization(self,*args):
-        nx,nu = self.nx, self.nu
-        l = args[0].shape[0]
-
-        if len(args)==2:
-            x,u = args
-            z = array((l,nx+nu))
-            ufunc('a=b')(z[:,:nx],to_gpu(x))
-            ufunc('a=b')(z[:,nx:],to_gpu(u))
-        if len(args)==1:
-            z = to_gpu(args[0])
-        
-        r =  self.differentiator.diff(self.integrate, z)
-        r = r.get()
-        
-        A = np.swapaxes(r[:,:nx,:],1,2) + np.eye(nx)[np.newaxis,:,:]
-        B = np.swapaxes(r[:,nx:,:],1,2)
-
-        return A,B
-        
-    def discrete_time_rollout(self,policy,x0,T):
-                
-        # allocate space for states and actions
-        x = np.zeros((T,self.nx))
-        u = np.zeros((T,self.nu))
-        x[0] = x0
-
-        gx = array((1,self.nx))
-        gu = array((1,self.nu))
-        
-        # run simulation
-        for t in range(T):
-            # compute policy action
-            u[t] = policy.discu(t,x[t])
-            
-            # download state and action to GPU
-            gx.set(x[t].reshape(1,self.nx))
-            gu.set(u[t].reshape(1,self.nu))
-            
-            # take step
-            dx = self.integrate(gx,gu)
-            
-            # compute next state
-            if t < T-1:
-                x[t+1] = x[t] + dx.get()
-        
-        # return result
-        return x,u
-        
-    def discrete_time_rollout_quasiphysical(self,policy,x0,T):
-        # this variant of the rollout function works with a policy that returns non-physical
-        # actions that get added directly to state, producing a quasi-physical simulation
-                
-        # allocate space for states and actions
-        x = np.zeros((T,self.nx))
-        u = np.zeros((T,self.nu+self.nx))
-        x[0] = x0
-
-        gx = array((1,self.nx))
-        gu = array((1,self.nu))
-        
-        # run simulation
-        for t in range(T):
-            # compute policy action
-            # note that the quasi-physical policy returns a vector of size nx+nu
-            u[t] = policy.discu(t,x[t])
-            
-            # download state and action to GPU
-            gx.set(x[t].reshape(1,self.nx))
-            gu.set(u[t,:self.nu].reshape(1,self.nu))
-            
-            # take step
-            dx = self.integrate(gx,gu)
-            
-            # compute next state
-            if t < T-1:
-                x[t+1] = x[t] + dx.get() + u[t,self.nu:]
-        
-        # return result
-        return x,u
 
     def step(self, policy, n = 1):
 
@@ -794,8 +615,37 @@ class DynamicalSystem(DSbase):
     def dstate2str(self,s):
         return self.__symvals2str(s,self.symbols[:self.nx])
 
+    def initialize_state(self):
+        self.state = self.initial_state() + 0.0
+    def initial_state(self):
+        return np.zeros(self.nx)
+
+    def initialize_target(self, target_expr):
+        """ hack """
+        
+        self.target = np.zeros(self.nx)
+        self.c_ignore = self.target == 0
+
+        v,k = zip(*tuple(enumerate(self.symbols[self.nx:])))
+        dct = dict(zip(k,v))
+        
+        ind, val  = [],[]
+        for e in target_expr:
+            s = tuple(e.free_symbols)[0]
+            ind.append(dct[s])
+            val.append(-e+s)
+
+        self.target[ind] = val
+        self.c_ignore[ind] = False 
+
+        if not self.optimize_var is None:
+            self.c_ignore[self.optimize_var] = True
+
+
+    def reset_if_need_be(self):
+        pass
 # experimental below
-class DynamicalSystemQ(DynamicalSystem):
+class CostsDS(DynamicalSystem):
     optimize_var = -1
     log_h_init = 0
     fixed_horizon = True
@@ -813,13 +663,6 @@ class DynamicalSystemQ(DynamicalSystem):
         exprs = tuple(dct['dyn']())
         costf = dct['cost']()
         target_expr = tuple(dct['state_target']())
-        self.cost = costf
-
-        try:
-            geom = tuple(dct['geometry']())
-        except:
-            geom = None
-
 
         nx = len(exprs)
         nu = len(sym) - 2*nx
@@ -834,11 +677,6 @@ class DynamicalSystemQ(DynamicalSystem):
         sym = sym[:nx] + (dcost,) + sym[nx:2*nx] + (cost,) + sym[2*nx:]
 
         self.symbols = sym
-
-        if not geom is None:
-            self.ng = len(geom)
-            f = codegen_cse(geom, self.symbols[self.nx:-self.nu])
-            self.k_geometry = rowwise(f,'geometry')
 
         ft, weights, nfa, nf = self.extract_features(exprs,sym,nx)
         
@@ -862,30 +700,29 @@ class DynamicalSystemQ(DynamicalSystem):
 
         self.initialize_state()
         self.initialize_target(target_expr)
-        self.c_ignore[0]=True
         self.t = 0
         
         self.log_file  = 'out/'+ str(self.__class__)+'_log.pkl'
 
 class MixtureDS(DynamicalSystem):
     log_h_init = -1.0
-    differentiator = NumDiff(1e-6,3)
     max_clusters = 100
     fixed_horizon = False
     optimize_var = None
-    model_slack_scale = 1.0
+    differentiator = NumDiff(1e-7,3)
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
         dct = self.symbolics()
 
         self.symbols = tuple(dct['symbols'])
         self.features = tuple(dct['dpmm_features']())
-        self.cost = dct[self.cost_type]()
+        self.dyn = dct['dyn']()
 
-        self.nx = len(dct['dyn']())
-        self.nu = len(self.symbols) - 2*self.nx + self.nx/2
+        self.nx  = len(self.dyn)
+        self.nu  = len(self.symbols) - 2*self.nx
 
         self.codegen()
+        self.nu  += self.nfa
 
         self.initialize_state()
         self.initialize_target(dct['state_target']())
@@ -907,72 +744,41 @@ class MixtureDS(DynamicalSystem):
         features = tuple(f1) + tuple(f2)
 
         self.nfa = len(f1)
-        self.nf = len(f1) + len(f2)
-        
-        fc = self.codegen_cost(self.cost,self.symbols[self.nx:])
-        self.k_cost = rowwise(fc,'cost')
+        self.nf  = len(f1) + len(f2)
 
         fn1 = codegen_cse(features, self.symbols)
+        dyn = codegen_cse(self.dyn[self.nfa:], self.symbols)
+
         self.k_features = rowwise(fn1,'features')
-        
+        self.k_dyn = rowwise(dyn,'dynamics')
 
     def implf(self,z):
 
         fz = array((z.shape[0], self.nf))
         fx = array((z.shape[0], self.nf-self.nfa))
         fy = array((z.shape[0], self.nfa))
-        xi = array((z.shape[0], self.nx/2))
+        st = array((z.shape[0], self.nx - self.nfa))
+        xi = array((z.shape[0], self.nfa))
+
         self.k_features(z,fz)
+        self.k_dyn(z,st)
         
         ufunc('a=b')(fx,fz[:,self.nfa:])
         ufunc('a=b')(fy,fz[:,:self.nfa])
-        ufunc('a=b')(xi, z[:,-self.nx/2:])
+        ufunc('a=b')(xi, z[:,-self.nfa:])
         cls = self.dpmm.smooth(fx)        
 
         mm =  cls.mean_plus_stdev(xi)
 
+        nfa = self.nfa
         nx = self.nx
+
         rs = array((z.shape[0], nx))
-        ufunc('a=b-c')(rs[:,:nx/2],fy, mm)
-        ufunc('a=b-c')(rs[:,nx/2:nx], z[:,nx/2:nx], z[:,nx:(nx+nx/2)] )
+        ufunc('a=b-c')(rs[:,:nfa],fy, mm)
+        ufunc('a=b')(rs[:,nfa:nx], st )
         
         return rs
         
-    def explf(self,*args):
-        nx,nu,nf,nfa = self.nx, self.nu, self.nf, self.nfa
-        l = args[0].shape[0]
-
-        if len(args)==2:
-            x,u = args
-            z = array((l,nx+nu))
-            ufunc('a=b')(z[:,:nx],x)
-            ufunc('a=b')(z[:,nx:],u)
-        if len(args)==1:
-            z = args[0]
-
-        fz = array((z.shape[0], self.nf))
-        fx = array((z.shape[0], self.nf-self.nfa))
-        fy = array((z.shape[0], self.nfa))
-        xi = array((z.shape[0], self.nx/2))
-        self.k_features(z,fz)
-        
-        ufunc('a=b')(fx,fz[:,self.nfa:])
-        ufunc('a=b')(fy,fz[:,:self.nfa])
-        ufunc('a=b')(xi, z[:,-self.nx/2:])
-        cls = self.dpmm.smooth(fx)        
-
-        mm =  cls.mean_plus_stdev(xi)
-
-        nx = self.nx
-        rs = array((z.shape[0], nx))
-        ufunc('a=c')(rs[:,:nx/2], mm)
-        ufunc('a=c')(rs[:,nx/2:nx], z[:,nx:(nx+nx/2)] )
-        
-        return rs
-        
-    def explf_jac(self,z):
-        return self.differentiator.diff(self.explf, z)
-
     def implf_jac(self,z):
         return self.differentiator.diff(self.implf, z)
 
@@ -984,6 +790,54 @@ class MixtureDS(DynamicalSystem):
         feat = array((trj.shape[0], self.nf))
         self.k_features(trj,feat)
         self.dpmm.update(feat)
+
+class MixtureCostsDS(MixtureDS):
+    optimize_var = -1
+    log_h_init = 0
+    fixed_horizon = True
+    def initialize_state(self):
+        self.nx -=1
+        self.state = np.append(self.initial_state() + 0.0,0)
+        self.nx +=1
+
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+        dct = self.symbolics()
+
+        sym = tuple(dct['symbols'])
+        self.features = tuple(dct['dpmm_features']())
+        costf = dct['cost']()
+        dyn = dct['dyn']()
+        target_expr = tuple(dct['state_target']())
+
+        nx = len(dyn)
+        nu = len(sym) - 2*nx
+
+        self.nx = nx+1
+        self.nu = nu
+
+        cost, dcost = sympy.symbols('cost, dcost')
+
+        target_expr =  target_expr + (cost,)
+        
+        sym = sym[:nx] + (dcost,) + sym[nx:2*nx] + (cost,) + sym[2*nx:]
+
+        self.dyn = dyn + (-dcost + costf, )
+        self.symbols = sym
+
+        self.codegen()
+        self.nu  += self.nfa
+
+        self.initialize_state()
+        self.initialize_target(target_expr)
+        self.t = 0
+        
+        c = clustering
+        p,k  = self.nf, self.max_clusters
+        self.dpmm = c.BatchVDP(c.Mixture(c.SBP(k), c.NIW(p, k)))
+
+        self.model_slack_bounds = 0
+
 
 class GPMcompact():
     """ Gauss Pseudospectral Method
@@ -1638,7 +1492,7 @@ class SlpNlp():
         return ret
         
         
-    def iterate(self,z,n_iters=100000):
+    def iterate(self,z,n_iters=10000):
 
         # todo: implement eq 3.1 from here:
         # http://www.caam.rice.edu/~zhang/caam554/pdf/cgsurvey.pdf
@@ -1646,10 +1500,11 @@ class SlpNlp():
         cost = float('inf')
         old_cost = cost
 
-        al = (  np.concatenate(([0],np.exp(np.linspace(-8,0,10)),
-                    -np.exp(np.linspace(-8,0,10)), ))
-                ,
-                np.concatenate(([0],np.exp(np.linspace(-8,0,40)),))
+        al = (  
+                #np.concatenate(([0],np.exp(np.linspace(-5,0,1)),
+                #    -np.exp(np.linspace(-5,0,1)), )),
+                np.array([0]),
+                np.concatenate(([0],np.exp(np.linspace(-8,0,20)),))
             )
         
 
@@ -1680,7 +1535,7 @@ class SlpNlp():
             hi = z[self.nlp.iv_h]
             print ('{:9.5f} '*(2+len(grid))).format(hi, cost, *grid) + ret
 
-            if np.abs(old_cost - cost)<1e-5:
+            if np.abs(old_cost - cost)<1e-4:
                 break
             old_cost = cost
             

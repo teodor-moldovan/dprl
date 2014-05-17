@@ -210,7 +210,7 @@ def regression(basename = './out/regression_%s.pdf', l=100,k=80, sg = .01):
 
 def plot_log(name, inds, labels):
     
-    fname = 'out/'+name.lower()+'.'+name+'_bck.pkl'
+    fname = 'out/'+name+'_log.pkl'
     fout = 'out/'+name+'_log.pdf'
     f = open(fname) 
     trjs = []
@@ -500,6 +500,6 @@ def animate_unicycle():
 #plot_log('CartPole', [2,3], ['Angle (radians)', 'Location (m) '])
 #plot_log('Pendulum', [1], ['Angle (radians)'])
 #plot_heli()
-#plot_log('DoublePendulum', [2,3], ['Inner pendulum angle (radians)','Outer pendulum angle (radians)'])
-animate_swimmer()
-#animate_unicycle()
+#plot_log('doublependulum.DoublePendulumQ', [2,3], ['Inner pendulum angle (radians)','Outer pendulum angle (radians)'])
+#animate_swimmer()
+animate_unicycle()

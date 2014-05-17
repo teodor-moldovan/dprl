@@ -88,6 +88,9 @@ class CartPoleMM(CartPoleBase,MixtureDS):
     pass
 class CartPole(CartPoleBase,DynamicalSystem):
     pass
-class CartPoleQ(CartPoleBase,DynamicalSystemQ):
+class CartPoleQ(CartPoleBase,CostsDS):
+    pass
+    
+class CartPoleMMQ(CartPoleBase,MixtureCostsDS):
     pass
     

@@ -42,9 +42,8 @@ class DoublePendulumBase:
 
         def state_target():
             return (w1,w2,t1,t2)
-        def quad_cost():
-            # this is just a placeholder
-            return 0*w1
+        def cost():
+            return .5*( t1**2 + t2**2 + 1e-2*(u1**2 + u2**2) )
 
         return locals()
 
@@ -52,3 +51,10 @@ class DoublePendulumMM(DoublePendulumBase,MixtureDS):
     pass
 class DoublePendulum(DoublePendulumBase,DynamicalSystem):
     pass
+
+class DoublePendulumQ(DoublePendulumBase,CostsDS):
+    pass
+    
+class DoublePendulumMMQ(DoublePendulumBase,MixtureCostsDS):
+    pass
+    

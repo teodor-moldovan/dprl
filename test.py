@@ -1490,6 +1490,7 @@ class TestsDynamicalSystem(unittest.TestCase):
 
         env = self.DS()
         ds = self.DSMM()
+        np.random.seed(2)
 
         l,nx,nu = 1000, ds.nx, ds.nu
         n = 2*nx+nu
@@ -1506,45 +1507,8 @@ class TestsDynamicalSystem(unittest.TestCase):
 
         ds.update(trj)
         
-        
-        ds.explf(zt)
         ds.implf(zt)
 
-
-    def test_mm_discrete_time(self):
-
-        env = self.DS()
-        ds = self.DSMM(cost_type = 'quad_cost', squashing_function = sympy.tanh)
-
-        l,nx,nu = 1000, ds.nx, ds.nu
-        n = 2*nx+nu
-        zn = 3+10*np.random.normal(size=l*n).reshape(l,n)
-        z = to_gpu(zn)
-        
-        x,u = zn[:,ds.nx:2*ds.nx],zn[:,2*ds.nx:]
-        a = env.explf(to_gpu(x),to_gpu(u)).get()
-        
-        a += 1e-3*np.random.normal(size=a.size).reshape(a.shape)
-        trj =  (None,a,x,u)
-
-        zt = to_gpu(np.hstack((a,x,u)))
-
-        ds.update(trj)
-        
-        np.random.seed(3)
-        zn = np.random.random(l*n).reshape(l,n)
-
-        x,u = zn[:,ds.nx:-ds.nu],zn[:,-ds.nu:]
-
-        r = ds.integrate(to_gpu(x),to_gpu(u))
-        A,B = ds.discrete_time_linearization(x,u)
-        
-        t = tic()
-        A,B = ds.discrete_time_linearization(x,u)
-        toc(t)
-        
-        ds.get_cost(x,u)
-        
 
     def test_mm_learning(self):
 
@@ -1567,6 +1531,7 @@ class TestsDynamicalSystem(unittest.TestCase):
             cnt = 0
             while True:
 
+                env.reset_if_need_be()
                 env.print_state()
                 ds.state = env.state.copy()
 
@@ -1574,7 +1539,7 @@ class TestsDynamicalSystem(unittest.TestCase):
                 
                 dst = np.nansum( 
                     ((ds.state - ds.target)**2)[np.logical_not(ds.c_ignore)])
-                if pi.max_h < .1 or dst < 1e-5:
+                if pi.max_h < .1 or dst < 1e-4:
                     cnt += 1
                 if cnt>20:
                     break
@@ -1619,8 +1584,11 @@ class TestsDynamicalSystem(unittest.TestCase):
 
 
 
-class TestsCartpole(TestsDynamicalSystem):
+class TestsCartpoleCost(TestsDynamicalSystem):
     from cartpole import CartPoleQ as DS
+    from cartpole import CartPoleMMQ as DSMM
+class TestsCartpole(TestsDynamicalSystem):
+    from cartpole import CartPole as DS
     from cartpole import CartPoleMM as DSMM
 class TestsPendulum(TestsDynamicalSystem):
     from pendulum import Pendulum as DS
@@ -1628,6 +1596,9 @@ class TestsPendulum(TestsDynamicalSystem):
 class TestsDoublePendulum(TestsDynamicalSystem):
     from doublependulum import DoublePendulum as DS
     from doublependulum import DoublePendulumMM as DSMM
+class TestsDoublePendulumCost(TestsDynamicalSystem):
+    from doublependulum import DoublePendulumQ as DS
+    from doublependulum import DoublePendulumMMQ as DSMM
 class TestsCartDoublePole(TestsDynamicalSystem):
     from cart2pole import CartDoublePole as DS
     def test_pp_iter(self):
@@ -1668,6 +1639,7 @@ class TestsPendubot(TestsDynamicalSystem):
 
 class TestsUnicycle(TestsDynamicalSystem):
     from unicycle import Unicycle as DS
+    from unicycle import UnicycleMM as DSMM
     def test_cca(self):
         ds = Unicycle()
         np.random.seed(10)
