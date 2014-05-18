@@ -1590,6 +1590,39 @@ class TestsCartpoleCost(TestsDynamicalSystem):
 class TestsCartpole(TestsDynamicalSystem):
     from cartpole import CartPole as DS
     from cartpole import CartPoleMM as DSMM
+class TestsHeli(TestsDynamicalSystem):
+    from heli import Heli as DS
+
+    def test_accs(self):
+        
+        from heli import HeliOld 
+        ho = HeliOld()
+
+        ds = self.DS()
+
+        np.random.seed(6)
+        x = 0*2*np.pi*2*(np.random.random(ds.nx)-0.5)
+        u = 0*2*(np.random.random(ds.nu)-0.50)
+
+        print
+        print 'state: '
+        print ds.state2str(x)
+        print 
+        print 'controls: '
+        print  ds.control2str(u)
+        r = ds.explf(to_gpu(x[np.newaxis,:]),to_gpu(u[np.newaxis,:])).get()[0]
+        print 
+        print 'state derivative: '
+        print  ds.dstate2str(r)
+
+        dx_ = array((1, r.size))
+        ho.k_f(to_gpu(x[np.newaxis,:]),to_gpu(u[np.newaxis,:]), dx_)
+        dx_ = dx_.get()[0]
+
+        print 
+        print 'state derivative (old code): '
+        print  ds.dstate2str(dx_)
+        
 class TestsPendulum(TestsDynamicalSystem):
     from pendulum import Pendulum as DS
     from pendulum import PendulumMM as DSMM
