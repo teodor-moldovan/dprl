@@ -1,5 +1,5 @@
 import matplotlib as mpl
-#mpl.use('Agg')
+mpl.use('Agg')
 from pylab import *
 from mpl_toolkits.mplot3d.axes3d import Axes3D
 from mpl_toolkits.mplot3d import proj3d
@@ -417,7 +417,8 @@ def animate_unicycle():
         
     trj = np.vstack([np.hstack((trj[0][:], trj[2])) for trj in trjs])
     trj = trj[trj[:,0]<time_limit,:]
-
+        
+    print "Number of successful trials: ", sum(trj[:,0]==trj[0,0])-1
     from unicycle import Unicycle as DS 
     ds = DS()
     ts = trj[:,0]
@@ -490,10 +491,10 @@ def animate_unicycle():
                         interval=h, blit=True)
 
 
-    #anim.save('out/unicycle.mp4', writer='avconv', 
-    #        extra_args=['-vcodec', 'libx264'])
+    anim.save('out/unicycle.mp4', writer='avconv', 
+            extra_args=['-vcodec', 'libx264'])
 
-    plt.show()
+    #plt.show()
         
 #regression()
 #subspace()

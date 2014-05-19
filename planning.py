@@ -195,6 +195,16 @@ class ZeroPolicy:
         return self.zr
     max_h = float('inf')
 
+class RandomPolicy:
+    def __init__(self,n,h=1.0, dt=.01, umax = .1):
+        self.zr = np.zeros(n)
+        self.max_h = h
+        self.ts = np.linspace(0,h,int(h/dt))
+        self.us = umax*np.random.random((int(h/dt),n)).T
+    def u(self,t,x):
+        u =  np.array(map(lambda s : np.interp(t, self.ts, s), self.us))
+        return u
+
 class CollocationPolicy:
     def __init__(self,collocator,us,max_h):
         self.col = collocator
@@ -248,6 +258,7 @@ class DynamicalSystem:
     cost_type = "quad_cost"
     squashing_function, optimize_var = None, None
     fixed_horizon= False
+    collocation_points = 35
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
 
@@ -328,7 +339,7 @@ class DynamicalSystem:
         m_inds = [s*nf + f  for s in range(nx) for f in range(nfa)]
         msym = [jac[i] for i in m_inds]
         gsym = features[nfa:]
-
+        
         fn1 = codegen_cse(features, symbols)
         fn2 = codegen_cse(jac, symbols)
         fn3 = codegen_cse(msym, symbols[nx:])
@@ -709,7 +720,8 @@ class MixtureDS(DynamicalSystem):
     max_clusters = 100
     fixed_horizon = False
     optimize_var = None
-    differentiator = NumDiff(1e-7,3)
+    differentiator = NumDiff(1e-6,2)
+    prior_weight = .1
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
         dct = self.symbolics()
@@ -730,7 +742,8 @@ class MixtureDS(DynamicalSystem):
         
         c = clustering
         p,k  = self.nf, self.max_clusters
-        self.dpmm = c.BatchVDP(c.Mixture(c.SBP(k), c.NIW(p, k)))
+        self.dpmm = c.BatchVDP(c.Mixture(c.SBP(k), c.NIW(p, k)),
+                    w = self.prior_weight)
 
         self.model_slack_bounds = 0
 
@@ -994,7 +1007,7 @@ class GPMcompact():
             bl[self.iv_h] = hi
             bu[self.iv_h] = hi
         else:
-            bu[self.iv_h] = 10
+            #bu[self.iv_h] = 10
             bl[self.iv_h] = .01
 
 
@@ -1143,6 +1156,16 @@ class GPMcompact():
         s = (z[i] - z0)/ max(coefs[-1], 1e-7)
 
         return  c[i], z[i], s, coefs
+
+    def line_search(self,z0,dz,al):
+
+        z = z0[np.newaxis,:] + al[:,np.newaxis]*dz[np.newaxis,:]
+        
+        z = self.feas_proj(z)
+        a = self.obj_cost()
+        b = self.obj_feas()
+        
+        return np.dot(z[:,:self.nv],a), np.dot(z[:,:self.nv],b)
 
     def get_policy(self,z):
         try:
@@ -1492,7 +1515,7 @@ class SlpNlp():
         return ret
         
         
-    def iterate(self,z,n_iters=10000):
+    def iterate(self,z,n_iters=100000):
 
         # todo: implement eq 3.1 from here:
         # http://www.caam.rice.edu/~zhang/caam554/pdf/cgsurvey.pdf
@@ -1501,9 +1524,9 @@ class SlpNlp():
         old_cost = cost
 
         al = (  
-                #np.concatenate(([0],np.exp(np.linspace(-5,0,1)),
-                #    -np.exp(np.linspace(-5,0,1)), )),
-                np.array([0]),
+                np.concatenate(([0],np.exp(np.linspace(-5,0,4)),
+                    -np.exp(np.linspace(-5,0,4)), )),
+                #np.array([0]),
                 np.concatenate(([0],np.exp(np.linspace(-8,0,20)),))
             )
         
@@ -1516,23 +1539,44 @@ class SlpNlp():
 
             self.nlp.no_slack = True
             ret = self.solve_task(z)
-            if not ret == True:
+            if not ret:
                 ret = "Second solve"
                 self.nlp.no_slack = False
-                self.solve_task(z)
+                ret2 = self.solve_task(z)
             else:
+                ret2 = True
                 ret = ""
 
-            ret_x = self.nlp.post_proc(self.ret_x)
+            if not ret2:
+                ret = "Second solve failed"
+                ret_x = self.nlp.post_proc(np.zeros(self.ret_x.shape))
+            else:
+                ret_x = self.nlp.post_proc(self.ret_x)
 
             dz[:-1] = dz[1:]
             dz[-1] = ret_x
             
             # line search
+
+            #dz = ret_x
+            #al = np.concatenate(([0],np.exp(np.linspace(-10,0,50)),))
+            #a,b = self.nlp.line_search(z,dz,al)
+            
+            # find first local minimum
+            #ae = np.concatenate(([float('inf')],b,[float('inf')]))
+            #inds  = np.where(np.logical_and(b<=ae[2:],b<ae[:-2] ) )[0]
+            
+            #i = inds[0]
+            #cost = b[i]
+            #r = al[i]
+
             cost, z, s,  grid = self.nlp.grid_search(z,dz,al)
             dz[-1] = s
+            #z = z + r*dz
 
             hi = z[self.nlp.iv_h]
+            #print ('{:9.5f} '*(3)).format(hi, cost, r) + ret
+
             print ('{:9.5f} '*(2+len(grid))).format(hi, cost, *grid) + ret
 
             if np.abs(old_cost - cost)<1e-4:

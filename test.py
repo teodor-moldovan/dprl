@@ -1486,6 +1486,17 @@ class TestsDynamicalSystem(unittest.TestCase):
         A,B = ds.discrete_time_linearization(x,u)
         toc(t)
 
+    def test_forward(self):
+
+        env = self.DS()
+        np.random.seed(1)
+
+        for t in range(10000):
+            s = env.state
+            env.print_state()
+            trj = env.step(ZeroPolicy(env.nu),5)
+
+
     def test_mm(self):
 
         env = self.DS()
@@ -1514,26 +1525,26 @@ class TestsDynamicalSystem(unittest.TestCase):
 
         env = self.DS()
 
+        ds = self.DSMM()
+        pp = SlpNlp(GPMcompact(ds,ds.collocation_points))
+
         while True:
-            ds = self.DSMM()
-            pp = SlpNlp(GPMcompact(ds,35))
+            ds.dpmm.clear()
 
             env.initialize_state()
             env.t = 0
             env.dt = .01
-            env.noise = np.array([.01,0.0001,0.0001])
-
-            trj = env.step(ZeroPolicy(env.nu),2*ds.nf) 
-            ds.update(trj)
-            
             env.noise = np.array([.01,0.0,0.0])
 
+            trj = env.step(RandomPolicy(env.nu,umax=1.0),2*ds.nf) 
+            ds.update(trj)
+            
             cnt = 0
             while True:
 
                 env.reset_if_need_be()
                 env.print_state()
-                ds.state = env.state.copy()
+                ds.state = env.state.copy() +1e-5*np.random.normal(size=env.nx)
 
                 pi = pp.solve()
                 
@@ -1554,7 +1565,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         np.random.seed(3)
         ds = self.DS()
         
-        pp = SlpNlp(GPMcompact(ds,35))
+        pp = SlpNlp(GPMcompact(ds,ds.collocation_points))
         pi = pp.solve()
 
 
@@ -1564,7 +1575,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         ds = self.DS()
         
         np.random.seed(1)
-        pp = SlpNlp(GPMcompact(ds,35))
+        pp = SlpNlp(GPMcompact(ds,ds.collocation_points))
 
         for t in range(10000):
             s = env.state
@@ -1592,6 +1603,7 @@ class TestsCartpole(TestsDynamicalSystem):
     from cartpole import CartPoleMM as DSMM
 class TestsHeli(TestsDynamicalSystem):
     from heli import Heli as DS
+    from heli import HeliMM as DSMM
 
     def test_accs(self):
         
@@ -1601,8 +1613,8 @@ class TestsHeli(TestsDynamicalSystem):
         ds = self.DS()
 
         np.random.seed(6)
-        x = 0*2*np.pi*2*(np.random.random(ds.nx)-0.5)
-        u = 0*2*(np.random.random(ds.nu)-0.50)
+        x = 0*np.pi*2*(np.random.random(ds.nx)-0.5)
+        u = 2*(np.random.random(ds.nu)-0.50)
 
         print
         print 'state: '

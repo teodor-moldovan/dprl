@@ -2,8 +2,8 @@ from planning import *
 
 class UnicycleBase:
     """http://mlg.eng.cam.ac.uk/pub/pdf/Dei10.pdf"""
-    dt, H = .15, 60 
-    log_h_init = 0
+    #log_h_init = 0
+    collocation_points = 15
     def symbolics(self):
         symbols = sympy.var("""
             adtheta, adphi, adpsiw, adpsif, adpsit, 
@@ -97,7 +97,8 @@ class UnicycleBase:
         def dpmm_features():
             return (adtheta, adphi, adpsiw, adpsif, adpsit, 
                     #ax, ay, 
-                    dpsiw, dpsit, 
+                    dtheta,dpsif,
+                    #dpsiw, dpsit,dphi
                     #cos(phi), sin(phi),
                     #st,ct,  sf,cf,
                     theta, psif,
@@ -180,4 +181,5 @@ class UnicycleBase:
 class Unicycle(UnicycleBase,DynamicalSystem):
     pass
 class UnicycleMM(UnicycleBase,MixtureDS):
+    prior_weight = 10.0
     pass
