@@ -722,6 +722,7 @@ class MixtureDS(DynamicalSystem):
     optimize_var = None
     differentiator = NumDiff(1e-6,2)
     prior_weight = .1
+    add_virtual_controls = True
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
         dct = self.symbolics()
@@ -734,7 +735,8 @@ class MixtureDS(DynamicalSystem):
         self.nu  = len(self.symbols) - 2*self.nx
 
         self.codegen()
-        self.nu  += self.nfa
+        if self.add_virtual_controls:
+            self.nu  += self.nfa
 
         self.initialize_state()
         self.initialize_target(dct['state_target']())
@@ -771,17 +773,21 @@ class MixtureDS(DynamicalSystem):
         fx = array((z.shape[0], self.nf-self.nfa))
         fy = array((z.shape[0], self.nfa))
         st = array((z.shape[0], self.nx - self.nfa))
-        xi = array((z.shape[0], self.nfa))
 
         self.k_features(z,fz)
         self.k_dyn(z,st)
         
         ufunc('a=b')(fx,fz[:,self.nfa:])
         ufunc('a=b')(fy,fz[:,:self.nfa])
-        ufunc('a=b')(xi, z[:,-self.nfa:])
+
         cls = self.dpmm.smooth(fx)        
 
-        mm =  cls.mean_plus_stdev(xi)
+        if self.add_virtual_controls:
+            xi = array((z.shape[0], self.nfa))
+            ufunc('a=b')(xi, z[:,-self.nfa:])
+            mm =  cls.mean_plus_stdev(xi)
+        else:
+            mm =  cls.mu
 
         nfa = self.nfa
         nx = self.nx
@@ -1492,11 +1498,11 @@ class SlpNlp():
 
         task._Task__progress_cb=None
         task._Task__stream_cb=None
-        ret = True
+        ret = "done"
         if (solsta!=mosek.solsta.optimal 
                 and solsta!=mosek.solsta.near_optimal):
             ret = str(solsta)+", "+str(prosta)
-            #raise TypeError
+            #ret = False
 
         nv,nc = self.nlp.nv,self.nlp.nc
 
@@ -1538,20 +1544,18 @@ class SlpNlp():
             z = self.nlp.feas_proj(z)[0]
 
             self.nlp.no_slack = True
-            ret = self.solve_task(z)
-            if not ret:
-                ret = "Second solve"
+            
+            if self.solve_task(z) == 'done':
+                ret = ''
+            else:
                 self.nlp.no_slack = False
-                ret2 = self.solve_task(z)
-            else:
-                ret2 = True
-                ret = ""
-
-            if not ret2:
-                ret = "Second solve failed"
-                ret_x = self.nlp.post_proc(np.zeros(self.ret_x.shape))
-            else:
-                ret_x = self.nlp.post_proc(self.ret_x)
+                if self.solve_task(z) == "done":
+                    ret = "Second solve"
+                else:
+                    ret = "Second solve failed"
+                    self.ret_x *= 0
+                    
+            ret_x = self.nlp.post_proc(self.ret_x)
 
             dz[:-1] = dz[1:]
             dz[-1] = ret_x
@@ -1579,7 +1583,7 @@ class SlpNlp():
 
             print ('{:9.5f} '*(2+len(grid))).format(hi, cost, *grid) + ret
 
-            if np.abs(old_cost - cost)<1e-4:
+            if np.abs(old_cost - cost)<1e-5:
                 break
             old_cost = cost
             

@@ -208,10 +208,10 @@ def regression(basename = './out/regression_%s.pdf', l=100,k=80, sg = .01):
         pd.pop(0).remove()
         pa.pop(0).remove()
 
-def plot_log(name, inds, labels):
+def plot_log(name, inds=None, labels=None):
     
-    fname = 'out/'+name+'_log.pkl'
-    fout = 'out/'+name+'_log.pdf'
+    fname = 'out/'+name+'.pkl'
+    fout = fname + '.pdf'
     f = open(fname) 
     trjs = []
     
@@ -222,28 +222,28 @@ def plot_log(name, inds, labels):
             break
     f.close()
         
-    lg = np.vstack([np.hstack((trj[0][:], trj[2][:,inds])) for trj in trjs])
-    #lg[:,1] = -lg[:,1] + np.pi # hack for pendulum
+    lg = np.vstack([np.hstack((trj[0][:], trj[2][:])) for trj in trjs])
     s = [0,] + list(np.where(lg[1:,0] < lg[:-1,0])[0]+1) 
     e = s[1:] + [lg.shape[0],]
-    inds = zip(s,e)[:-1]
-
-    plts  = [ lg[s:e] for s,e in inds]
+    plts  = [ lg[s:e] for s,e in zip(s,e)[:-1]]
     
     ts = np.array([l[-1,0] for l in plts])
+    for t in ts:
+        print t
     print 'Mean: ', np.mean(ts)
     print 'Standard Deviation: ', np.std(ts)
     print 'Num Samples: ', len(ts)
-    
-    n  = lg.shape[1]-1
-    
+     
+    if inds is None:
+        return
+
     fig = plt.figure()
         
-    for i in range(n):
+    for i in inds:
         ax = fig.add_subplot(2,1,1+i)
 
         ax.set_ylabel(labels[i])
-        if i == n-1:
+        if i == inds[-1]:
             ax.set_xlabel('Time (s)')
         else:
             ax.set_xticklabels([])
@@ -256,7 +256,7 @@ def plot_log(name, inds, labels):
    
         
 
-def plot_heli():
+def plot_heli_old():
     base = '../../heli_data/'
 
     fout = 'out/heli_log.pdf'
@@ -498,9 +498,11 @@ def animate_unicycle():
         
 #regression()
 #subspace()
-#plot_log('CartPole', [2,3], ['Angle (radians)', 'Location (m) '])
-#plot_log('Pendulum', [1], ['Angle (radians)'])
-#plot_heli()
-#plot_log('doublependulum.DoublePendulumQ', [2,3], ['Inner pendulum angle (radians)','Outer pendulum angle (radians)'])
+#plot_log('cartpole.CartPole_log', [2,3], ['Angle (radians)', 'Location (m) '])
+#plot_log('pendulum.Pendulum_log', [1], ['Angle (radians)'])
+#plot_heli_old()
+#plot_log('doublependulum.DoublePendulum_log', [2,3], ['Inner pendulum angle (radians)','Outer pendulum angle (radians)'])
+plot_log('doublependulum.DoublePendulumQ_log', [2,3], ['Inner pendulum angle (radians)','Outer pendulum angle (radians)'])
 #animate_swimmer()
-animate_unicycle()
+#animate_unicycle()
+#plot_log('heli.Heli_log')

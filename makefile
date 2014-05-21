@@ -1,6 +1,6 @@
 all: ft
 
-CMD = python test.py TestsHeli.test_mm_learning
+CMD = python test.py TestsDoublePendulumCost.test_mm_learning
 plots:
 	python plots.py
 noft: 

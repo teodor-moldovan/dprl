@@ -59,6 +59,8 @@ class CartPoleBase:
 
 class CartPoleMM(CartPoleBase,MixtureDS):
     pass
+class CartPoleEMM(CartPoleBase,MixtureDS):
+    add_virtual_controls = False
 class CartPole(CartPoleBase,DynamicalSystem):
     pass
 class CartPoleQ(CartPoleBase,CostsDS):

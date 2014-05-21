@@ -3,7 +3,7 @@ from planning import *
 class UnicycleBase:
     """http://mlg.eng.cam.ac.uk/pub/pdf/Dei10.pdf"""
     #log_h_init = 0
-    collocation_points = 15
+    collocation_points = 25
     def symbolics(self):
         symbols = sympy.var("""
             adtheta, adphi, adpsiw, adpsif, adpsit, 
@@ -98,7 +98,7 @@ class UnicycleBase:
             return (adtheta, adphi, adpsiw, adpsif, adpsit, 
                     #ax, ay, 
                     dtheta,dpsif,
-                    #dpsiw, dpsit,dphi
+                    dpsiw, dpsit,dphi,
                     #cos(phi), sin(phi),
                     #st,ct,  sf,cf,
                     theta, psif,
@@ -181,5 +181,5 @@ class UnicycleBase:
 class Unicycle(UnicycleBase,DynamicalSystem):
     pass
 class UnicycleMM(UnicycleBase,MixtureDS):
-    prior_weight = 10.0
+    prior_weight = 1.0
     pass
