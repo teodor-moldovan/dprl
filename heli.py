@@ -1,6 +1,6 @@
 from planning import *
 import sympy
-from sympy import sin, cos, diag, sqrt
+from sympy import sin, cos, diag, sqrt, power
 from sympy import Matrix as mat
 from sympy.physics.mechanics import *
 
@@ -271,7 +271,7 @@ class AutorotationBase:
             # replace functions with free variables. 
             # Note that this should not be necessary in a proper setup
 
-            qnorm = sqrt(sum([q*q for q in state[6:10]]))
+            qnorm = power(sum([q*q for q in state[6:10]]), -.5)
             qns = tuple([q/qnorm for q in state[6:10]])
 
             sublist = zip( (wxd, wyd, wzd, vxd, vyd, vzd,

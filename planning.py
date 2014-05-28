@@ -360,7 +360,6 @@ class DynamicalSystem:
 
 
         # compile cuda code
-        print fn1
         self.k_features = rowwise(fn1,'features')
         self.k_features_jacobian = rowwise(fn2,'features_jacobian')
         self.k_features_mass = rowwise(fn3,'features_mass')
