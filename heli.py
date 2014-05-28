@@ -175,28 +175,27 @@ class HeliInvertedMM(HeliMM):
     inverted_hover = True
 
 class AutorotationBase:
-    log_h_init = 0
     collocation_points = 15
     def initial_state(self):
         state = np.zeros(self.nx)
-        state[8] += 1.0
-        state += .025*np.random.normal(size = self.nx)
+        state[6] = 1.0
+        state[:6] += .025*np.random.normal(size = self.nx)
         return state 
         
     def symbolics(self):
 
         dstate = sympy.var("""
                     dwx, dwy, dwz, dvx, dvy, dvz,
-                    drx, dry, drz,
+                    dqw, dqx, dqy, dqz,
                     dpx, dpy, dpz,
                     """)
         state = sympy.var("""
                     wx, wy, wz, vx, vy, vz,
-                    rx, ry, rz, 
+                    qw,qx,qy,qz,
                     px, py, pz,
                     """)
 
-        controls = ux,uy,uz, uc = sympy.symbols('ux,uy,uz,uc')
+        controls = ux,uy,uz,uc = sympy.symbols('ux,uy,uz,uc')
 
         symbols = dstate + state + controls
 
@@ -209,23 +208,19 @@ class AutorotationBase:
 
             (wx, wy, wz, vx, vy, vz,
             qw, qx, qy, qz,
-            px, py, pz,
-            rx,ry,rz, th) = dynamicsymbols("""
+            px, py, pz) = dynamicsymbols("""
                         wx, wy, wz, vx, vy, vz,
                         qw, qx, qy, qz,
                         px, py, pz,
-                        rx, ry, rz, th
                     """)
 
             (wxd, wyd, wzd, vxd, vyd, vzd,
             qwd, qxd, qyd, qzd, 
             pxd, pyd, pzd,
-            rxd, ryd, rzd, thd
              ) = dynamicsymbols("""
                         wx, wy, wz, vx, vy, vz,
                         qw,qx, qy, qz, 
                         px, py, pz,
-                        rx, ry, rz, th
                     """, 1)
 
             L = ReferenceFrame('LabFrame') 
@@ -270,42 +265,18 @@ class AutorotationBase:
                      + .5*wx*qy - .5*wy*qx + .5*wz*qw - qzd,
                      - .5*wx*qx - .5*wy*qy - .5*wz*qz - qwd
                     ]
-            #print mat(kr)+mat(k_)
-            #kr = k_
-            
+
             kr = kr[:-1]
             dyn = mat(list(dyn)+kt+kr)
-
-            # convert dynamics to axis-angle rotations
-
-            rt = sin(th/2.0)/th
-            q_  = mat(( cos(th/2.0), rx*rt, ry*rt, rz*rt ))
-            qd_ = mat([sympy.diff(i,sympy.symbols('t')) for i in q_])
-            th_  = sqrt(rx**2+ry**2+rz**2)
-            thd_ = (rx*rxd + ry*ryd + rz*rzd)/th
-
-            sublist = zip((qwd,qxd,qyd,qzd), qd_) + zip((qw,qx,qy,qz), q_)
-
-
-            dyn = dyn.expand()
-            dyn = dyn.subs(sublist)
-
-
-            dyn[-3:,:] = mat(dyn[-3:])* th**3
-            dyn[-6:-3,:] = mat(dyn[-6:-3])* th**2
-            dyn[3:6,:] = mat(dyn[3:6])* th**2
-            dyn = dyn.expand()
-            dyn = dyn.subs(((thd,thd_),)).expand()
-            dyn = dyn.subs(((th,th_),)).expand()
 
             # replace functions with free variables. 
             # Note that this should not be necessary in a proper setup
 
             sublist = zip( (wxd, wyd, wzd, vxd, vyd, vzd,
-                        rxd, ryd, rzd,
+                        qwd, qxd,qyd,qzd,
                         pxd, pyd, pzd,
                         wx, wy, wz, vx, vy, vz,
-                        rx, ry, rz,
+                        qw,qx,qy,qz,
                         px, py, pz,
                         ), 
                         dstate+state)
@@ -315,7 +286,7 @@ class AutorotationBase:
             return dyn
 
         def state_target():
-            return (wx, wy, wz, vx, vy, vz,rx, ry, rz-1.0)
+            return (wx, wy, wz, vx, vy, vz, qw-1.0, qx, qy, qz)
 
         def dpmm_features():
             return (dwx, dwy, dwz, dvx, dvy, dvz,rx, ry, rz,ux,uy,uz,uc)
