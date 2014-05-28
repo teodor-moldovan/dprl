@@ -266,7 +266,6 @@ class AutorotationBase:
                      - .5*wx*qx - .5*wy*qy - .5*wz*qz - qwd
                     ]
 
-            kr = kr[:-1]
             dyn = mat(list(dyn)+kt+kr)
 
             # replace functions with free variables. 
