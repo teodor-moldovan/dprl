@@ -273,7 +273,7 @@ class AutorotationBase:
 
             qnorm = sum([q*q for q in state[6:10]])
             qnorm = exp(-.5*log(qnorm))
-            qns = tuple([q/qnorm for q in state[6:10]])
+            qns = tuple([q*qnorm for q in state[6:10]])
 
             sublist = zip( (wxd, wyd, wzd, vxd, vyd, vzd,
                         qwd, qxd,qyd,qzd,
