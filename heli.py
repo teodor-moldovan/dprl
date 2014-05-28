@@ -175,7 +175,7 @@ class HeliInvertedMM(HeliMM):
     inverted_hover = True
 
 class AutorotationBase:
-    collocation_points = 15
+    collocation_points = 35
     def initial_state(self):
         state = np.zeros(self.nx)
         state[8] += 1.0
@@ -207,7 +207,7 @@ class AutorotationBase:
         Bx, C1, D1 = (-5.74, 0.02, -1.46)
         By, C2, D2 = (-5.32, -0.01, -0.23)
         Bz, C3 ,D3 = (-5.43, 0.02, 0.52)
-        D5, C5, E5, F5, G5 = (-0.23, -68.53, 22.79, 2.11, -6.10)
+        D5, C5, E5, F5, G5 = (106.85, -0.23, -68.53, 22.79, 2.11, -6.10)
         g = 9.81
 
         def dyn():
@@ -330,7 +330,7 @@ class AutorotationBase:
             return dyn
 
         def state_target():
-            return (wx, wy, wz, vx, vy, vz,rx, ry, rz-1.0)
+            return (wx, wy, wz, vx-8, vy, vz-5, rx, ry, rz-1.0, om-1150)
 
         def dpmm_features():
             return (dwx, dwy, dwz, dvx, dvy, dvz,rx, ry, rz,ux,uy,uz,uc)
