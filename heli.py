@@ -1,6 +1,7 @@
 from planning import *
 import sympy
-from sympy import sin, cos, diag, sqrt, power
+from sympy import sin, cos, diag
+from sympy.mpmath import power
 from sympy import Matrix as mat
 from sympy.physics.mechanics import *
 
