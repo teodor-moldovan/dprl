@@ -179,7 +179,7 @@ class AutorotationBase:
     def initial_state(self):
         state = np.zeros(self.nx)
         state[8] += 1.0
-        state[12] += 800
+        state[12] += 1200
         state += .025*np.random.normal(size = self.nx)
         return state 
         
@@ -335,11 +335,11 @@ class AutorotationBase:
             return (wx, wy, wz, vx-8, vz-5, om-1150,rx,ry,)
 
         def dpmm_features():
-            return (dwx, dwy, dwz, dvx, dvy, dvz,rx, ry, rz,ux,uy,uz,uc)
+            return (dwx, dwy, dwz, dvx, dvy, dvz,dom,rx, ry, rz,om, ux,uy,uz,uc)
 
         return locals()
 
 class Autorotation(AutorotationBase, DynamicalSystem):
     pass
 class AutorotationMM(AutorotationBase, MixtureDS):
-    pass
+    prior_weight = 10.0
