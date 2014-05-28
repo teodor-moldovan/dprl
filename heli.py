@@ -283,7 +283,8 @@ class AutorotationBase:
                         qw,qx,qy,qz,
                         px, py, pz,
                         ), 
-                        dstate+state[:6]+ qns + state[-3:])
+                        dstate+state)
+                        #dstate+state[:6]+ qns + state[-3:])
 
             dyn = dyn.subs(sublist)
 
