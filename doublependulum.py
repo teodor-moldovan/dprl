@@ -66,8 +66,10 @@ class DoublePendulum(DoublePendulumBase,DynamicalSystem):
     pass
 
 class DoublePendulumQ(DoublePendulumBase,CostsDS):
+    log_h_init = 0
     pass
     
 class DoublePendulumMMQ(DoublePendulumBase,MixtureCostsDS):
+    log_h_init = 0
     pass
     

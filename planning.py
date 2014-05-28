@@ -1583,7 +1583,7 @@ class SlpNlp():
 
             print ('{:9.5f} '*(2+len(grid))).format(hi, cost, *grid) + ret
 
-            if np.abs(old_cost - cost)<1e-5:
+            if np.abs(old_cost - cost)<1e-4:
                 break
             old_cost = cost
             

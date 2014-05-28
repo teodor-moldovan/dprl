@@ -799,7 +799,7 @@ class Mixture(object):
         clusters_ = self.clusters.conditional_mix(prob,x)
         return clusters_
 
-    smooth = smooth_joint
+    smooth = smooth_kl
 class StreamingNIW(object):
     def __init__(self,p):
         self.niw = NIW(p,1)        

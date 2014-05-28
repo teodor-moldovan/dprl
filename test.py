@@ -1610,6 +1610,9 @@ class TestsHeli(TestsDynamicalSystem):
 class TestsHeliInv(TestsDynamicalSystem):
     from heli import HeliInverted as DS
     from heli import HeliInvertedMM as DSMM
+class TestsAutorotation(TestsDynamicalSystem):
+    from heli import Autorotation as DS
+    from heli import AutorotationMM as DSMM
 class TestsPendulum(TestsDynamicalSystem):
     from pendulum import Pendulum as DS
     from pendulum import PendulumMM as DSMM

@@ -181,5 +181,5 @@ class UnicycleBase:
 class Unicycle(UnicycleBase,DynamicalSystem):
     pass
 class UnicycleMM(UnicycleBase,MixtureDS):
-    prior_weight = 1.0
+    prior_weight = 10.0
     pass
