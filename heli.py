@@ -179,7 +179,7 @@ class AutorotationBase:
     def initial_state(self):
         state = np.zeros(self.nx)
         state[8] += 1.0
-        state[12] += 1800
+        state[12] += 800
         state += .025*np.random.normal(size = self.nx)
         return state 
         
