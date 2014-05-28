@@ -7,4 +7,4 @@ plots:
 noft: 
 	$(CMD)
 ft:
-	faketime -f '-90d' $(CMD)
+	faketime -f '-110d' $(CMD)
