@@ -201,9 +201,13 @@ class AutorotationBase:
 
         symbols = dstate + state + controls
 
-        uw = (13.20, -9.21, 14.84, -27.5) 
-        fw = (-3.47, -3.06, -2.58, -.048, -.12, -.0005)
-        m, Ix,Iy,Iz = 1.0,1.0,1.0,1.0
+        #http://www.cs.berkeley.edu/~pabbeel/papers/AbbeelCoatesNg_IJRR2010.pdf
+        Ax,Ay = (-0.05, -0.06)
+        Az, C4, D4, E4 = (-1.42, -0.01, -0.47, -0.15)
+        Bx, C1, D1 = (-5.74, 0.02, -1.46)
+        By, C2, D2 = (-5.32, -0.01, -0.23)
+        Bz, C3 ,D3 = (-5.43, 0.02, 0.52)
+        D5, C5, E5, F5, G5 = (106.85, -0.23, -68.53, 22.79, 2.11, -6.10)
         g = 9.81
 
         def dyn():
@@ -254,12 +258,17 @@ class AutorotationBase:
                     [-wx,-wy,-wz], [qw, -qx,-qy,-qz], 'Quaternion')
             kt = [vlx-pxd, vly-pyd, vlz-pzd]
 
+            vlat = exp(.5*log(vx*vx + vy*vy))
+            omdyn = D5 + C5*om + E5 * u4 + F5 * vlat + G5*(ux*ux + uy*uy) - omd 
+
             BodyList = [
-                RigidBody('Helicopter', cm, H, m, (inertia(H,Ix,Iy,Iz), cm))]
-            ForceList = [ (cm, m*g*L.z), (cm, uw[3]*uc*H.z), 
-                          (H,  uw[0]*ux*H.x + uw[1]*uy*H.y + uw[2]*uz*H.z ) ,
-                          (cm, fw[3]*H.x*vx + fw[4]*H.y*vy + fw[5]*H.z*vz ),
-                          (H,  fw[0]*wx*H.x + fw[1]*wy*H.y + fw[2]*wz*H.z ), 
+                RigidBody('Heli', cm, H, 1.0, (inertia(H,1.0,1.0,1.0), cm))]
+
+            ForceList = [ (cm, g*L.z), 
+                          (cm, C4*uc*H.z*om + D4 + E4*vlat), 
+                          (H,  (C1*ux*H.x + C2*uy*H.y + C2*uz*H.z)*om ) ,
+                          (cm, Ax*H.x*vx + Ay*H.y*vy + Az*H.z*vz ),
+                          (H,  Bx*wx*H.x + By*wy*H.y + Bz*wz*H.z ), 
                             ]
 
             KM = KanesMethod(L, q_ind = [qw,qx,qy,qz,px,py,pz], 
@@ -278,7 +287,7 @@ class AutorotationBase:
             #kr = k_
             
             kr = kr[:-1]
-            dyn = mat(list(dyn)+kt+kr)
+            dyn = mat(list(dyn)+[omdyn,]+kt+kr)
 
             # convert dynamics to axis-angle rotations
 
