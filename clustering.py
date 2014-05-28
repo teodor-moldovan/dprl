@@ -512,6 +512,18 @@ class NIW(object):
     def __cond_mix_new_like_me(cls,p,l):
         return cls(p,l)
                 
+    @staticmethod
+    @memoize
+    def __conditional_mix_ws(k,l,px,py):
+        tau  = array((k,py+py*py+2))
+        f  = array((l, py+py*py+2, (px+px*px+2)))
+        g  = array((k, py+py*py+2, (px+px*px+2)))
+        pn_bar = array((k,l))
+        t1,t2 = array((l,py*py+1)), array((k,py*py+1))
+
+        return tau,f,g,pn_bar,t1,t2
+        
+
     @memoize_one
     def conditional_mix(self,prob,x):
         
@@ -523,15 +535,11 @@ class NIW(object):
         
         x = self.sufficient_statistics(x)
 
-        tau  = array((k,py+py*py+2))
-        
-        pn_bar = array((k,l))
+        tau,f,g,pn_bar,t1,t2 = self.__conditional_mix_ws(k,l,px,py)
+
         matrix_mult(x,fn.T,pn_bar)
         ufunc('a= n/(1 + a)*p')(pn_bar, self.n[None,:],prob)
         
-        f  = array((l, py+py*py+2, (px+px*px+2)))
-        g  = array((k, py+py*py+2, (px+px*px+2)))
-
         ufunc('a=b')(f[:,:py,:], fmu)
         ufunc('a=b')(f.no_broadcast[:,py:py+py*py,None,:], fmo)
         ufunc('a=0.0')(f[:,-2:,:])
@@ -543,6 +551,7 @@ class NIW(object):
         matrix_mult(pn_bar,f,g)
         
         g.shape = (k, (py+py*py+2),(px+px*px+2))
+        f.shape = (l, (py+py*py+2),(px+px*px+2))
         
         oshape = x.shape
         x.shape = (x.shape[0], x.shape[1],1)
@@ -554,7 +563,7 @@ class NIW(object):
         tau.shape = (k,py+py*py+2) 
         
         # terms independent of x
-        t1,t2 = array((l,py*py+1)), array((k,py*py+1))
+
         ufunc('a=b')(t1.no_broadcast[:,:py*py,None], Pyy_bar)
         ufunc('a=b')(t1[:,-1:], self.nu[:,None])
         
@@ -562,6 +571,8 @@ class NIW(object):
         
         ufunc('a+=b')(tau[:,py:py+py*py], t2[:,:py*py] )
         ufunc('a+=b+2+'+str(py))(tau[:,-1:], t2[:,py*py:] )
+        
+        tau.shape = (k,py+py*py+2)
 
         clr = self.__cond_mix_new_like_me(py,k)
 
@@ -799,7 +810,7 @@ class Mixture(object):
         clusters_ = self.clusters.conditional_mix(prob,x)
         return clusters_
 
-    smooth = smooth_kl
+    smooth = smooth_joint
 class StreamingNIW(object):
     def __init__(self,p):
         self.niw = NIW(p,1)        

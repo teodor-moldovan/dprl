@@ -720,7 +720,7 @@ class MixtureDS(DynamicalSystem):
     max_clusters = 100
     fixed_horizon = False
     optimize_var = None
-    differentiator = NumDiff(1e-7,3)
+    differentiator = NumDiff(1e-7,2)
     prior_weight = .1
     add_virtual_controls = True
     def __init__(self, **kwargs):

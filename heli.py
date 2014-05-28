@@ -342,4 +342,4 @@ class AutorotationBase:
 class Autorotation(AutorotationBase, DynamicalSystem):
     pass
 class AutorotationMM(AutorotationBase, MixtureDS):
-    prior_weight = 10.0
+    prior_weight = 1.0

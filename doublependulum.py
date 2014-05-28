@@ -70,6 +70,6 @@ class DoublePendulumQ(DoublePendulumBase,CostsDS):
     pass
     
 class DoublePendulumMMQ(DoublePendulumBase,MixtureCostsDS):
-    log_h_init = 0
+    log_h_init = np.log(2.0)
     pass
     
