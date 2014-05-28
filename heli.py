@@ -265,7 +265,7 @@ class AutorotationBase:
                 RigidBody('Heli', cm, H, 1.0, (inertia(H,1.0,1.0,1.0), cm))]
 
             ForceList = [ (cm, g*L.z), 
-                          (cm, C4*uc*H.z*om + D4 + E4*vlat), 
+                          (cm, H.z*(C4*uc*om + D4 + E4*vlat)), 
                           (H,  (C1*ux*H.x + C2*uy*H.y + C2*uz*H.z)*om ) ,
                           (cm, Ax*H.x*vx + Ay*H.y*vy + Az*H.z*vz ),
                           (H,  Bx*wx*H.x + By*wy*H.y + Bz*wz*H.z ), 
