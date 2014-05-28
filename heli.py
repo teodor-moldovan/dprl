@@ -259,7 +259,7 @@ class AutorotationBase:
             kt = [vlx-pxd, vly-pyd, vlz-pzd]
 
             vlat = exp(.5*log(vx*vx + vy*vy))
-            omdyn = D5 + C5*om + E5 * u4 + F5 * vlat + G5*(ux*ux + uy*uy) - omd 
+            omdyn = D5 + C5*om + E5 * uc + F5 * vlat + G5*(ux*ux + uy*uy) - omd 
 
             BodyList = [
                 RigidBody('Heli', cm, H, 1.0, (inertia(H,1.0,1.0,1.0), cm))]
