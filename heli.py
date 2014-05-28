@@ -179,7 +179,7 @@ class AutorotationBase:
     def initial_state(self):
         state = np.zeros(self.nx)
         state[6] = 1.0
-        state[:6] += .025*np.random.normal(size = 6)
+        state[:6] += .25*np.random.normal(size = 6)
         return state 
         
     def symbolics(self):
