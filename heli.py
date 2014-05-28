@@ -179,6 +179,7 @@ class AutorotationBase:
     def initial_state(self):
         state = np.zeros(self.nx)
         state[8] += 1.0
+        state[12] += 1800
         state += .025*np.random.normal(size = self.nx)
         return state 
         
@@ -207,7 +208,8 @@ class AutorotationBase:
         Bx, C1, D1 = (-5.74, 0.02, -1.46)
         By, C2, D2 = (-5.32, -0.01, -0.23)
         Bz, C3 ,D3 = (-5.43, 0.02, 0.52)
-        D5, C5, E5, F5, G5 = (106.85, -0.23, -68.53, 22.79, 2.11, -6.10)
+        D5, C5, E5, F5, G5 = (106.85, -0.23, -68.53, 22.79, -6.10)
+        #D5, C5, E5, F5, G5 = (106.85, -0.23, -68.53, 22.79, 2.11, -6.10)
         g = 9.81
 
         def dyn():
