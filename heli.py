@@ -4,7 +4,6 @@ from sympy import sin, cos, diag, sqrt
 from sympy import Matrix as mat
 from sympy.physics.mechanics import *
 
-
 class HeliBase:
     log_h_init = 0
     collocation_points = 15
