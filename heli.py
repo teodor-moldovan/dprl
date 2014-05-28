@@ -202,14 +202,13 @@ class AutorotationBase:
 
         symbols = dstate + state + controls
 
-        #http://www.cs.berkeley.edu/~pabbeel/papers/AbbeelCoatesNg_IJRR2010.pdf
+        #http://heli.stanford.edu/papers/AbbeelCoatesHunterNg_aaoarch_iser2008.pdf
         Ax,Ay = (-0.05, -0.06)
         Az, C4, D4, E4 = (-1.42, -0.01, -0.47, -0.15)
         Bx, C1, D1 = (-5.74, 0.02, -1.46)
         By, C2, D2 = (-5.32, -0.01, -0.23)
         Bz, C3 ,D3 = (-5.43, 0.02, 0.52)
-        D5, C5, E5, F5, G5 = (106.85, -0.23, -68.53, 22.79, -6.10)
-        #D5, C5, E5, F5, G5 = (106.85, -0.23, -68.53, 22.79, 2.11, -6.10)
+        D5, C5, E5, F5, G5, H5 = (106.85, -0.23, -68.53, 22.79, 2.11, -6.10)
         g = 9.81
 
         def dyn():
@@ -261,7 +260,8 @@ class AutorotationBase:
             kt = [vlx-pxd, vly-pyd, vlz-pzd]
 
             vlat = exp(.5*log(vx*vx + vy*vy))
-            omdyn = D5 + C5*om + E5 * uc + F5 * vlat + G5*(ux*ux + uy*uy) - omd 
+            omdyn = (D5 + C5*om + E5 * uc + 
+                    F5*vz + G5 * vlat + H5*(ux*ux + uy*uy) - omd )
 
             BodyList = [
                 RigidBody('Heli', cm, H, 1.0, (inertia(H,1.0,1.0,1.0), cm))]
