@@ -188,11 +188,13 @@ class AutorotationBase:
                     dwx, dwy, dwz, dvx, dvy, dvz,
                     drx, dry, drz,
                     dpx, dpy, dpz,
+                    dom,
                     """)
         state = sympy.var("""
                     wx, wy, wz, vx, vy, vz,
                     rx, ry, rz, 
                     px, py, pz,
+                    om,
                     """)
 
         controls = ux,uy,uz, uc = sympy.symbols('ux,uy,uz,uc')
@@ -209,22 +211,25 @@ class AutorotationBase:
             (wx, wy, wz, vx, vy, vz,
             qw, qx, qy, qz,
             px, py, pz,
-            rx,ry,rz, th) = dynamicsymbols("""
+            rx,ry,rz, th,
+                om) = dynamicsymbols("""
                         wx, wy, wz, vx, vy, vz,
                         qw, qx, qy, qz,
                         px, py, pz,
                         rx, ry, rz, th
+                        om, 
                     """)
 
             (wxd, wyd, wzd, vxd, vyd, vzd,
             qwd, qxd, qyd, qzd, 
             pxd, pyd, pzd,
-            rxd, ryd, rzd, thd
+            rxd, ryd, rzd, thd,
+            omd
              ) = dynamicsymbols("""
                         wx, wy, wz, vx, vy, vz,
                         qw,qx, qy, qz, 
                         px, py, pz,
-                        rx, ry, rz, th
+                        rx, ry, rz, th, om
                     """, 1)
 
             L = ReferenceFrame('LabFrame') 
@@ -303,9 +308,11 @@ class AutorotationBase:
             sublist = zip( (wxd, wyd, wzd, vxd, vyd, vzd,
                         rxd, ryd, rzd,
                         pxd, pyd, pzd,
+                        omd,
                         wx, wy, wz, vx, vy, vz,
                         rx, ry, rz,
                         px, py, pz,
+                        om
                         ), 
                         dstate+state)
 
