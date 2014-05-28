@@ -270,6 +270,10 @@ class AutorotationBase:
 
             # replace functions with free variables. 
             # Note that this should not be necessary in a proper setup
+        
+
+            qnorm = sqrt(sum(state[6:10]))
+            qns = [q/qnorm for q in state[6:10]]
 
             sublist = zip( (wxd, wyd, wzd, vxd, vyd, vzd,
                         qwd, qxd,qyd,qzd,
@@ -278,7 +282,7 @@ class AutorotationBase:
                         qw,qx,qy,qz,
                         px, py, pz,
                         ), 
-                        dstate+state)
+                        dstate+state[:6]+ qns + state[-3:])
 
             dyn = dyn.subs(sublist)
 
