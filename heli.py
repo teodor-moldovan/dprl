@@ -332,7 +332,7 @@ class AutorotationBase:
             return dyn
 
         def state_target():
-            return (wx, wy, wz, vx-8, vz-5, om-1150,rx,ry,rz -1.0)
+            return (wx, wy, wz, vx-8, vz-5, om-1150,rx,ry,)
 
         def dpmm_features():
             return (dwx, dwy, dwz, dvx, dvy, dvz,rx, ry, rz,ux,uy,uz,uc)
