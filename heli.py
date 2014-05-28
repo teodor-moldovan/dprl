@@ -175,7 +175,7 @@ class HeliInvertedMM(HeliMM):
     inverted_hover = True
 
 class AutorotationBase:
-    collocation_points = 15
+    collocation_points = 25
     def initial_state(self):
         state = np.zeros(self.nx)
         state[6] = 1.0
@@ -266,7 +266,8 @@ class AutorotationBase:
                      - .5*wx*qx - .5*wy*qy - .5*wz*qz - qwd
                     ]
 
-            dyn = mat(list(dyn)+kt+kr)
+            dyn = mat(list(dyn)+kt+k_)
+            #dyn = mat(list(dyn)+kt+kr)
 
             # replace functions with free variables. 
             # Note that this should not be necessary in a proper setup
