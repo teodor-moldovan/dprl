@@ -280,7 +280,7 @@ class AutorotationBase:
             rt = sin(th/2.0)/th
             q_  = mat(( cos(th/2.0), rx*rt, ry*rt, rz*rt ))
             qd_ = mat([sympy.diff(i,sympy.symbols('t')) for i in q_])
-            th_  = sqrt(rx**2+ry**2+rz**2)
+            th_  = exp(.5*log(rx**2+ry**2+rz**2))
             thd_ = (rx*rxd + ry*ryd + rz*rzd)/th
 
             sublist = zip((qwd,qxd,qyd,qzd), qd_) + zip((qw,qx,qy,qz), q_)
