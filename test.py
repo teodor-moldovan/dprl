@@ -1536,7 +1536,7 @@ class TestsDynamicalSystem(unittest.TestCase):
             env.dt = .01
             env.noise = np.array([.01,0.0,0.0])
 
-            trj = env.step(RandomPolicy(env.nu,umax=1.0),2*ds.nf) 
+            trj = env.step(RandomPolicy(env.nu,umax=.1),2*ds.nf) 
             ds.update(trj)
             
             cnt = 0
@@ -1613,6 +1613,9 @@ class TestsHeliInv(TestsDynamicalSystem):
 class TestsAutorotation(TestsDynamicalSystem):
     from heli import Autorotation as DS
     from heli import AutorotationMM as DSMM
+class TestsAutorotationCost(TestsDynamicalSystem):
+    from heli import AutorotationQ as DS
+    from heli import AutorotationQMM as DSMM
 class TestsPendulum(TestsDynamicalSystem):
     from pendulum import Pendulum as DS
     from pendulum import PendulumMM as DSMM

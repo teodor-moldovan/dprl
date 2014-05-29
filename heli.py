@@ -1,6 +1,6 @@
 from planning import *
 import sympy
-from sympy import sin, cos, diag,log,exp
+from sympy import sin, cos, diag,log,exp, sqrt
 from sympy import Matrix as mat
 from sympy.physics.mechanics import *
 
@@ -101,8 +101,8 @@ class HeliBase:
                      - .5*wx*qx - .5*wy*qy - .5*wz*qz - qwd
                     ]
             #print mat(kr)+mat(k_)
-            #kr = k_
-            
+
+            kr = k_
             kr = kr[:-1]
             dyn = mat(list(dyn)+kt+kr)
 
@@ -173,9 +173,9 @@ class HeliInverted(Heli):
 class HeliInvertedMM(HeliMM):
     prior_weight = 1.0
     inverted_hover = True
-
 class AutorotationBase:
-    collocation_points = 35
+    collocation_points = 15
+    velocity_target = True
     def initial_state(self):
         state = np.zeros(self.nx)
         state[8] += 1.0
@@ -252,6 +252,7 @@ class AutorotationBase:
             vh = H.x*vx+H.y*vy+H.z*vz
             vl = vh.express(L)
             vlx, vly, vlz = vl.dot(L.x), vl.dot(L.y), vl.dot(L.z)
+            vhx,vhy,vhz = vx,vy,vz
 
             cm.set_vel(L, vh)
 
@@ -259,7 +260,7 @@ class AutorotationBase:
                     [-wx,-wy,-wz], [qw, -qx,-qy,-qz], 'Quaternion')
             kt = [vlx-pxd, vly-pyd, vlz-pzd]
 
-            vlat = exp(.5*log(vx*vx + vy*vy))
+            vlat = exp(.5*log(vhx*vhx + vhy*vhy))
             omdyn = (D5 + C5*om + E5 * uc + 
                     F5*vz + G5 * vlat + H5*(ux*ux + uy*uy) - omd )
 
@@ -269,7 +270,7 @@ class AutorotationBase:
             ForceList = [ (cm, g*L.z), 
                           (cm, H.z*(C4*uc*om + D4 + E4*vlat)), 
                           (H,  (C1*ux*H.x + C2*uy*H.y + C2*uz*H.z)*om ) ,
-                          (cm, Ax*H.x*vx + Ay*H.y*vy + Az*H.z*vz ),
+                          (cm, Ax*H.x*vhx + Ay*H.y*vhy + Az*H.z*vhz ),
                           (H,  Bx*wx*H.x + By*wy*H.y + Bz*wz*H.z ), 
                             ]
 
@@ -286,8 +287,8 @@ class AutorotationBase:
                      - .5*wx*qx - .5*wy*qy - .5*wz*qz - qwd
                     ]
             #print mat(kr)+mat(k_)
-            #kr = k_
-            
+
+            kr = k_ 
             kr = kr[:-1]
             dyn = mat(list(dyn)+[omdyn,]+kt+kr)
 
@@ -331,8 +332,18 @@ class AutorotationBase:
 
             return dyn
 
-        def state_target():
-            return (wx, wy, wz, vx-8, vz-5, om-1150,rx,ry,)
+        def state_target_no_vel():
+            return (wx, wy, wz,vy, om-1150, rx, rz)
+
+        def state_target_vel():
+            #return (wx, wy, wz, vx-8, vz-5, om-1150,vy)
+            return (wx, wy, wz, vx-8, vz-5, om-1150,rx, ry)
+
+        if self.velocity_target:
+            state_target = state_target_vel
+        else:
+            state_target = state_target_no_vel
+
 
         def dpmm_features():
             return (dwx, dwy, dwz, dvx, dvy, dvz,dom,rx, ry, rz,om, ux,uy,uz,uc)
@@ -342,4 +353,16 @@ class AutorotationBase:
 class Autorotation(AutorotationBase, DynamicalSystem):
     pass
 class AutorotationMM(AutorotationBase, MixtureDS):
+    prior_weight = 10.0
+class AutorotationQ(Autorotation):
+    velocity_target = False
+    optimize_var = -2
+    log_h_init = 0.0
+    fixed_horizon = True
+class AutorotationQMM(AutorotationBase, MixtureDS):
     prior_weight = 1.0
+    velocity_target = False
+    optimize_var = -2
+    log_h_init = 0.0
+    fixed_horizon = True
+

@@ -182,7 +182,7 @@ class NumDiff(object):
         df.shape = (l,n,m) 
 
         #hack
-        ufunc('x = abs(x) < 1e-10 ? 0 : x')(df)
+        #ufunc('x = abs(x) < 1e-10 ? 0 : x')(df)
         return df
 
 
@@ -510,13 +510,10 @@ class DynamicalSystem:
         ode.set_initial_value(self.state, 0)
         
         trj = []
-        #stp = 0
         while ode.successful() and ode.t + self.dt <= h:
-        #while ode.successful() and stp < n:
             ode.integrate(ode.t+self.dt) 
             dx,u = f(ode.t,ode.y)
             trj.append((self.t+ode.t,dx,ode.y,u))
-            #stp = stp + 1
         
         if len(trj)==0:
             ode.integrate(h) 
@@ -1013,7 +1010,7 @@ class GPMcompact():
             bl[self.iv_h] = hi
             bu[self.iv_h] = hi
         else:
-            #bu[self.iv_h] = 10
+            #bu[self.iv_h] = 11
             bl[self.iv_h] = .01
 
 

@@ -504,5 +504,6 @@ def animate_unicycle():
 #plot_log('doublependulum.DoublePendulum_log', [2,3], ['Inner pendulum angle (radians)','Outer pendulum angle (radians)'])
 #plot_log('doublependulum.DoublePendulumQ_log', [2,3], ['Inner pendulum angle (radians)','Outer pendulum angle (radians)'])
 #animate_swimmer()
-animate_unicycle()
+#animate_unicycle()
 #plot_log('heli.Heli_log')
+plot_log('heli.Autorotation_log')
