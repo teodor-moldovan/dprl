@@ -176,11 +176,13 @@ class HeliInvertedMM(HeliMM):
 class AutorotationBase:
     collocation_points = 15
     velocity_target = True
+    rpm2w = .01
+    #rpm2w = 2*np.pi/60.0
     def initial_state(self):
         state = np.zeros(self.nx)
-        state[8] += 1.0
-        state[12] += 1200
-        state += .025*np.random.normal(size = self.nx)
+        state[8] += .1
+        state[12] += 1200.0*self.rpm2w
+        state += .25*np.random.normal(size = self.nx)
         return state 
         
     def symbolics(self):
@@ -203,12 +205,15 @@ class AutorotationBase:
         symbols = dstate + state + controls
 
         #http://heli.stanford.edu/papers/AbbeelCoatesHunterNg_aaoarch_iser2008.pdf
+        s = self.rpm2w
+
         Ax,Ay = (-0.05, -0.06)
-        Az, C4, D4, E4 = (-1.42, -0.01, -0.47, -0.15)
-        Bx, C1, D1 = (-5.74, 0.02, -1.46)
-        By, C2, D2 = (-5.32, -0.01, -0.23)
-        Bz, C3 ,D3 = (-5.43, 0.02, 0.52)
-        D5, C5, E5, F5, G5, H5 = (106.85, -0.23, -68.53, 22.79, 2.11, -6.10)
+        Az, C4, D4, E4 = (-1.42, -0.01/s, -0.47, -0.15)
+        Bx, C1, D1 = (-5.74, 0.02/s, -1.46)
+        By, C2, D2 = (-5.32, -0.01/s, -0.23)
+        Bz, C3 ,D3 = (-5.43, 0.02/s, 0.52)
+        D5, C5, E5, F5, G5, H5 = (106.85*s, -0.23, 
+                -68.53*s, 22.79*s, 2.11*s, -6.10*s)
         g = 9.81
 
         def dyn():
@@ -290,7 +295,7 @@ class AutorotationBase:
 
             kr = k_ 
             kr = kr[:-1]
-            dyn = mat(list(dyn)+[omdyn,]+kt+kr)
+            dyn = mat([omdyn,]+list(dyn)+kt+kr)
 
             # convert dynamics to axis-angle rotations
 
@@ -307,9 +312,6 @@ class AutorotationBase:
             dyn = dyn.subs(sublist)
 
 
-            dyn[-3:,:] = mat(dyn[-3:])* th**3
-            dyn[-6:-3,:] = mat(dyn[-6:-3])* th**2
-            dyn[3:6,:] = mat(dyn[3:6])* th**2
             dyn = dyn.expand()
             dyn = dyn.subs(((thd,thd_),)).expand()
             dyn = dyn.subs(((th,th_),)).expand()
@@ -333,11 +335,16 @@ class AutorotationBase:
             return dyn
 
         def state_target_no_vel():
-            return (wx, wy, wz,vy, om-1150, rx, rz)
+            return (wx, wy, wz,vy, om-1150*self.rpm2w, rx, rz)
 
         def state_target_vel():
             #return (wx, wy, wz, vx-8, vz-5, om-1150,vy)
-            return (wx, wy, wz, vx-8, vz-5, om-1150,rx, ry)
+            return (wx, wy, wz, vx-8, vz-5,vy, om-1150*self.rpm2w, rx, ry, rz-1.0)
+
+
+        def dpmm_features():
+            return (dom,om,vx,vy,vz)
+            #return (dwx,dwy,dwz, dvx, dvy, dvz,dom,vx,vy,vz,rx, ry, rz,om, ux,uy,uz,uc)
 
         if self.velocity_target:
             state_target = state_target_vel
@@ -345,15 +352,13 @@ class AutorotationBase:
             state_target = state_target_no_vel
 
 
-        def dpmm_features():
-            return (dwx, dwy, dwz, dvx, dvy, dvz,dom,rx, ry, rz,om, ux,uy,uz,uc)
-
         return locals()
 
 class Autorotation(AutorotationBase, DynamicalSystem):
     pass
 class AutorotationMM(AutorotationBase, MixtureDS):
-    prior_weight = 10.0
+    pass
+    #prior_weight = 10.0
 class AutorotationQ(Autorotation):
     velocity_target = False
     optimize_var = -2
