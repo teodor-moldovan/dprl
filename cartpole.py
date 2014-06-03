@@ -59,8 +59,9 @@ class CartPoleBase:
 
 class CartPoleMM(CartPoleBase,MixtureDS):
     pass
-class CartPoleEMM(CartPoleBase,MixtureDS):
+class CartPoleEMM(CartPoleMM):
     add_virtual_controls = False
+    episode_max_h = 20.0
 class CartPole(CartPoleBase,DynamicalSystem):
     pass
 class CartPoleQ(CartPoleBase,CostsDS):

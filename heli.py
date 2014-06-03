@@ -10,7 +10,7 @@ class HeliBase:
     def initial_state(self):
         state = np.zeros(self.nx)
         state[8] += 1.0
-        state += .025*np.random.normal(size = self.nx)
+        state += .25*np.random.normal(size = self.nx)
         return state 
         
     def symbolics(self):
@@ -77,7 +77,7 @@ class HeliBase:
             cm.set_vel(L, vh)
 
             kr = kinematic_equations( 
-                    [-wx,-wy,-wz], [qw, -qx,-qy,-qz], 'Quaternion')
+                    [wx,wy,wz], [qw, qx,qy,qz], 'Quaternion')
             kt = [vlx-pxd, vly-pyd, vlz-pzd]
 
             BodyList = [
@@ -95,14 +95,6 @@ class HeliBase:
             (fr, frstar) = KM.kanes_equations(ForceList, BodyList)
             dyn = fr+frstar
 
-            k_ = [   + .5*wx*qw + .5*wy*qz - .5*wz*qy - qxd,
-                     - .5*wx*qz + .5*wy*qw + .5*wz*qx - qyd,
-                     + .5*wx*qy - .5*wy*qx + .5*wz*qw - qzd,
-                     - .5*wx*qx - .5*wy*qy - .5*wz*qz - qwd
-                    ]
-            #print mat(kr)+mat(k_)
-
-            kr = k_
             kr = kr[:-1]
             dyn = mat(list(dyn)+kt+kr)
 
@@ -111,7 +103,7 @@ class HeliBase:
             rt = sin(th/2.0)/th
             q_  = mat(( cos(th/2.0), rx*rt, ry*rt, rz*rt ))
             qd_ = mat([sympy.diff(i,sympy.symbols('t')) for i in q_])
-            th_  = sqrt(rx**2+ry**2+rz**2)
+            th_  = exp(.5*log(rx**2+ry**2+rz**2))
             thd_ = (rx*rxd + ry*ryd + rz*rzd)/th
 
             sublist = zip((qwd,qxd,qyd,qzd), qd_) + zip((qw,qx,qy,qz), q_)
@@ -121,9 +113,6 @@ class HeliBase:
             dyn = dyn.subs(sublist)
 
 
-            dyn[-3:,:] = mat(dyn[-3:])* th**3
-            dyn[-6:-3,:] = mat(dyn[-6:-3])* th**2
-            dyn[3:6,:] = mat(dyn[3:6])* th**2
             dyn = dyn.expand()
             dyn = dyn.subs(((thd,thd_),)).expand()
             dyn = dyn.subs(((th,th_),)).expand()
@@ -153,6 +142,7 @@ class HeliBase:
 
         def dpmm_features():
             return (dwx, dwy, dwz, dvx, dvy, dvz,rx, ry, rz,ux,uy,uz,uc)
+            #return (dwx, dwy, dwz, dvx, dvy, dvz,vx,vy,vz, wx,wy,wz,rx, ry, rz,ux,uy,uz,uc)
 
         # hack: should use subclasses instead of conditionals here
         if self.inverted_hover:
@@ -164,14 +154,16 @@ class HeliBase:
 
 class Heli(HeliBase, DynamicalSystem):
     inverted_hover = False
-    pass
 class HeliMM(HeliBase,MixtureDS):
     inverted_hover = False
+    episode_max_h = 20.0
     prior_weight = 10.0
+class HeliEMM(HeliMM):
+    add_virtual_controls = False
 class HeliInverted(Heli):
     inverted_hover = True
 class HeliInvertedMM(HeliMM):
-    prior_weight = 1.0
+    prior_weight = 10.0
     inverted_hover = True
 class AutorotationBase:
     collocation_points = 15
@@ -181,7 +173,7 @@ class AutorotationBase:
     def initial_state(self):
         state = np.zeros(self.nx)
         state[8] += .1
-        state[12] += 1200.0*self.rpm2w
+        state[12] += 1150.0*self.rpm2w
         state += .25*np.random.normal(size = self.nx)
         return state 
         
@@ -215,6 +207,9 @@ class AutorotationBase:
         D5, C5, E5, F5, G5, H5 = (106.85*s, -0.23, 
                 -68.53*s, 22.79*s, 2.11*s, -6.10*s)
         g = 9.81
+
+        # remove non-physical effects
+        #D4,D5 = (0,0)
 
         def dyn():
 
@@ -251,18 +246,24 @@ class AutorotationBase:
             cm.set_pos(og, px*L.x + py*L.y + pz*L.z)
 
             w = H.x*wx + H.y*wy + H.z*wz
+            v = H.x*vx + H.y*vy + H.z*vz
+
             H.orient(L,'Quaternion', [qw, qx,qy,qz])
             H.set_ang_vel(L, w)
+            cm.set_vel(L, v)
 
-            vh = H.x*vx+H.y*vy+H.z*vz
-            vl = vh.express(L)
-            vlx, vly, vlz = vl.dot(L.x), vl.dot(L.y), vl.dot(L.z)
-            vhx,vhy,vhz = vx,vy,vz
 
-            cm.set_vel(L, vh)
+            vlx, vly, vlz = v.dot(L.x), v.dot(L.y), v.dot(L.z)
+            vhx, vhy, vhz = v.dot(H.x), v.dot(H.y), v.dot(H.z)
+            wlx, wly, wlz = w.dot(L.x), w.dot(L.y), w.dot(L.z)
+            whx, why, whz = w.dot(H.x), w.dot(H.y), w.dot(H.z)
+
 
             kr = kinematic_equations( 
-                    [-wx,-wy,-wz], [qw, -qx,-qy,-qz], 'Quaternion')
+                    [whx,why,whz], 
+                    [qw, qx,qy,qz], 'Quaternion')
+
+
             kt = [vlx-pxd, vly-pyd, vlz-pzd]
 
             vlat = exp(.5*log(vhx*vhx + vhy*vhy))
@@ -276,7 +277,7 @@ class AutorotationBase:
                           (cm, H.z*(C4*uc*om + D4 + E4*vlat)), 
                           (H,  (C1*ux*H.x + C2*uy*H.y + C2*uz*H.z)*om ) ,
                           (cm, Ax*H.x*vhx + Ay*H.y*vhy + Az*H.z*vhz ),
-                          (H,  Bx*wx*H.x + By*wy*H.y + Bz*wz*H.z ), 
+                          (H,  Bx*whx*H.x + By*why*H.y + Bz*whz*H.z ), 
                             ]
 
             KM = KanesMethod(L, q_ind = [qw,qx,qy,qz,px,py,pz], 
@@ -286,24 +287,18 @@ class AutorotationBase:
             (fr, frstar) = KM.kanes_equations(ForceList, BodyList)
             dyn = fr+frstar
 
-            k_ = [   + .5*wx*qw + .5*wy*qz - .5*wz*qy - qxd,
-                     - .5*wx*qz + .5*wy*qw + .5*wz*qx - qyd,
-                     + .5*wx*qy - .5*wy*qx + .5*wz*qw - qzd,
-                     - .5*wx*qx - .5*wy*qy - .5*wz*qz - qwd
-                    ]
-            #print mat(kr)+mat(k_)
-
-            kr = k_ 
             kr = kr[:-1]
             dyn = mat([omdyn,]+list(dyn)+kt+kr)
 
             # convert dynamics to axis-angle rotations
 
             rt = sin(th/2.0)/th
+            ti = 1.0/th
+
             q_  = mat(( cos(th/2.0), rx*rt, ry*rt, rz*rt ))
             qd_ = mat([sympy.diff(i,sympy.symbols('t')) for i in q_])
             th_  = exp(.5*log(rx**2+ry**2+rz**2))
-            thd_ = (rx*rxd + ry*ryd + rz*rzd)/th
+            thd_ = (rx*rxd + ry*ryd + rz*rzd)*ti
 
             sublist = zip((qwd,qxd,qyd,qzd), qd_) + zip((qw,qx,qy,qz), q_)
 
@@ -335,15 +330,17 @@ class AutorotationBase:
             return dyn
 
         def state_target_no_vel():
-            return (wx, wy, wz,vy, om-1150*self.rpm2w, rx, rz)
+            return (wx, wy, wz, vy, om-1150*self.rpm2w, rx, ry, rz-.1)
 
         def state_target_vel():
             #return (wx, wy, wz, vx-8, vz-5, om-1150,vy)
-            return (wx, wy, wz, vx-8, vz-5,vy, om-1150*self.rpm2w, rx, ry, rz-1.0)
+            #return (wx, wy, wz, vx,vy,vz, om-1150, rx, ry, pz-10.0)
+            return (wx, wy, wz, vx-8,vy, om-1150*self.rpm2w, rx, ry, rz-.1)
+            #return (wx, wy, wz, vz-5.0,vx-8,vy, om-1150*self.rpm2w, rx, rz)
 
 
         def dpmm_features():
-            return (dom,om,vx,vy,vz)
+            return (dom,om,vx,vy,vz,ux,uy,uc)
             #return (dwx,dwy,dwz, dvx, dvy, dvz,dom,vx,vy,vz,rx, ry, rz,om, ux,uy,uz,uc)
 
         if self.velocity_target:
@@ -357,8 +354,10 @@ class AutorotationBase:
 class Autorotation(AutorotationBase, DynamicalSystem):
     pass
 class AutorotationMM(AutorotationBase, MixtureDS):
-    pass
-    #prior_weight = 10.0
+    prior_weight = 10.0
+    episode_max_h = 20.0
+class AutorotationEMM(AutorotationMM):
+    add_virtual_controls = False
 class AutorotationQ(Autorotation):
     velocity_target = False
     optimize_var = -2

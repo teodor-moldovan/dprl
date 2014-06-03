@@ -1358,6 +1358,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         np.random.seed(6)
         x = 2*np.pi*2*(np.random.random(ds.nx)-0.5)
         u = 2*(np.random.random(ds.nu)-0.50)
+        
 
         print
         print 'state: '
@@ -1544,7 +1545,7 @@ class TestsDynamicalSystem(unittest.TestCase):
 
                 env.reset_if_need_be()
                 env.print_state()
-                ds.state = env.state.copy() +1e-5*np.random.normal(size=env.nx)
+                ds.state = env.state.copy() +1e-3*np.random.normal(size=env.nx)
 
                 pi = pp.solve()
                 
@@ -1553,6 +1554,8 @@ class TestsDynamicalSystem(unittest.TestCase):
                 if pi.max_h < .1 or dst < 1e-4:
                     cnt += 1
                 if cnt>20:
+                    break
+                if env.t >= ds.episode_max_h:
                     break
 
                 trj = env.step(pi,5)
@@ -1580,7 +1583,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         for t in range(10000):
             s = env.state
             env.print_state()
-            ds.state = env.state.copy()+1e-5*np.random.normal(size=env.nx)
+            ds.state = env.state.copy()+1e-3*np.random.normal(size=env.nx)
             pi = pp.solve()
             trj = env.step(pi,5)
 
@@ -1607,18 +1610,27 @@ class TestsCartpoleEMM(TestsDynamicalSystem):
 class TestsHeli(TestsDynamicalSystem):
     from heli import Heli as DS
     from heli import HeliMM as DSMM
+class TestsHeliEMM(TestsDynamicalSystem):
+    from heli import Heli as DS
+    from heli import HeliEMM as DSMM
 class TestsHeliInv(TestsDynamicalSystem):
     from heli import HeliInverted as DS
     from heli import HeliInvertedMM as DSMM
 class TestsAutorotation(TestsDynamicalSystem):
     from heli import Autorotation as DS
     from heli import AutorotationMM as DSMM
+class TestsAutorotationEMM(TestsDynamicalSystem):
+    from heli import Autorotation as DS
+    from heli import AutorotationEMM as DSMM
 class TestsAutorotationCost(TestsDynamicalSystem):
     from heli import AutorotationQ as DS
     from heli import AutorotationQMM as DSMM
 class TestsPendulum(TestsDynamicalSystem):
     from pendulum import Pendulum as DS
     from pendulum import PendulumMM as DSMM
+class TestsPendulumEMM(TestsDynamicalSystem):
+    from pendulum import Pendulum as DS
+    from pendulum import PendulumEMM as DSMM
 class TestsDoublePendulum(TestsDynamicalSystem):
     from doublependulum import DoublePendulum as DS
     from doublependulum import DoublePendulumMM as DSMM

@@ -239,17 +239,17 @@ def plot_log(name, inds=None, labels=None):
 
     fig = plt.figure()
         
-    for i in inds:
-        ax = fig.add_subplot(2,1,1+i)
+    for i in range(len(inds)):
+        ax = fig.add_subplot(len(inds),1,1+i)
 
         ax.set_ylabel(labels[i])
-        if i == inds[-1]:
+        if i == len(inds)-1:
             ax.set_xlabel('Time (s)')
         else:
             ax.set_xticklabels([])
         
         for l in plts:
-            plot(l[:,0],l[:,i+1])
+            plot(l[:,0],l[:,inds[i]+1])
     
     
     savefig(fout,bbox_inches='tight')
@@ -505,5 +505,9 @@ def animate_unicycle():
 #plot_log('doublependulum.DoublePendulumQ_log', [2,3], ['Inner pendulum angle (radians)','Outer pendulum angle (radians)'])
 #animate_swimmer()
 #animate_unicycle()
+#plot_log('heli.Autorotation_log',[5,12],['Downwards velocity (m/s)','Rotor speed (x 100 rpm)'])
+#plot_log('doublependulum.DoublePendulumEMM', [2,3], ['Inner pendulum angle (radians)','Outer pendulum angle (radians)'])
+#plot_log('heli.HeliEMM')
 #plot_log('heli.Heli_log')
-plot_log('heli.Autorotation_log')
+plot_log('heli.AutorotationEMM',[5,12],['Downwards velocity (m/s)','Rotor speed (x 100 rpm)'])
+

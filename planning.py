@@ -259,6 +259,7 @@ class DynamicalSystem:
     squashing_function, optimize_var = None, None
     fixed_horizon= False
     collocation_points = 35
+    episode_max_h = float('inf')
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
 

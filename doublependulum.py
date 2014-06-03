@@ -62,6 +62,7 @@ class DoublePendulumMM(DoublePendulumBase,MixtureDS):
     pass
 class DoublePendulumEMM(DoublePendulumBase,MixtureDS):
     add_virtual_controls = False
+    episode_max_h = 20.0
 class DoublePendulum(DoublePendulumBase,DynamicalSystem):
     pass
 
