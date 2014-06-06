@@ -1,4 +1,5 @@
 import unittest
+import time
 from clustering import *
 from planning import *
 import time
@@ -1545,9 +1546,11 @@ class TestsDynamicalSystem(unittest.TestCase):
 
                 env.reset_if_need_be()
                 env.print_state()
-                ds.state = env.state.copy() +1e-3*np.random.normal(size=env.nx)
+                ds.state = env.state.copy() + ds.state_observation_error*np.random.normal(size=env.nx)
 
+                tmm = time.time()
                 pi = pp.solve()
+                print 'clock time spent planning: ', time.time()-tmm
                 
                 dst = np.nansum( 
                     ((ds.state - ds.target)**2)[np.logical_not(ds.c_ignore)])
@@ -1559,7 +1562,9 @@ class TestsDynamicalSystem(unittest.TestCase):
                     break
 
                 trj = env.step(pi,5)
+                tmm = time.time()
                 ds.update(trj)
+                print 'clock time spent updating model: ', time.time()-tmm
 
 
 

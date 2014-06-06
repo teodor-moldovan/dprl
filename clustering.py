@@ -859,7 +859,7 @@ class StreamingNIW(object):
         return self.niw.p
         
 class BatchVDP(object):
-    def __init__(self,mix,buffer_size=11*32*8,
+    def __init__(self,mix,buffer_size=11*32*16,
              w =.1, diff_tol = 1e-3, max_iters = 10000):
         
         self.buff = array((buffer_size, mix.clusters.prior.size))

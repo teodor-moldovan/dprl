@@ -1,6 +1,7 @@
 from planning import *
 
 class DoublePendulumBase:
+    state_observation_error =  0.0
     def initial_state(self):
         state = np.zeros(self.nx)
         state[2:] = np.pi
@@ -62,7 +63,7 @@ class DoublePendulumMM(DoublePendulumBase,MixtureDS):
     pass
 class DoublePendulumEMM(DoublePendulumBase,MixtureDS):
     add_virtual_controls = False
-    episode_max_h = 20.0
+    episode_max_h = 40.0
 class DoublePendulum(DoublePendulumBase,DynamicalSystem):
     pass
 

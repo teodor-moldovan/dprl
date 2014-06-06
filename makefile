@@ -3,7 +3,7 @@ all: ft
 #CMD = python test.py TestsUnicycle.test_mm_learning
 #CMD = python test.py TestsAutorotation.test_mm_learning
 #CMD = python test.py TestsAutorotation.test_pp_iter
-CMD = python test.py TestsAutorotation.test_accs
+CMD = python test.py TestsHeli.test_mm_learning
 plots:
 	python plots.py
 noft: 

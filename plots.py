@@ -208,7 +208,8 @@ def regression(basename = './out/regression_%s.pdf', l=100,k=80, sg = .01):
         pd.pop(0).remove()
         pa.pop(0).remove()
 
-def plot_log(name, inds=None, labels=None):
+def plot_log(name, inds=None, labels=None, eps_stop = 0, succ_thrs = 20.0,
+            state_avg = None, max_trials_to_plot = 30):
     
     fname = 'out/'+name+'.pkl'
     fout = fname + '.pdf'
@@ -226,21 +227,52 @@ def plot_log(name, inds=None, labels=None):
     s = [0,] + list(np.where(lg[1:,0] < lg[:-1,0])[0]+1) 
     e = s[1:] + [lg.shape[0],]
     plts  = [ lg[s:e] for s,e in zip(s,e)[:-1]]
+        
+        
+    #plts = [f[f[:,0]<20] for f in plts]
+
+    pn = []
+    for l in plts:
+        tst = np.where(np.cumsum(np.sum(l[:,1:]**2,1)<eps_stop) >= 20)[0]
+        if len(tst) ==0:
+            pn.append(l)
+        else:
+            pn.append(l[:tst[0],:])
+    plts = pn
     
-    ts = np.array([l[-1,0] for l in plts])
-    for t in ts:
-        print t
-    print 'Mean: ', np.mean(ts)
-    print 'Standard Deviation: ', np.std(ts)
-    print 'Num Samples: ', len(ts)
+    ts  = np.array([l[-1,0] for l in plts])
+    tss = ts[ts<succ_thrs] 
+
+    print name
+    if len(tss)>0:
+        print 'Mean (trials < '+str(succ_thrs)+'s): ', np.mean(tss)
+        print 'Standard Deviation (trials < '+str(succ_thrs)+'s): ', np.std(tss)
+    print 'Num Samples (total): ', len(ts)
+    print 'Num Samples (< '+str(succ_thrs)+'s): ', len(tss)
+    print 'Success rate: ' + str(len(tss)*100.0/len(ts))
+    
+    if not state_avg is None:
+        sts  = np.array([l[-1,state_avg+1] for l in plts])
+        print 'Mean state: ', np.mean(sts)
+
+    #print 'Mean', np.mean(ts)
+    #print 'Standard Deviation: ', np.std(ts)
+    #print 'Num Samples: ', len(ts)
+
+    print 
      
+
+    plts = plts[:min(max_trials_to_plot, len(plts))-1]
+
     if inds is None:
         return
 
     fig = plt.figure()
         
+        
     for i in range(len(inds)):
-        ax = fig.add_subplot(len(inds),1,1+i)
+        ax = fig.add_subplot(2,1,1+i)
+        #ax = fig.add_subplot(len(inds),1,1+i)
 
         ax.set_ylabel(labels[i])
         if i == len(inds)-1:
@@ -249,7 +281,12 @@ def plot_log(name, inds=None, labels=None):
             ax.set_xticklabels([])
         
         for l in plts:
-            plot(l[:,0],l[:,inds[i]+1])
+            if hasattr(inds[i], '__call__' ):
+                rs = map(inds[i], l[:,1:]) 
+            else:
+                rs = l[:,1:][:,inds[i]]
+            
+            plot(l[:,0], rs , alpha = .8)
     
     
     savefig(fout,bbox_inches='tight')
@@ -498,16 +535,22 @@ def animate_unicycle():
         
 #regression()
 #subspace()
-#plot_log('cartpole.CartPole_log', [2,3], ['Angle (radians)', 'Location (m) '])
-#plot_log('pendulum.Pendulum_log', [1], ['Angle (radians)'])
-#plot_heli_old()
-#plot_log('doublependulum.DoublePendulum_log', [2,3], ['Inner pendulum angle (radians)','Outer pendulum angle (radians)'])
-#plot_log('doublependulum.DoublePendulumQ_log', [2,3], ['Inner pendulum angle (radians)','Outer pendulum angle (radians)'])
 #animate_swimmer()
 #animate_unicycle()
-#plot_log('heli.Autorotation_log',[5,12],['Downwards velocity (m/s)','Rotor speed (x 100 rpm)'])
-#plot_log('doublependulum.DoublePendulumEMM', [2,3], ['Inner pendulum angle (radians)','Outer pendulum angle (radians)'])
-#plot_log('heli.HeliEMM')
-#plot_log('heli.Heli_log')
-plot_log('heli.AutorotationEMM',[5,12],['Downwards velocity (m/s)','Rotor speed (x 100 rpm)'])
 
+if True:
+    plot_log('pendulum.PendulumEMM', [lambda x: np.pi -x[1]], ['Angle (radians)'])
+    plot_log('pendulum.Pendulum_bck', [lambda x: np.pi -x[1]], ['Angle (radians)'])
+    plot_log('cartpole.CartPoleEMM', [lambda x: np.pi -x[2],3], ['Angle (radians)', 'Location (m) '])
+    plot_log('cartpole.CartPole_bck', [lambda x: np.pi -x[2],3], ['Angle (radians)', 'Location (m) '])
+    plot_log('doublependulum.DoublePendulum_bck', [2,3], ['Inner pendulum angle (radians)','Outer pendulum angle (radians)'], succ_thrs = 40.0)
+    plot_log('doublependulum.DoublePendulumEMM', [2,3], ['Inner pendulum angle (radians)','Outer pendulum angle (radians)'], succ_thrs = 40.0)
+
+    plot_log('heli.AutorotationEMM',[ lambda x: -x[11],12],['Altitude (m)','Rotor speed (x 100 rpm)'])
+    plot_log('heli.Autorotation_mm',[ lambda x: -x[11],12],['Altitude (m)','Rotor speed (x 100 rpm)'])
+
+    plot_log('heli.Heli_mm',[lambda x: 20-x[11],],['Altitude (m)'], state_avg = 11)
+    plot_log('heli.HeliEMM',[lambda x: 20-x[11],],['Altitude (m)'])
+
+else:
+    pass

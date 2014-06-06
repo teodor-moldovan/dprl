@@ -260,6 +260,7 @@ class DynamicalSystem:
     fixed_horizon= False
     collocation_points = 35
     episode_max_h = float('inf')
+    state_observation_error =  1e-3
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
 
