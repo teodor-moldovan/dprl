@@ -431,6 +431,70 @@ class TestsTools(unittest.TestCase):
         np.testing.assert_almost_equal( e.get(),rs,3)
 
 
+    def test_int(self):
+        i = ExplicitRK('rk4')
+        
+        def f(x,t):
+            dx = array(x.shape)
+            ufunc('a=-b/(t+1)')(dx,x,t)
+            return dx
+
+
+        rs = i.integrate(f,
+                to_gpu(np.array([[1.0,],[2.0,]])),
+                to_gpu(.001*np.array([[1.0,],[1.0,]]))
+            )
+
+
+    def test_numdiff(self):
+        l,m,n = 11, 32,28
+
+        num = NumDiff()
+        
+        np.random.seed(1)
+        xn = np.random.normal(size=l*n).reshape(l,n)
+        an = np.random.normal(size=m*n).reshape(m,n)
+        
+        x = to_gpu(xn)
+
+        tpl = Template(
+        """
+        __device__ void f(
+                {{ dtype }} *p1,
+                {{ dtype }} *p2 
+                ){
+
+        {{ dtype }} s=0;
+        
+        {% for i in rm %}s=0;
+        {% for j in rn %}s += *(p1 + {{ j }})*{{ an[i][j] }};
+        {% endfor %}
+        *(p2+{{ i }}) = s;{% endfor %}
+        };
+
+        """
+        ).render(rm=range(m),rn=range(n),an=an, dtype = cuda_dtype)
+
+        f_k = rowwise(tpl)
+
+        
+        def f(y):
+            d = array((y.shape[0],m)) 
+            f_k(y,d)
+            return d
+
+
+        df = num.diff(f,x)
+        
+        x.newhash()
+        t = tic()
+        df = num.diff(f,x)
+        toc(t)
+
+        np.testing.assert_array_almost_equal(df.get()[0], an.T,8)
+        
+        
+
 class TestsDynamicalSystem(unittest.TestCase):
     def test_implicit(self):
         ds = self.ds
@@ -464,19 +528,6 @@ class TestsDynamicalSystem(unittest.TestCase):
         r = ds.explf(x,u)
         toc(t)
 
-    def test_disp(self):
-
-        seed = 44 # 11,15,22
-        np.random.seed(seed)
-
-        env = self.DS()
-        env.dt = .01
-        #env.state = 2*np.pi*2*(np.random.random(self.ds.nx)-0.5)
-        env.state = 0.001*(np.random.random(env.nx)-0.5)
-        trj = env.step(ZeroPolicy(env.nu), 100)
-        env.plot_state_seq(trj[1])
-        plt.show()
-
     def test_accs(self):
         ds = self.DS()
 
@@ -496,6 +547,24 @@ class TestsDynamicalSystem(unittest.TestCase):
         print 'state derivative: '
         print  ds.dstate2str(r)
         
+
+    def test_cca(self):
+        ds = self.DS()
+        np.random.seed(10)
+        
+        l,nx,nu = 1000, ds.nx, ds.nu
+        n = 2*nx+nu
+        zn = 3+10*np.random.normal(size=l*n).reshape(l,n)
+        z = to_gpu(zn)
+        
+        x,u = zn[:,ds.nx:2*ds.nx],zn[:,2*ds.nx:]
+        a = ds.explf(to_gpu(x),to_gpu(u)).get()
+        
+        a += 1e-3*np.random.normal(size=a.size).reshape(a.shape)
+        trj =  (None,a,x,u)
+        ds.update(trj)
+        
+         
     def test_geometry(self):
         ds = self.DS()
 
@@ -508,110 +577,6 @@ class TestsDynamicalSystem(unittest.TestCase):
 
         print res.get()
 
-    def test_cost(self):
-        ds = self.DS()
-
-        np.random.seed(6)
-        x = np.random.random(ds.nx)-0.5
-        u = np.random.random(ds.nu)-0.5
-
-        ds.get_cost(x[np.newaxis,:],u[np.newaxis,:])
-        
-    def test_ddp_pilco_compare(self):
-        # constants
-        seed = 1
-        
-        # get dynamical system
-        env = self.DS(cost_type = 'quad_cost', squashing_function = sympy.tanh)
-        T = env.H # get time horizon from dynamical system
-        
-        # sample initial state
-        np.random.seed(seed)
-        x0 = env.state
-        #x0 = 2*np.pi*2*(np.random.random(env.nx)-0.5)
-        
-        # create DDP planner
-        ddp = DDPPlanner(env,x0,T)
-        
-        # run DDP planner
-        #policy,x,u = ddp.direct_plan(500)
-        
-        # uncomment this line to run unicycle
-        #policy,x,u = ddp.incremental_plan(50,500,1,10)
-        
-        # run continuation method
-        policy,x,u = ddp.continuation_plan(10,500)
-        
-        # evaluate PILCO cost
-        dct = env.symbolics() # switch to PILCO cost
-        env.cost = dct['pilco_cost']()
-        env.codegen() # recompile the costs
-        totcost = np.sum(env.get_cost(x,u[:,:env.nu])[0]) # compute PICLO cost
-        print 'PILCO cost:',totcost # print result
-        
-        # execute
-        env.state = x0
-        env.t = 0
-        x,u = env.discrete_time_rollout(policy,env.state,T)
-
-        # render result
-        env.plot_state_seq(x)
-        plt.show()
-
-    def test_ddp(self):
-        # constants
-        seed = 1
-        
-        # get dynamical system
-        # no squashing
-        #env = self.DS(cost_type = 'quad_cost', squashing_function=None)
-        
-        # example with squashing
-        env = self.DS(cost_type = 'quad_cost', squashing_function = sympy.tanh)
-        T = env.H
-        
-        # sample initial state
-        np.random.seed(seed)
-        env.randomize_state()
-
-        x0 = env.state
-        #x0 = 2*np.pi*2*(np.random.random(env.nx)-0.5)
-        
-        # create DDP planner
-        ddp = DDPPlanner(env,x0,T)
-        
-        # run DDP planner
-        #policy,x,u = ddp.direct_plan(500)
-        #policy,x,u = ddp.incremental_plan(50,500,1,4)
-        policy,x,u = ddp.continuation_plan(10,500)
-        
-        # execute
-        env.state = x0
-        env.t = 0
-        x,u = env.discrete_time_rollout(policy,env.state,T)
-
-        # render result
-        env.plot_state_seq(x)
-        plt.show()
-        
-    def test_discrete_time(self):
-        ds = self.DS()
-        np.random.seed(10)
-        
-        l,nx,nu = 11*8, ds.nx, ds.nu
-        n = 2*nx+nu
-        np.random.seed(3)
-        zn = np.random.random(l*n).reshape(l,n)
-
-        x,u = zn[:,ds.nx:-ds.nu],zn[:,-ds.nu:]
-
-        r = ds.integrate(to_gpu(x),to_gpu(u))
-        A,B = ds.discrete_time_linearization(x,u)
-        
-        t = tic()
-        A,B = ds.discrete_time_linearization(x,u)
-        toc(t)
-
     def test_forward(self):
 
         env = self.DS()
@@ -623,14 +588,16 @@ class TestsDynamicalSystem(unittest.TestCase):
             trj = env.step(ZeroPolicy(env.nu),5)
 
 
-    def test_learning_repeating(self):
+    def test_learning(self):
 
-        env = self.DS()
+        env = self.DS()     # proxy for real, known system.
+        ds = self.DSMM()    # model to be trained online
 
-        ds = self.DSMM()
         pp = SlpNlp(GPMcompact(ds,ds.collocation_points))
 
         while True:
+            # loop over learning episodes
+
             ds.clear()
 
             env.initialize_state()
@@ -638,20 +605,26 @@ class TestsDynamicalSystem(unittest.TestCase):
             env.dt = .01
             env.noise = np.array([.01,0.0,0.0])
 
+            # start with a sequence of random controls
             trj = env.step(RandomPolicy(env.nu,umax=.1),2*ds.nf) 
-            ds.update(trj)
-            
             cnt = 0
+
             while True:
+                # loop over time steps
+
+                tmm = time.time()
+                ds.update(trj)
+                print 'clock time spent updating model: ', time.time()-tmm
 
                 env.reset_if_need_be()
                 env.print_state()
-                ds.state = env.state.copy() + ds.state_observation_error*np.random.normal(size=env.nx)
+                ds.state = env.state.copy() + env.noise[0]*np.random.normal(size=env.nx)
 
                 tmm = time.time()
                 pi = pp.solve()
                 print 'clock time spent planning: ', time.time()-tmm
                 
+                # stopping criterion
                 dst = np.nansum( 
                     ((ds.state - ds.target)**2)[np.logical_not(ds.c_ignore)])
                 if pi.max_h < .1 or dst < 1e-4:
@@ -662,51 +635,6 @@ class TestsDynamicalSystem(unittest.TestCase):
                     break
 
                 trj = env.step(pi,5)
-                tmm = time.time()
-                ds.update(trj)
-                print 'clock time spent updating model: ', time.time()-tmm
-
-    def test_learning(self):
-
-        env = self.DS()
-
-        ds = self.DSMM()
-        pp = SlpNlp(GPMcompact(ds,ds.collocation_points))
-
-
-        env.initialize_state()
-        env.t = 0
-        env.dt = .01
-        env.noise = np.array([.01,0.0,0.0])
-
-        trj = env.step(RandomPolicy(env.nu,umax=.1),2*ds.nf) 
-        
-        cnt = 0
-        while True:
-            ds.update(trj)
-
-            env.reset_if_need_be()
-            env.print_state()
-            ds.state = env.state.copy() + ds.state_observation_error*np.random.normal(size=env.nx)
-
-            tmm = time.time()
-            pi = pp.solve()
-            print 'clock time spent planning: ', time.time()-tmm
-            
-            dst = np.nansum( 
-                ((ds.state - ds.target)**2)[np.logical_not(ds.c_ignore)])
-            if pi.max_h < .1 or dst < 1e-4:
-                cnt += 1
-            if cnt>20:
-                break
-            if env.t >= ds.episode_max_h:
-                break
-
-            trj = env.step(pi,5)
-            tmm = time.time()
-            print 'clock time spent updating model: ', time.time()-tmm
-
-
 
     def test_pp(self):
 
@@ -804,45 +732,6 @@ class TestsPendubot(TestsDynamicalSystem):
 class TestsUnicycle(TestsDynamicalSystem):
     from unicycle import Unicycle as DS
     #from unicycle import UnicycleMM as DSMM
-    def test_cca(self):
-        ds = Unicycle()
-        np.random.seed(10)
-        
-        l,nx,nu = 1000, ds.nx, ds.nu
-        n = 2*nx+nu
-        zn = 3+10*np.random.normal(size=l*n).reshape(l,n)
-        z = to_gpu(zn)
-        
-        x,u = zn[:,ds.nx:2*ds.nx],zn[:,2*ds.nx:]
-        a = ds.explf(x,u)
-        
-        a += 1e-3*np.random.normal(size=a.size).reshape(a.shape)
-        trj =  (None,a,x,u)
-        ds.update(trj)
-        
-         
-    def test_pp_iter(self):
-
-        env = self.DS()
-        ds = self.DS()
-        env.dt = .01
-        ds.log_h_init = 0.0
-        
-        pp = SlpNlp(GPMcompact(ds,35))
-
-        for t in range(10000):
-            env.reset_if_need_be()
-            s = env.state
-            env.print_state()
-            ds.state = env.state.copy()+1e-5*np.random.normal(size=env.nx)
-            pi = pp.solve()
-
-            if pi.iters < 4:
-                pi = ZeroPolicy(env.nu)
-
-            trj = env.step(pi,5)
-
-
     def test_learning(self):
 
         env = self.DS()
@@ -938,71 +827,6 @@ class TestsSwimmer(TestsDynamicalSystem):
 
             trj = env.step(pi,100)
 
-
-class TestsPP(unittest.TestCase):
-    def test_int(self):
-        i = ExplicitRK('rk4')
-        
-        def f(x,t):
-            dx = array(x.shape)
-            ufunc('a=-b/(t+1)')(dx,x,t)
-            return dx
-
-
-        rs = i.integrate(f,
-                to_gpu(np.array([[1.0,],[2.0,]])),
-                to_gpu(.001*np.array([[1.0,],[1.0,]]))
-            )
-
-
-    def test_numdiff(self):
-        l,m,n = 11, 32,28
-
-        num = NumDiff()
-        
-        np.random.seed(1)
-        xn = np.random.normal(size=l*n).reshape(l,n)
-        an = np.random.normal(size=m*n).reshape(m,n)
-        
-        x = to_gpu(xn)
-
-        tpl = Template(
-        """
-        __device__ void f(
-                {{ dtype }} *p1,
-                {{ dtype }} *p2 
-                ){
-
-        {{ dtype }} s=0;
-        
-        {% for i in rm %}s=0;
-        {% for j in rn %}s += *(p1 + {{ j }})*{{ an[i][j] }};
-        {% endfor %}
-        *(p2+{{ i }}) = s;{% endfor %}
-        };
-
-        """
-        ).render(rm=range(m),rn=range(n),an=an, dtype = cuda_dtype)
-
-        f_k = rowwise(tpl)
-
-        
-        def f(y):
-            d = array((y.shape[0],m)) 
-            f_k(y,d)
-            return d
-
-
-        df = num.diff(f,x)
-        
-        x.newhash()
-        t = tic()
-        df = num.diff(f,x)
-        toc(t)
-
-        np.testing.assert_array_almost_equal(df.get()[0], an.T,8)
-        
-        
 
 if __name__ == '__main__':
     """ to avoid merge conflicts, let's run individual tests 

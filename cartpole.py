@@ -1,8 +1,7 @@
 from planning import *
 
 class CartPoleBase:
-    noise, H = 0.05, 200
-    state_observation_error =  0.0
+    noise = 0.05
     def initial_state(self):
         state = np.zeros(self.nx)
         state[self.nx/2:] = .25*np.random.normal(size = self.nx/2)

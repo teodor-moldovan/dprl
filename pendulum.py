@@ -1,7 +1,6 @@
 from planning import *
 
 class PendulumBase:
-    state_observation_error =  0.0
     def initial_state(self):
         state = 1.0*np.random.normal(size = self.nx)
         return state 

@@ -4,7 +4,7 @@ all: ft
 #CMD = python test.py TestsAutorotation.test_learning
 #CMD = python test.py TestsAutorotation.test_pp_iter
 #CMD = python test.py TestsHeli.test_accs
-CMD = python test.py TestsPendulum.test_learning
+CMD = python test.py TestsPendulum.test_cca
 plots:
 	python plots.py
 noft: 

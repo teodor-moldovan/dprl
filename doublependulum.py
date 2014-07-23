@@ -1,7 +1,6 @@
 from planning import *
 
 class DoublePendulumBase:
-    state_observation_error =  0.0
     def initial_state(self):
         state = np.zeros(self.nx)
         state[2:] = np.pi
@@ -59,11 +58,9 @@ class DoublePendulumBase:
 
         return locals()
 
-class DoublePendulum(DoublePendulumBase,DynamicalSystem):
-    pass
 
+class DoublePendulum(DoublePendulumBase,CostsDS):
+    pass
+    
 class DoublePendulumQ(DoublePendulumBase,CostsDS):
     log_h_init = 0
-    pass
-    
-    
