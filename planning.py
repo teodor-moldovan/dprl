@@ -1,5 +1,4 @@
 from tools import *
-#from knitro import *
 import numpy.polynomial.legendre as legendre
 import scipy.integrate 
 from  scipy.sparse import coo_matrix
@@ -8,12 +7,6 @@ import math
 import cPickle
 import re
 import sympy
-
-import matplotlib as mpl
-#mpl.use('pdf')
-import matplotlib.pyplot as plt
-from matplotlib import animation 
-from scipy.optimize import fmin_l_bfgs_b as l_bfgs_b
 
 try:
     import mosek
@@ -676,8 +669,9 @@ class DynamicalSystem:
     def reset_if_need_be(self):
         pass
 
-# experimental below
 class CostsDS(DynamicalSystem):
+    # wrapper to include costs in state space
+    # not properly tested
     optimize_var = -1
     log_h_init = 0
     fixed_horizon = True
@@ -1111,184 +1105,6 @@ class EMcompact(GPMcompact):
         pi.x = x
         pi.uxi = z[self.iv_u].copy()
         return pi
-
-
-class KnitroNlp():
-    def __init__(self, prob):
-        """ initialize planner for dynamical system"""
-        self.prob = prob
-        self.kc = self.prep_solver() 
-        self.is_first = True
-
-
-    def __del__(self):
-        KTR_free(self.kc)
-
-
-
-    def prep_solver(self):
-        prob = self.prob
-        n,m = prob.nv, prob.nc
-        
-        self.ret_x = [0,]*n
-        self.ret_lambda = [0,]*(n+m)
-        self.ret_obj = [0,]
-
-        objGoal = KTR_OBJGOAL_MINIMIZE
-        #objType = KTR_OBJTYPE_QUADRATIC;
-        objType = KTR_OBJTYPE_LINEAR;
-        
-        bndsLo =  [ -KTR_INFBOUND,]*prob.nv
-        bndsUp =  [ +KTR_INFBOUND,]*prob.nv
-
-        cType   = ([ KTR_CONTYPE_LINEAR ]*prob.ic_col.size 
-                 + [ KTR_CONTYPE_GENERAL ]*prob.ic_dyn.size 
-                 + [ KTR_CONTYPE_LINEAR ]*(prob.nc- prob.ic_col.size - prob.ic_dyn.size))
-        cBndsLo = [ 0.0 ]*prob.nc 
-        cBndsUp = [ 0.0 ]*prob.nc
-
-        ic,iv = self.prob.ccol_jacobian_inds()
-        jacIxVar, jacIxConstr = iv.tolist(),ic.tolist()
-
-
-        #---- CREATE A NEW KNITRO SOLVER INSTANCE.
-        kc = KTR_new()
-        if kc == None:
-            raise RuntimeError ("Failed to find a Ziena license.")
-
-        #---- DEMONSTRATE HOW TO SET KNITRO PARAMETERS.
-
-        if KTR_set_int_param(kc, KTR_PARAM_ALGORITHM, 1):
-            raise RuntimeError ("Error setting parameter 'algorithm'")
-
-        if KTR_set_int_param_by_name(kc, "hessopt", 2):
-            raise RuntimeError ("Error setting parameter 'hessopt'")
-
-        #if KTR_set_int_param(kc, KTR_PARAM_BAR_MURULE, 6):
-        #    raise RuntimeError ("Error setting parameter 'outlev'")
-
-        #if KTR_set_int_param(kc, KTR_PARAM_BAR_MAXCROSSIT, 10):
-        #    raise RuntimeError ("Error setting parameter 'outlev'")
-
-        if KTR_set_int_param_by_name(kc, "gradopt", KTR_GRADOPT_EXACT):
-            raise RuntimeError ("Error setting parameter 'gradopt'")
-
-        #if KTR_set_double_param_by_name(kc, "feastol", 1.0E-5):
-        #    raise RuntimeError ("Error setting parameter 'feastol'")
-
-        #if KTR_set_double_param_by_name(kc, "opttol", 1.0E-3):
-        #    raise RuntimeError ("Error setting parameter 'opttol'")
-
-        if KTR_set_int_param(kc, KTR_PARAM_OUTLEV, 2):
-            raise RuntimeError ("Error setting parameter 'outlev'")
-
-        ###
-
-        #if KTR_set_double_param(kc, KTR_PARAM_DELTA, 1e-8):
-        #    raise RuntimeError ("Error setting parameter 'outlev'")
-
-        #if KTR_set_int_param(kc, KTR_PARAM_SOC, 1):
-        #    raise RuntimeError ("Error setting parameter 'outlev'")
-
-        if KTR_set_int_param(kc, KTR_PARAM_HONORBNDS, 1):
-            raise RuntimeError ("Error setting parameter 'outlev'")
-
-        #if KTR_set_int_param(kc, KTR_PARAM_BAR_INITPT, 2):
-        #    raise RuntimeError ("Error setting parameter 'outlev'")
-
-        #if KTR_set_int_param(kc, KTR_PARAM_BAR_PENCONS, 2):
-        #    raise RuntimeError ("Error setting parameter 'outlev'")
-
-        #if KTR_set_int_param(kc, KTR_PARAM_BAR_PENRULE, 2):
-        #    raise RuntimeError ("Error setting parameter 'outlev'")
-
-        #if KTR_set_int_param(kc, KTR_PARAM_BAR_FEASIBLE, 1):
-        #    raise RuntimeError ("Error setting parameter 'outlev'")
-
-        ##
-
-
-        if KTR_set_int_param(kc, KTR_PARAM_PAR_CONCURRENT_EVALS, 0):
-            raise RuntimeError ("Error setting parameter")
-
-        #if KTR_set_double_param(kc, KTR_PARAM_INFEASTOL, 1e-4):
-        #    raise RuntimeError ("Error setting parameter")
-
-
-        #if KTR_set_int_param(kc, KTR_PARAM_LPSOLVER, 3):
-        #    raise RuntimeError ("Error setting parameter 'linsolver'")
-
-        if KTR_set_int_param(kc,KTR_PARAM_MAXIT,1000):
-            raise RuntimeError ("Error setting parameter 'maxit'")
-
-        #---- INITIALIZE KNITRO WITH THE PROBLEM DEFINITION.
-        ret = KTR_init_problem (kc, n, objGoal, objType, bndsLo, bndsUp,
-                                        cType, cBndsLo, cBndsUp,
-                                        jacIxVar, jacIxConstr,
-                                        None, None,
-                                        None, None)
-        if ret:
-            raise RuntimeError ("Error initializing the problem, KNITRO status = %d" % ret)
-        
-
-        # define callbacks: 
-        
-        
-        def callbackEvalFC(evalRequestCode, n, m, nnzJ, nnzH, x, lambda_, 
-                obj, c, objGrad, jac, hessian, hessVector, userParams):
-            if not evalRequestCode == KTR_RC_EVALFC:
-                return KTR_RC_CALLBACK_ERR
-
-            x = np.array(x)
-            obj[0] = self.prob.obj(x) 
-            c[:] = self.prob.ccol(x).tolist()
-            return 0
-
-        if KTR_set_func_callback(kc, callbackEvalFC):
-            raise RuntimeError ("Error registering function callback.")
-
-        def callbackEvalGA(evalRequestCode, n, m, nnzJ, nnzH, x, lambda_, 
-                obj, c, objGrad, jac, hessian, hessVector, userParams):
-            if not evalRequestCode == KTR_RC_EVALGA:
-                return KTR_RC_CALLBACK_ERR
-
-            x = np.array(x)
-            tmp = np.zeros(len(objGrad))
-            tmp[self.prob.obj_grad_inds()] = self.prob.obj_grad(x)
-            objGrad[:] = tmp.tolist()
-            jac[:] = self.prob.ccol_jacobian(x).tolist()
-            return 0
-
-        if KTR_set_grad_callback(kc, callbackEvalGA):
-            raise RuntimeError ("Error registering gradient callback.")
-                
-        return kc
-
-    def solve(self):
-        
-        bl,bu = self.prob.bounds()
-        if not self.is_first and False:
-            x = self.ret_x
-        else:
-            self.is_first= False
-            x = self.prob.initialization().tolist()
-        l = None
-        
-        bl[np.isinf(bl)] = -KTR_INFBOUND
-        bu[np.isinf(bu)] =  KTR_INFBOUND
-
-        KTR_chgvarbnds(self.kc, bl.tolist(), bu.tolist())
-        KTR_restart(self.kc, x, l)
-        
-        nStatus = KTR_solve (self.kc, self.ret_x, self.ret_lambda, 0, 
-                        self.ret_obj, None, None, None, None, None, None)
-        status = [0,]
-        KTR_get_solution(self.kc, 
-                    status, self.ret_obj, self.ret_x, self.ret_lambda)
-        if nStatus !=0:
-            print 'Infeas'
-
-        return self.prob.get_policy(np.array(self.ret_x))
 
 
 class SlpNlp():
