@@ -154,16 +154,7 @@ class HeliBase:
 
 class Heli(HeliBase, DynamicalSystem):
     inverted_hover = False
-class HeliMM(HeliBase,MixtureDS):
-    inverted_hover = False
-    episode_max_h = 20.0
-    prior_weight = 10.0
-class HeliEMM(HeliMM):
-    add_virtual_controls = False
 class HeliInverted(Heli):
-    inverted_hover = True
-class HeliInvertedMM(HeliMM):
-    prior_weight = 10.0
     inverted_hover = True
 class AutorotationBase:
     collocation_points = 15
@@ -353,18 +344,7 @@ class AutorotationBase:
 
 class Autorotation(AutorotationBase, DynamicalSystem):
     pass
-class AutorotationMM(AutorotationBase, MixtureDS):
-    prior_weight = 10.0
-    episode_max_h = 20.0
-class AutorotationEMM(AutorotationMM):
-    add_virtual_controls = False
 class AutorotationQ(Autorotation):
-    velocity_target = False
-    optimize_var = -2
-    log_h_init = 0.0
-    fixed_horizon = True
-class AutorotationQMM(AutorotationBase, MixtureDS):
-    prior_weight = 1.0
     velocity_target = False
     optimize_var = -2
     log_h_init = 0.0

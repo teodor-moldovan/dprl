@@ -58,15 +58,8 @@ class CartPoleBase:
         cost = quad_cost
         return locals()
 
-class CartPoleMM(CartPoleBase,MixtureDS):
-    pass
-class CartPoleEMM(CartPoleMM):
-    add_virtual_controls = False
-    episode_max_h = 20.0
 class CartPole(CartPoleBase,DynamicalSystem):
     pass
 class CartPoleQ(CartPoleBase,CostsDS):
-    pass
-class CartPoleMMQ(CartPoleBase,MixtureCostsDS):
     pass
     

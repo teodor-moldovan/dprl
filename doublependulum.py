@@ -59,11 +59,6 @@ class DoublePendulumBase:
 
         return locals()
 
-class DoublePendulumMM(DoublePendulumBase,MixtureDS):
-    pass
-class DoublePendulumEMM(DoublePendulumBase,MixtureDS):
-    add_virtual_controls = False
-    episode_max_h = 40.0
 class DoublePendulum(DoublePendulumBase,DynamicalSystem):
     pass
 
@@ -71,7 +66,4 @@ class DoublePendulumQ(DoublePendulumBase,CostsDS):
     log_h_init = 0
     pass
     
-class DoublePendulumMMQ(DoublePendulumBase,MixtureCostsDS):
-    log_h_init = np.log(2.0)
-    pass
     

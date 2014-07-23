@@ -38,11 +38,5 @@ class PendulumBase:
 
         return locals()
 
-class PendulumMM(PendulumBase,MixtureDS):
-    pass
-
-class PendulumEMM(PendulumMM):
-    add_virtual_controls = False
-    episode_max_h = 20.0
 class Pendulum(PendulumBase,DynamicalSystem):
     pass

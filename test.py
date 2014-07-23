@@ -1,11 +1,9 @@
 import unittest
 import time
-from clustering import *
 from planning import *
 import time
 import scipy.linalg
 import scipy.special
-#import dpcluster
 
 class TestsTools(unittest.TestCase):
     def test_array(self):
@@ -433,880 +431,6 @@ class TestsTools(unittest.TestCase):
         np.testing.assert_almost_equal( e.get(),rs,3)
 
 
-class TestsClustering(unittest.TestCase):
-    def test_niw_ss(self):
-        l,m = 32*8*11, 32
-
-        xn = np.random.normal(size=l*m).reshape(l,m)
-        dn = np.zeros((l,m*(m+1)+2))
-
-        x = to_gpu(xn)
-        
-        t = time.time()
-        dn[:,:m] = xn
-        dn[:,m:m*(m+1)] = (xn[:,:,np.newaxis]*xn[:,np.newaxis,:]).reshape(l,-1)
-        dn[:,-2:] = 1.0
-        msecs = (time.time()-t)*1000
-        print 'CPU ',msecs ,'ms'
-
-        start = drv.Event()
-        end = drv.Event()
-
-        s = NIW(m,l)
-
-        d = s.sufficient_statistics(x)
-
-
-        start.record()
-        start.synchronize()
-        x.newhash()
-        d = s.sufficient_statistics(x)
-        end.record()
-        end.synchronize()
-
-        msecs_ = start.time_till(end)
-        print "GPU ", msecs_, 'ms'
-        print "Speedup: ", msecs/msecs_
-        np.testing.assert_almost_equal( d.get()/dn,1.0,4)
-        
-         
-         
-    def test_niw_streaming(self):
-        l,p = 32*8*11, 32
-        k,q = 15, 6 
-
-        np.random.seed(1)
-        xn = np.random.normal(size=l*p).reshape(l,p)
-
-        s = StreamingNIW(p)
-        s.update(to_gpu(xn))
-
-
-        x = np.random.normal(size=k*q).reshape(k,q)
-        xi = np.random.normal(size=k*(p-q)).reshape(k,p-q)
-
-        s.predict(to_gpu(x),to_gpu(xi))
-        
-         
-         
-    def test_niw_nat(self):
-
-        l,p = 32*8*11,40
-
-        d = NIW(p,l)
-        np.random.seed(6)
-
-        tau = np.random.random(size=l*(p*(p+1)+2)).reshape(l,p*(p+1)+2)
-
-        l1 = tau[:,:p]
-        l2 = tau[:,p:-2].reshape(-1,p,p)
-        l3 = tau[:,-2]
-        l4 = tau[:,-1]
-
-        n = l3
-        nu = l4 - 2 - p
-        mu = l1/l3[:,np.newaxis]
-        
-        df = l1[:,:,np.newaxis]*l1[:,np.newaxis,:]/l3[:,np.newaxis,np.newaxis]
-        psi = l2-df
-        
-        t  = to_gpu(tau) 
-
-        d.from_nat(t)
-        d.from_nat(t)
-        d.from_nat(t)
-        d.from_nat(t)
-        d.from_nat(t)
-
-        start = drv.Event()
-        end = drv.Event()
-
-        start.record()
-        start.synchronize()
-
-        t.newhash()
-        d.from_nat(t)
-
-        end.record()
-        end.synchronize()
-
-        msecs_ = start.time_till(end)
-        print "GPU ", msecs_, 'ms'  
-
-        
-        np.testing.assert_array_almost_equal(d.n.get(),n,4)
-        np.testing.assert_array_almost_equal(d.nu.get(),nu,4)
-        np.testing.assert_array_almost_equal(d.mu.get(),mu,3)
-        np.testing.assert_array_almost_equal(d.psi.get(),psi,3)
-
-        np.testing.assert_array_almost_equal(d.get_nat().get(),tau,2)
-
-
-
-    def test_niw_cond(self):
-        l,p,q = 32*8*11,32,4
-        l,p,q = 8*12,32,4
-
-        s = NIW(p,l)
-
-        np.random.seed(6)
-        so = np.random.normal(size=l*p*p).reshape(l,p,p)
-        psi = np.einsum('nij,nkj->nik',so,so)
-        mu = np.random.normal(size=l*p).reshape(l,p)
-        x = np.random.normal(size=l*(p-q)).reshape(l,(p-q))
-        n = np.random.random(size=l)*10
-        nu = np.random.random(size=l)*10+p
-
-        ###
-        t = time.time()
-        i1 = slice(0,q)
-        i2 = slice(q,p)
-        
-        my,mx = mu[:,i1],mu[:,i2]
-
-        A,B,D = psi[:,i1,:][:,:,i1], psi[:,i1,:][:,:,i2], psi[:,i2,:][:,:,i2]
-
-        Di = np.array(map(np.linalg.inv,D))
-        P = np.einsum('njk,nkl->njl',B,Di)
-
-        psib = A-np.einsum('nik,nlk->nil',P,B)
-
-        df = x-mx
-
-        nb = 1.0/(np.einsum('ni,nij,nj->n',df,Di,df) + 1.0/n)
-
-        nub = nu
-        
-        mub = my + np.einsum('nij,nj->ni',P,df)
-        
-        msecs = (time.time()-t)*1000
-        print 'CPU ',msecs ,'ms'
-        
-        ##
-        
-        s.mu  = to_gpu(  mu)
-        s.psi = to_gpu( psi)
-        s.n   = to_gpu(   n)
-        s.nu  = to_gpu(  nu)
-        x = to_gpu(  x)
-
-        d = s.conditional(x)
-        d = s.conditional(x)
-        d = s.conditional(x)
-        d_ = s.conditional(x)
-
-        start = drv.Event()
-        end = drv.Event()
-
-        start.record()
-        start.synchronize()
-        x.newhash()
-        d = s.conditional(x)
-        end.record()
-        end.synchronize()
-
-        self.assertEqual(d.psi.ptr,d_.psi.ptr)
-
-        msecs_ = start.time_till(end)
-        print "GPU ", msecs_, 'ms'  
-
-        print "Speedup: ", msecs/msecs_
-
-        np.testing.assert_array_almost_equal(d.nu.get(),nub,4)
-        np.testing.assert_array_almost_equal(d.psi.get(),psib,3)
-        np.testing.assert_array_almost_equal(d.mu.get(),mub,2)
-        np.testing.assert_array_almost_equal(d.n.get(),nb,4)
-
-
-
-    def test_niw_cond_tools(self):
-        l,k,p,py = 8*12,25,28,4
-        px = p-py
-
-        s = NIW(p,l)
-
-        np.random.seed(6)
-        so = np.random.normal(size=l*p*p).reshape(l,p,p)
-        psi = np.einsum('nij,nkj->nik',so,so) + 10*np.eye(p)[np.newaxis,:,:]
-        mu = np.random.normal(size=l*p).reshape(l,p)
-        x = np.random.normal(size=k*px).reshape(k,px)
-        n = np.random.random(size=l)*10+ 1
-        nu = np.random.random(size=l)*10+2*p
-
-        s.mu  = to_gpu(  mu)
-        s.psi = to_gpu( psi)
-        s.n   = to_gpu(   n)
-        s.nu  = to_gpu(  nu)
-        
-        fn,fmu,fmo,Pyy_bar = s.cond_linear_forms(py)
-        
-        i,j = -1,-1
-
-        fn = fn.get()[i]
-        fmu = fmu.get()[i]
-        fmo = fmo.get()[i]
-
-        m = s.mu.get()[i]
-        my = m[:py]
-        mx = m[py:]
-
-        nu = s.nu.get()[i]
-        n  = s.n.get()[i]
-
-        P  = s.psi.get()[i]
-        Pyy = P[:py,:py]
-        Pxx = P[py:,py:]
-        Pyx = P[:py,py:]
-        Pxy = P[py:,:py]
-
-        t = s.sufficient_statistics(to_gpu(  x)).get()[j]
-        x = x[j]
-        
-        d = x-mx
-        
-        r  = np.dot(fn,t)
-        r_ = n*np.dot(d,np.linalg.solve(Pxx,d))
-        np.testing.assert_array_almost_equal(r,r_)
-        
-        r_ = np.dot(fmu,t)  
-        b  = np.dot(Pyx, np.linalg.solve(Pxx,d)) + my
-        r = b
-        
-        np.testing.assert_array_almost_equal(r,r_)
-
-        r_ = np.dot(fmo,t)  
-        r =  b[:,np.newaxis]*b[np.newaxis,:]
-
-        np.testing.assert_array_almost_equal(r,r_)
-
-    def test_niw_cond_mix(self):
-        l,k,p,py = 28,28,30,4
-        px = p-py
-
-        s = NIW(p,l)
-
-        np.random.seed(6)
-        so = np.random.normal(size=l*p*p).reshape(l,p,p)
-        psi = np.einsum('nij,nkj->nik',so,so) + 10*np.eye(p)[np.newaxis,:,:]
-        mu = np.random.normal(size=l*p).reshape(l,p)
-        x = np.random.normal(size=k*px).reshape(k,px)
-        n = np.random.random(size=l)*10+ 1
-        nu = np.random.random(size=l)*10+2*p
-
-        probs = to_gpu(np.eye(k,l))
-        x = to_gpu( x)
-        s.mu  = to_gpu(  mu)
-        s.psi = to_gpu( psi)
-        s.n   = to_gpu(   n)
-        s.nu  = to_gpu(  nu)
-        
-        clj = s.conditional(x)
-        clm = s.conditional_mix(probs,x)
-        
-        np.testing.assert_array_almost_equal(clj.n.get(),clm.n.get())
-        np.testing.assert_array_almost_equal(clj.nu.get(),clm.nu.get())
-        np.testing.assert_array_almost_equal(clj.mu.get(),clm.mu.get())
-        np.testing.assert_array_almost_equal(clj.psi.get(),clm.psi.get())
-        
-        
-        
-
-    def test_niw_marginal(self):
-        l,p,q = 32*8*11,40,32
-
-        s = NIW(p,l)
-
-        np.random.seed(6)
-        so = np.random.normal(size=l*p*p).reshape(l,p,p)
-        psi = np.einsum('nij,nkj->nik',so,so)
-        mu = np.random.normal(size=l*p).reshape(l,p)
-        n = np.random.random(size=l)*10+p
-        nu = np.random.random(size=l)*10+2*p
-        
-        s.mu  = to_gpu(  mu)
-        s.psi = to_gpu( psi)
-        s.n   = to_gpu(   n)
-        s.nu  = to_gpu(  nu)
-
-        d_ = s.marginal(q)
-
-        start = drv.Event()
-        end = drv.Event()
-
-        start.record()
-        start.synchronize()
-
-        s.mu.newhash()
-        d = s.marginal(q)
-
-        end.record()
-        end.synchronize()
-        self.assertEqual(d.psi.ptr,d_.psi.ptr)
-
-        msecs_ = start.time_till(end)
-        print "GPU ", msecs_, 'ms'  
-        np.testing.assert_array_almost_equal(d.n.get(),n,4)
-        np.testing.assert_array_almost_equal(d.nu.get(),nu-(p-q),4)
-        np.testing.assert_array_almost_equal(d.mu.get(),mu[:,-q:],4)
-        np.testing.assert_array_almost_equal(d.psi.get(),psi[:,-q:,-q:],4)
-
-    def test_niw_predll(self):
-        l,k,p = 100,32*8*11,32
-        #l,k,p = 100,40*12,32
-
-        s = NIW(p,l)
-
-        np.random.seed(10)
-        so  = np.random.normal(size=l*p*p).reshape(l,p,p)
-        psi = 1000*np.einsum('nij,nkj->nik',so,so)
-        mu  = np.random.normal(size=l*p).reshape(l,p)
-        x   = np.random.normal(size=k*p).reshape(k,p)
-
-        n  = (np.random.random(size=l)*10+2.0)
-        nu = (np.random.random(size=l)*10+2*p)
-
-
-        dn = np.zeros((k,p*(p+1)+2))
-        dn[:,:p] = x
-        dn[:,p:p*(p+1)] = (x[:,:,np.newaxis]*x[:,np.newaxis,:]).reshape(k,-1)
-        dn[:,-2:] = 1.0
-
-        
-        psi_ = psi*((n+1.0)/n/(nu-p+1.0) )[:,np.newaxis,np.newaxis]
-
-        inv = np.array(map(np.linalg.inv, psi_)) 
-        y = x[:,np.newaxis,:]- mu[np.newaxis,:,:]
-        rs = np.einsum('kij, nki,nkj->nk', inv, y,y )
-
-
-        nf = ( scipy.special.gammaln(.5*(nu+1.0)) 
-             - scipy.special.gammaln(.5*(nu-p+1.0)) 
-             - .5*p*np.log(np.pi) 
-             - .5*p*np.log(nu-p+1.0) 
-             - .5 * np.array(map(lambda x : np.linalg.slogdet(x)[1], psi_))
-            )
-
-        rs = ( nf[np.newaxis,:] 
-             -.5*np.log(rs/(nu-p+1)[np.newaxis,:] + 1.0)*(nu+1.0)[np.newaxis,:]
-            )
-
-        start = drv.Event()
-        end = drv.Event()
-
-        start.record()
-        start.synchronize()
-        s.mu  = to_gpu(  mu)
-        s.psi = to_gpu( psi)
-        s.n   = to_gpu(   n)
-        s.nu  = to_gpu(  nu)
-        x = to_gpu(  x)
-
-        end.record()
-        end.synchronize()
-
-        msecs_ = start.time_till(end)
-        print 'Trans, ',
-        print "GPU ", msecs_, 'ms'  
-        
-        d = array((k,l))
-
-        start = drv.Event()
-        end = drv.Event()
-
-
-        d = s.predictive_posterior_ll(x)
-        d = s.predictive_posterior_ll(x)
-        d = s.predictive_posterior_ll(x)
-        
-
-        if True:
-            start.record()
-            start.synchronize()
-            x.newhash()
-            d_ = s.predictive_posterior_ll(x)
-            end.record()
-            end.synchronize()
-
-            msecs_ = start.time_till(end)
-            print 'Exec,  ',
-            print "GPU ", msecs_, 'ms'  
-
-        self.assertEqual(d.ptr,d_.ptr)
-
-        rt = np.abs(d.get()-rs)/np.abs(rs)
-
-        np.testing.assert_array_less( rt, 1e-2)
-        
-
-    def test_niw_expll(self):
-        l,k,p = 100,32*8*11,32
-        #l,k,p = 10,40*12,32
-
-        s = NIW(p,l)
-
-        def multipsi(a,d):
-            res = np.zeros(a.shape)
-            for i in range(d):
-                res += scipy.special.psi(a - .5*i)
-            return res    
-
-        np.random.seed(10)
-        so  = np.random.normal(size=l*p*p).reshape(l,p,p)
-        psi = 1000*np.einsum('nij,nkj->nik',so,so)
-        mu  = np.random.normal(size=l*p).reshape(l,p)
-        x   = np.random.normal(size=k*p).reshape(k,p)
-        n  = (np.random.random(size=l)*10+1.0)
-        nu = (np.random.random(size=l)*10+2.0*p)
-
-        inv = np.array(map(np.linalg.inv, psi)) 
-        y = x[:,np.newaxis,:]- mu[np.newaxis,:,:]
-        rs = np.einsum('kij, nki,nkj->nk', inv, y,y )
-
-        dn = np.zeros((k,p*(p+1)+2))
-        dn[:,:p] = x
-        dn[:,p:p*(p+1)] = (x[:,:,np.newaxis]*x[:,np.newaxis,:]).reshape(k,-1)
-        dn[:,-2:] = 1.0
-        
-        nf = ( .5* multipsi(.5*nu,p) 
-             + .5*p*( np.log(2.0) ) - .5*p/n 
-             - .5 * np.array(map(lambda x : np.linalg.slogdet(x)[1], psi))
-            )
-
-        #print rs[728,81],rs[977,74] 
-        #print nf[81],nf[74]
-        
-        rs =  nf[np.newaxis,:] -.5*rs*nu[np.newaxis,:]
-
-        start = drv.Event()
-        end = drv.Event()
-
-        start.record()
-        start.synchronize()
-        s.mu  = to_gpu(  mu)
-        s.psi = to_gpu( psi)
-        s.n   = to_gpu(   n)
-        s.nu  = to_gpu(  nu)
-        x = to_gpu(  x)
-
-        end.record()
-        end.synchronize()
-
-        msecs_ = start.time_till(end)
-        print 'Trans, ',
-        print "GPU ", msecs_, 'ms'  
-        
-        d = array((k,l))
-
-        start = drv.Event()
-        end = drv.Event()
-
-        d = s.expected_ll(x)
-        d = s.expected_ll(x)
-        d = s.expected_ll(x)
-        d_ = s.expected_ll(x)
-
-        if True:
-            start.record()
-            start.synchronize()
-            x.newhash()
-            d = s.expected_ll(x)
-            end.record()
-            end.synchronize()
-
-            msecs_ = start.time_till(end)
-            print 'Exec,  ',
-            print "GPU ", msecs_, 'ms'  
-        
-        self.assertEqual(d.ptr,d_.ptr)
-
-        rt = np.abs(d.get()-rs)/np.abs(rs)
-
-        np.testing.assert_array_less( rt, .2)
-        
-
-
-    def test_sbp(self):
-
-        l = 100
-        s = SBP(l)
-
-        np.random.seed(3)
-        aln = np.random.random(size=l)*10
-        a  = 3.0
-
-
-        s.a = to_gpu(np.array((a,))) 
-        al = to_gpu(aln)
-        
-        s.from_counts(al)
-        
-        
-        # r = 
-
-        start = drv.Event()
-        end = drv.Event()
-
-        d = s.expected_ll() 
-        d = s.expected_ll() 
-
-        start.record()
-        start.synchronize()
-        s.al.newhash()
-        d = s.expected_ll() 
-        end.record()
-        end.synchronize()        
-        msecs_ = start.time_till(end)
-        print "GPU ", msecs_, 'ms'
-
-        #np.testing.assert_array_almost_equal(d.get(),r,4)
-
-        #r = np.log(al + 1) - np.log(cs + a)
-        start = drv.Event()
-        end = drv.Event()
-
-        d = s.predictive_posterior_ll()
-        d = s.predictive_posterior_ll()
-        d = s.predictive_posterior_ll()
-        d = s.predictive_posterior_ll()
-
-        start.record()
-        start.synchronize()
-        s.al.newhash()
-        d = s.predictive_posterior_ll()
-        end.record()
-        end.synchronize()        
-        msecs_ = start.time_till(end)
-        print "GPU ", msecs_, 'ms'
-
-        #np.testing.assert_array_almost_equal(d.get(),r,4)
-
-    def test_mix_pred_resp(self):
-        l,k,p = 100,32*11*8,32
-
-        
-        sbp = SBP(l)
-        clusters = NIW(p,l)
-        mix =  Mixture(sbp,clusters)
-        
-
-        np.random.seed(3)
-        aln = np.random.random(size=l)*10
-        a  = 3.0
-
-        mix.sbp.a = to_gpu(np.array((a,))) 
-        al = to_gpu(aln)
-        
-        mix.sbp.from_counts(al)
-        
-
-        so  = np.random.normal(size=l*p*p).reshape(l,p,p)
-        psi = 1000*np.einsum('nij,nkj->nik',so,so)
-        mu  = np.random.normal(size=l*p).reshape(l,p)
-        x   = np.random.normal(size=k*p).reshape(k,p)
-        n  = (np.random.random(size=l)*10+2.0)
-        nu = (np.random.random(size=l)*10+2*p)
-
-
-        mix.clusters.mu  = to_gpu(  mu)
-        mix.clusters.psi = to_gpu( psi)
-        mix.clusters.n   = to_gpu(   n)
-        mix.clusters.nu  = to_gpu(  nu)
-
-        x = to_gpu(  x)
-        
-
-        x.newhash()
-        d = mix.predictive_posterior_resps(x)
-        x.newhash()
-        d = mix.predictive_posterior_resps(x)
-        x.newhash()
-        d = mix.predictive_posterior_resps(x)
-        
-        start = drv.Event()
-        end = drv.Event()
-
-        start.record()
-        start.synchronize()
-        x.newhash()
-        d = mix.predictive_posterior_resps(x)
-
-        end.record()
-        end.synchronize()
-
-        msecs_ = start.time_till(end)
-        print "GPU ", msecs_, 'ms'  
-        np.testing.assert_array_almost_equal(d.get().sum(axis=1),1,4)
-
-
-
-
-    def test_mix_pseudo_resp(self):
-        l,k,p = 100,32*11*8,32
-
-        sbp = SBP(l)
-        clusters = NIW(p,l)
-        mix =  Mixture(sbp,clusters)
-
-        np.random.seed(3)
-        aln = np.random.random(size=l)*10
-        a  = 3.0
-
-        mix.sbp.a = to_gpu(np.array((a,))) 
-        al = to_gpu(aln)
-        
-        mix.sbp.from_counts(al)
-        
-
-        so  = np.random.normal(size=l*p*p).reshape(l,p,p)
-        psi = 1000*np.einsum('nij,nkj->nik',so,so)
-        mu  = np.random.normal(size=l*p).reshape(l,p)
-        x   = np.random.normal(size=k*p).reshape(k,p)
-        n  = (np.random.random(size=l)*10+2.0)
-        nu = (np.random.random(size=l)*10+2*p)
-
-
-        mix.clusters.mu  = to_gpu(  mu)
-        mix.clusters.psi = to_gpu( psi)
-        mix.clusters.n   = to_gpu(   n)
-        mix.clusters.nu  = to_gpu(  nu)
-
-        x = to_gpu(  x)
-        
-        x.newhash()
-        d = mix.pseudo_resps(x)
-        x.newhash()
-        d = mix.pseudo_resps(x)
-        x.newhash()
-        d = mix.pseudo_resps(x)
-        
-        start = drv.Event()
-        end = drv.Event()
-
-        start.record()
-        start.synchronize()
-        x.newhash()
-        d = mix.pseudo_resps(x)
-
-        end.record()
-        end.synchronize()
-
-        msecs_ = start.time_till(end)
-        print "GPU ", msecs_, 'ms'  
-
-        np.testing.assert_array_almost_equal(d.get().sum(axis=1),1,4)
-
-
-
-    def test_mix_marginal(self):
-        l,p,q = 100,32,5
-
-        sbp = SBP(l)
-        clusters = NIW(p,l)
-        mix =  Mixture(sbp,clusters)
-
-        np.random.seed(3)
-        aln = np.random.random(size=l)*10
-        a  = 3.0
-
-        mix.sbp.a = to_gpu(np.array((a,))) 
-        al = to_gpu(aln)
-        
-        mix.sbp.from_counts(al)
-        
-
-        so  = np.random.normal(size=l*p*p).reshape(l,p,p)
-        psi = 1000*np.einsum('nij,nkj->nik',so,so)
-        mu  = np.random.normal(size=l*p).reshape(l,p)
-        n  = (np.random.random(size=l)*10+2.0)
-        nu = (np.random.random(size=l)*10+2*p)
-
-
-        mix.clusters.mu  = to_gpu(  mu)
-        mix.clusters.psi = to_gpu( psi)
-        mix.clusters.n   = to_gpu(   n)
-        mix.clusters.nu  = to_gpu(  nu)
-
-        
-        d = mix.marginal(q)
-        d = mix.marginal(q)
-        d = mix.marginal(q)
-        
-        start = drv.Event()
-        end = drv.Event()
-
-        start.record()
-        start.synchronize()
-        mix.clusters.mu.newhash()
-        d = mix.marginal(q)
-        end.record()
-        end.synchronize()
-
-        msecs_ = start.time_till(end)
-        print "GPU ", msecs_, 'ms'  
-
-    def test_pred(self):
-        l,p,q = 100,32,28
-        k = 10*p
-
-        sbp = SBP(l)
-        clusters = NIW(p,l)
-        mix =  Mixture(sbp,clusters)
-        
-
-        np.random.seed(3)
-        aln = np.random.random(size=l)*10
-        a  = 3.0
-
-        mix.sbp.a = to_gpu(np.array((a,))) 
-        al = to_gpu(aln)
-        
-        mix.sbp.from_counts(al)
-        
-        so  = np.random.normal(size=l*p*p).reshape(l,p,p)
-        psi = 1000*np.einsum('nij,nkj->nik',so,so)
-        mu  = np.random.normal(size=l*p).reshape(l,p)
-        n  = (np.random.random(size=l)*10+2.0)
-        nu = (np.random.random(size=l)*10+2*p)
-        x = np.random.normal(size=k*q).reshape(k,q)
-        xi = np.random.normal(size=k*(p-q)).reshape(k,p-q)
-
-
-        mix.clusters.mu  = to_gpu(  mu)
-        mix.clusters.psi = to_gpu( psi)
-        mix.clusters.n   = to_gpu(   n)
-        mix.clusters.nu  = to_gpu(  nu)
-
-        x  = to_gpu(  x)
-        xi = to_gpu(  xi)
-        
-        prd = mix
-
-        for i in range(10):
-            x.newhash()
-            xi.newhash()
-            prd.predict(x,xi)
-
-        x.newhash()
-        xi.newhash()
-        t=tic()
-        d = prd.predict(x,xi)
-        print d
-        toc(t)
-
-
-    def test_pred_kl(self):
-        l,p,q = 100,28,26
-        k = 10*p
-
-        sbp = SBP(l)
-        clusters = NIW(p,l)
-        mix =  Mixture(sbp,clusters)
-        
-
-        np.random.seed(3)
-        aln = np.random.random(size=l)*10
-        a  = 3.0
-
-        mix.sbp.a = to_gpu(np.array((a,))) 
-        al = to_gpu(aln)
-        
-        mix.sbp.from_counts(al)
-        
-        so  = np.random.normal(size=l*p*p).reshape(l,p,p)
-        psi = 1000*np.einsum('nij,nkj->nik',so,so)
-        mu  = np.random.normal(size=l*p).reshape(l,p)
-        n  = (np.random.random(size=l)*10+2.0)
-        nu = (np.random.random(size=l)*10+2*p)
-        x = np.random.normal(size=k*q).reshape(k,q)
-        xi = np.random.normal(size=k*(p-q)).reshape(k,p-q)
-
-
-        mix.clusters.mu  = to_gpu(  mu)
-        mix.clusters.psi = to_gpu( psi)
-        mix.clusters.n   = to_gpu(   n)
-        mix.clusters.nu  = to_gpu(  nu)
-
-        x  = to_gpu(  x)
-        xi = to_gpu(  xi)
-        
-        prd = mix
-
-        for i in range(10):
-            x.newhash()
-            xi.newhash()
-            prd.predict_kl(x,xi)
-
-        x.newhash()
-        xi.newhash()
-        t=tic()
-        d = prd.predict_kl(x,xi)
-        toc(t)
-
-
-    def setUp(self):
-        np.random.seed(1)
-        As = np.array([[[1,2,5],[2,2,2]],
-                       [[-4,3,-1],[2,2,2]],
-                       [[-4,3,1],[-2,-2,-2]],
-                        ])
-        mus = np.array([[10,0,0],
-                        [0,10,0],
-                        [0,0,10],
-                        ])
-
-        n = 12000
-        self.nc = mus.shape[0]
-        self.data = np.vstack([self.gen_data(A,mu,n=n) for A,mu in zip(As,mus)])
-        self.As=As
-        self.mus=mus
-
-        
-
-
-    def gen_data(self,A, mu, n=10):
-        xs = np.random.multivariate_normal(mu,np.eye(mu.size),size=n)
-        ys = (np.einsum('ij,nj->ni',A,xs)
-            + np.random.multivariate_normal(
-                    np.zeros(A.shape[0]),np.eye(A.shape[0]),size=n))
-        
-        return np.hstack((ys,xs))
-        
-    def test_vdp(self):
-
-        data = self.data
-        l,p =  data.shape
-        k = 50
-
-        s = BatchVDP(Mixture(SBP(k),NIW(p,k)),buffer_size=l,w=.4)
-        
-        t=tic()
-        s.learn(to_gpu(data))
-        toc(t)
-        #print s.mix.sbp.al.get() -1.0
-        pmu = s.mix.clusters.cond_linear_forms(2)[1]
-        r_ = pmu.get()[:3,:2,:3]
-        r = self.As
-
-        np.testing.assert_array_almost_equal( r, r_[[2,1,0]],1)
-        
-
-         
-    def test_streaming_vdp(self):
-        l,n,k,p = 32*11*8,22, 44, 8
-
-
-        s = BatchVDP(Mixture(SBP(k),NIW(p,k)),buffer_size = l)
-
-        np.random.seed(1)
-        
-        for t in range(100):
-            xn = 10*np.random.normal(size=p)[np.newaxis,:]+np.random.normal(size=n*p).reshape(n,p)
-            
-            t=tic()
-            s.update(to_gpu(xn))
-            toc(t)
-            
-         
 class TestsDynamicalSystem(unittest.TestCase):
     def test_implicit(self):
         ds = self.ds
@@ -1393,7 +517,7 @@ class TestsDynamicalSystem(unittest.TestCase):
 
         ds.get_cost(x[np.newaxis,:],u[np.newaxis,:])
         
-    def test_pilco_compare(self):
+    def test_ddp_pilco_compare(self):
         # constants
         seed = 1
         
@@ -1499,31 +623,7 @@ class TestsDynamicalSystem(unittest.TestCase):
             trj = env.step(ZeroPolicy(env.nu),5)
 
 
-    def test_mm(self):
-
-        env = self.DS()
-        ds = self.DSMM()
-        np.random.seed(2)
-
-        l,nx,nu = 1000, ds.nx, ds.nu
-        n = 2*nx+nu
-        zn = 3+10*np.random.normal(size=l*n).reshape(l,n)
-        z = to_gpu(zn)
-        
-        x,u = zn[:,ds.nx:2*ds.nx],zn[:,2*ds.nx:]
-        a = env.explf(to_gpu(x),to_gpu(u)).get()
-        
-        a += 1e-3*np.random.normal(size=a.size).reshape(a.shape)
-        trj =  (None,a,x,u)
-
-        zt = to_gpu(np.hstack((a,x,u)))
-
-        ds.update(trj)
-        
-        ds.implf(zt)
-
-
-    def test_mm_learning(self):
+    def test_learning_repeating(self):
 
         env = self.DS()
 
@@ -1531,7 +631,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         pp = SlpNlp(GPMcompact(ds,ds.collocation_points))
 
         while True:
-            ds.dpmm.clear()
+            ds.clear()
 
             env.initialize_state()
             env.t = 0
@@ -1566,6 +666,46 @@ class TestsDynamicalSystem(unittest.TestCase):
                 ds.update(trj)
                 print 'clock time spent updating model: ', time.time()-tmm
 
+    def test_learning(self):
+
+        env = self.DS()
+
+        ds = self.DSMM()
+        pp = SlpNlp(GPMcompact(ds,ds.collocation_points))
+
+
+        env.initialize_state()
+        env.t = 0
+        env.dt = .01
+        env.noise = np.array([.01,0.0,0.0])
+
+        trj = env.step(RandomPolicy(env.nu,umax=.1),2*ds.nf) 
+        
+        cnt = 0
+        while True:
+            ds.update(trj)
+
+            env.reset_if_need_be()
+            env.print_state()
+            ds.state = env.state.copy() + ds.state_observation_error*np.random.normal(size=env.nx)
+
+            tmm = time.time()
+            pi = pp.solve()
+            print 'clock time spent planning: ', time.time()-tmm
+            
+            dst = np.nansum( 
+                ((ds.state - ds.target)**2)[np.logical_not(ds.c_ignore)])
+            if pi.max_h < .1 or dst < 1e-4:
+                cnt += 1
+            if cnt>20:
+                break
+            if env.t >= ds.episode_max_h:
+                break
+
+            trj = env.step(pi,5)
+            tmm = time.time()
+            print 'clock time spent updating model: ', time.time()-tmm
+
 
 
     def test_pp(self):
@@ -1593,58 +733,36 @@ class TestsDynamicalSystem(unittest.TestCase):
             trj = env.step(pi,5)
 
 
-    def test_pp_bfgs(self):
-
-        np.random.seed(1)
-        env = self.DS()
-
-        pp = BFGSPlanner(env,25)
-        pi = pp.solve()
 
 
 
 class TestsCartpoleCost(TestsDynamicalSystem):
     from cartpole import CartPoleQ as DS
-    from cartpole import CartPoleMMQ as DSMM
+    from cartpole import CartPoleQ as DSMM
 class TestsCartpole(TestsDynamicalSystem):
     from cartpole import CartPole as DS
-    from cartpole import CartPoleMM as DSMM
-class TestsCartpoleEMM(TestsDynamicalSystem):
-    from cartpole import CartPole as DS
-    from cartpole import CartPoleEMM as DSMM
+    from cartpole import CartPole as DSMM
 class TestsHeli(TestsDynamicalSystem):
     from heli import Heli as DS
-    from heli import HeliMM as DSMM
-class TestsHeliEMM(TestsDynamicalSystem):
-    from heli import Heli as DS
-    from heli import HeliEMM as DSMM
+    from heli import Heli as DSMM
 class TestsHeliInv(TestsDynamicalSystem):
     from heli import HeliInverted as DS
-    from heli import HeliInvertedMM as DSMM
+    from heli import HeliInverted as DSMM
 class TestsAutorotation(TestsDynamicalSystem):
     from heli import Autorotation as DS
-    from heli import AutorotationMM as DSMM
-class TestsAutorotationEMM(TestsDynamicalSystem):
-    from heli import Autorotation as DS
-    from heli import AutorotationEMM as DSMM
+    from heli import Autorotation as DSMM
 class TestsAutorotationCost(TestsDynamicalSystem):
     from heli import AutorotationQ as DS
-    from heli import AutorotationQMM as DSMM
+    from heli import AutorotationQ as DSMM
 class TestsPendulum(TestsDynamicalSystem):
     from pendulum import Pendulum as DS
-    from pendulum import PendulumMM as DSMM
-class TestsPendulumEMM(TestsDynamicalSystem):
-    from pendulum import Pendulum as DS
-    from pendulum import PendulumEMM as DSMM
+    from pendulum import Pendulum as DSMM
 class TestsDoublePendulum(TestsDynamicalSystem):
     from doublependulum import DoublePendulum as DS
-    from doublependulum import DoublePendulumMM as DSMM
-class TestsDoublePendulumEMM(TestsDynamicalSystem):
-    from doublependulum import DoublePendulum as DS
-    from doublependulum import DoublePendulumEMM as DSMM
+    from doublependulum import DoublePendulum as DSMM
 class TestsDoublePendulumCost(TestsDynamicalSystem):
     from doublependulum import DoublePendulumQ as DS
-    from doublependulum import DoublePendulumMMQ as DSMM
+    from doublependulum import DoublePendulumQ as DSMM
 class TestsCartDoublePole(TestsDynamicalSystem):
     from cart2pole import CartDoublePole as DS
     def test_pp_iter(self):
@@ -1685,7 +803,7 @@ class TestsPendubot(TestsDynamicalSystem):
 
 class TestsUnicycle(TestsDynamicalSystem):
     from unicycle import Unicycle as DS
-    from unicycle import UnicycleMM as DSMM
+    #from unicycle import UnicycleMM as DSMM
     def test_cca(self):
         ds = Unicycle()
         np.random.seed(10)

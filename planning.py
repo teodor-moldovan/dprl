@@ -5,7 +5,6 @@ import scipy.integrate
 from  scipy.sparse import coo_matrix
 from sys import stdout
 import math
-import clustering
 import cPickle
 import re
 import sympy
@@ -301,11 +300,16 @@ class DynamicalSystem:
         
         self.log_file  = 'out/'+ str(self.__class__)+'_log.pkl'
 
+    #def clear(self):
+      #self.weights = to_gpu(np.zeros
+
     def extract_features(self,*args):
         return self.__extract_features(*args)
     @staticmethod
     @memoize_to_disk
     def __extract_features(exprs, symbols,nx):
+        """ we don't currently check for linear independence of features,
+            could potentially be a problem in the future"""
 
         spl=lambda e : e.rewrite(sympy.exp).expand().rewrite(sympy.sin).expand()
         exprs = [spl(e) for e in exprs]
@@ -492,10 +496,12 @@ class DynamicalSystem:
         return dx
 
     def step(self, policy, n = 1):
+        """ forward simulate system according to stored weight matrix and policy"""
 
         seed = int(np.random.random()*1000)
 
         def f(t,x):
+            """ explicit dynamics"""
             u = policy.u(t,x).reshape(-1)[:self.nu]
             u = np.maximum(-1.0, np.minimum(1.0,u) )
 
@@ -505,6 +511,7 @@ class DynamicalSystem:
             
             return dx,u
             
+        # policy might not be valid for long enough to simulate n timesteps
         h = min(self.dt*n,policy.max_h)
         
         ode = scipy.integrate.ode(lambda t_,x_ : f(t_,x_)[0])
@@ -552,24 +559,35 @@ class DynamicalSystem:
         return trj
 
 
+    def clear(self):
+        """ in update, if self.psi doesn't exist, it re-initializes it
+            and number of observations"""
+        try:
+          del self.psi
+        except:
+          pass
+
     def update(self,traj,prior=0.0):
+        # traj is t, dx, x, u, produced by self.step
         
-        if traj is None:
-            return
         n,k = self.nf,self.nfa
 
         try:
+            # sufficient statistics initialized?
             self.psi
         except:
+            # init sufficient statistics
             self.psi = prior*np.eye((n))
             self.n_obs = prior
         
         
-        z = to_gpu(np.hstack((traj[1],traj[2],traj[3])))
-        f = self.features(z).get()
-        
-        self.psi += np.dot(f.T,f)
-        self.n_obs += f.shape[0]
+        if traj is not None:
+            z = to_gpu(np.hstack((traj[1],traj[2],traj[3])))
+            f = self.features(z).get()
+            
+            # update sufficient statistics
+            self.psi += np.dot(f.T,f)
+            self.n_obs += f.shape[0]
         
         m,inv = np.matrix, np.linalg.inv
         sqrt = lambda x: np.real(scipy.linalg.sqrtm(x))
@@ -590,6 +608,7 @@ class DynamicalSystem:
             rs = m(rs)*m(np.diag(np.sqrt(l)))
             rs = np.array(rs.T)
         else:
+            # simplified version, doesn't work as well
             l,u = np.linalg.eigh(s)
             ind = np.argsort(l)
             l = l[ind]
@@ -597,7 +616,9 @@ class DynamicalSystem:
             
         self.weights = to_gpu(rs[:self.nx,:])
 
+        # encourages exploration, more or less empirical rate decay
         self.model_slack_bounds = 1.0/self.n_obs
+        # eigenvalues of correlation matrix (s)
         self.spectrum = l
         
         
@@ -654,6 +675,7 @@ class DynamicalSystem:
 
     def reset_if_need_be(self):
         pass
+
 # experimental below
 class CostsDS(DynamicalSystem):
     optimize_var = -1
@@ -713,148 +735,6 @@ class CostsDS(DynamicalSystem):
         self.t = 0
         
         self.log_file  = 'out/'+ str(self.__class__)+'_log.pkl'
-
-class MixtureDS(DynamicalSystem):
-    log_h_init = -1.0
-    max_clusters = 100
-    fixed_horizon = False
-    optimize_var = None
-    differentiator = NumDiff(1e-7,2)
-    prior_weight = .1
-    add_virtual_controls = True
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
-        dct = self.symbolics()
-
-        self.symbols = tuple(dct['symbols'])
-        self.features = tuple(dct['dpmm_features']())
-        self.dyn = dct['dyn']()
-
-        self.nx  = len(self.dyn)
-        self.nu  = len(self.symbols) - 2*self.nx
-
-        self.codegen()
-        if self.add_virtual_controls:
-            self.nu  += self.nfa
-
-        self.initialize_state()
-        self.initialize_target(dct['state_target']())
-        self.t = 0
-        
-        c = clustering
-        p,k  = self.nf, self.max_clusters
-        self.dpmm = c.BatchVDP(c.Mixture(c.SBP(k), c.NIW(p, k)),
-                    w = self.prior_weight)
-
-        self.model_slack_bounds = 0
-
-    def codegen(self):
-        accs = set(self.symbols[:self.nx])
-        features = set(self.features)
-
-        f1 = set((f for f in features 
-                if len(f.free_symbols.intersection(accs))>0 ))
-        f2 = features.difference(f1)
-        features = tuple(f1) + tuple(f2)
-
-        self.nfa = len(f1)
-        self.nf  = len(f1) + len(f2)
-
-        fn1 = codegen_cse(features, self.symbols)
-        dyn = codegen_cse(self.dyn[self.nfa:], self.symbols)
-
-        self.k_features = rowwise(fn1,'features')
-        self.k_dyn = rowwise(dyn,'dynamics')
-
-    def implf(self,z):
-
-        fz = array((z.shape[0], self.nf))
-        fx = array((z.shape[0], self.nf-self.nfa))
-        fy = array((z.shape[0], self.nfa))
-        st = array((z.shape[0], self.nx - self.nfa))
-
-        self.k_features(z,fz)
-        self.k_dyn(z,st)
-        
-        ufunc('a=b')(fx,fz[:,self.nfa:])
-        ufunc('a=b')(fy,fz[:,:self.nfa])
-
-        cls = self.dpmm.smooth(fx)        
-
-        if self.add_virtual_controls:
-            xi = array((z.shape[0], self.nfa))
-            ufunc('a=b')(xi, z[:,-self.nfa:])
-            mm =  cls.mean_plus_stdev(xi)
-        else:
-            mm =  cls.mu
-
-        nfa = self.nfa
-        nx = self.nx
-
-        rs = array((z.shape[0], nx))
-        ufunc('a=b-c')(rs[:,:nfa],fy, mm)
-        ufunc('a=b')(rs[:,nfa:nx], st )
-        
-        return rs
-        
-    def implf_jac(self,z):
-        return self.differentiator.diff(self.implf, z)
-
-    def update(self,traj,prior=0.0):
-        if traj is None:
-            return
-        
-        trj = to_gpu(np.hstack((traj[1:])))
-        feat = array((trj.shape[0], self.nf))
-        self.k_features(trj,feat)
-        self.dpmm.update(feat)
-
-class MixtureCostsDS(MixtureDS):
-    optimize_var = -1
-    log_h_init = 0
-    fixed_horizon = True
-    def initialize_state(self):
-        self.nx -=1
-        self.state = np.append(self.initial_state() + 0.0,0)
-        self.nx +=1
-
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
-        dct = self.symbolics()
-
-        sym = tuple(dct['symbols'])
-        self.features = tuple(dct['dpmm_features']())
-        costf = dct['cost']()
-        dyn = dct['dyn']()
-        target_expr = tuple(dct['state_target']())
-
-        nx = len(dyn)
-        nu = len(sym) - 2*nx
-
-        self.nx = nx+1
-        self.nu = nu
-
-        cost, dcost = sympy.symbols('cost, dcost')
-
-        target_expr =  target_expr + (cost,)
-        
-        sym = sym[:nx] + (dcost,) + sym[nx:2*nx] + (cost,) + sym[2*nx:]
-
-        self.dyn = dyn + (-dcost + costf, )
-        self.symbols = sym
-
-        self.codegen()
-        self.nu  += self.nfa
-
-        self.initialize_state()
-        self.initialize_target(target_expr)
-        self.t = 0
-        
-        c = clustering
-        p,k  = self.nf, self.max_clusters
-        self.dpmm = c.BatchVDP(c.Mixture(c.SBP(k), c.NIW(p, k)))
-
-        self.model_slack_bounds = 0
 
 
 class GPMcompact():
@@ -1999,150 +1879,5 @@ class DDPPlanner():
         
         # return result
         return A,B
-class BFGSPlanner():
-    def __init__(self,ds,l):
-        self.ds = ds
-        self.l = l
-        
-        nx,nu,nf = self.ds.nx, self.ds.nu, np.sum(ds.c_ignore)
-        self.nf = nf 
-        self.nv = 1 + l*nu + (l-1)*nx + nf
-        
-        self.iv_h = 0
-        self.iv_u = 1 + np.arange(l*nu).reshape(l,nu)
-        self.iv_a = 1+l*nu + np.arange((l-1)*nx).reshape(l-1,nx)
-        self.iv_l = 1+l*nu + (l-1)*nx + np.arange(nf)
-
-    def cost(self,z, lbd = 0):
-        A,w = self.int_formulation(self.l)
-
-        hi = z[self.iv_h]
-        u = z[self.iv_u]
-        a = np.zeros((self.l, self.ds.nx))    
-        
-        a[:-1,:] = z[self.iv_a]
-        a[-1,self.ds.c_ignore] = z[self.iv_l]
-
-        m = hi*(np.array(self.ds.target)-np.array(self.ds.state))
-        ind = np.logical_not(self.ds.c_ignore)
-        a[-1,ind] = (m[ind]-np.dot(w[:-1],a[:-1,ind]))/w[-1]
-         
-        x = np.dot(A,a)/hi
-        
-        arg = np.hstack((a,x,u))
-        
-        f =  self.ds.implf(to_gpu(arg)).get()
-
-        cost = np.dot(w,np.sum(f**2,1)) - lbd*hi
-        
-        return cost
-        
-    def solve(self):
-        
-        z = self.initialization()
-
-        for lbd in (.01, ):
-            res = l_bfgs_b( self.cost, z, m = 100,
-                approx_grad = 1,  bounds = self.bounds(),
-                disp = 1, 
-                args = (lbd,)
-                )    
-            print res
-            z = res[0]
-        
-
-    def initialization(self):
-        
-        A,w = self.int_formulation(self.l)
-        ws = np.sum(w)
-        z = np.zeros(self.nv)
-        
-        hi = np.exp(-self.ds.log_h_init)
-        z[self.iv_h] = hi
-
-        m = hi*(np.array(self.ds.target)-np.array(self.ds.state))
-        m[self.ds.c_ignore] = 0
-        accs = np.tile(m[np.newaxis,:]/ws,(self.l,1))
-        z[self.iv_a] = accs[:-1,:]
-        z[self.iv_l] = accs[-1,self.ds.c_ignore] 
-        
-        return z 
-
-    def bounds(self):
-        l,nx,nu = self.l, self.ds.nx, self.ds.nu
-        
-        b = 1000*np.ones(self.nv)
-        #b = float('inf')*np.ones(self.nv)
-        bl = -b
-        bu = b
-        bl[self.iv_h] = .01
-        bl[self.iv_u] = -1.0
-        bu[self.iv_u] = 1.0
-
-        bl[np.isinf(bl)] = None
-        bu[np.isinf(bu)] = None
-
-        return  zip(bl,bu)
-
-    # bad structure: methods below copy-pasted
-    @classmethod
-    @memoize
-    def quadrature(cls,N):
-
-        P = legendre.Legendre.basis
-        tauk = P(N).roots()
-
-        vs = P(N).deriv()(tauk)
-        int_w = 2.0/(vs*vs)/(1.0- tauk*tauk)
-
-        taui = np.hstack(([-1.0],tauk))
-        
-        wx = np.newaxis
-        
-        dn = taui[:,wx] - taui[wx,:]
-        dd = tauk[:,wx] - taui[wx,:]
-        dn[dn==0] = float('inf')
-
-        dd = dd[wx,:,:] + np.zeros(taui.size)[:,wx,wx]
-        dd[np.arange(taui.size),:,np.arange(taui.size)] = 1.0
-        
-        l = dd[:,:,wx,:]/dn[wx,wx,:,:]
-        l[:,:,np.arange(taui.size),np.arange(taui.size)] = 1.0
-        
-        l = np.prod(l,axis=3)
-        l[np.arange(taui.size),:,np.arange(taui.size)] = 0.0
-        D = np.sum(l,axis=0)
-
-        return tauk, D, int_w
-
-    @classmethod
-    @memoize
-    def __lagrange_poly_u_cache(cls,l):
-        tau,_ , __ = cls.quadrature(l)
-
-        rcp = 1.0/(tau[:,np.newaxis] - tau[np.newaxis,:]+np.eye(tau.size)) - np.eye(tau.size)
-
-        return rcp,tau
-
-    def lagrange_poly_u(self,r):
-        rcp,nds = self.__lagrange_poly_u_cache(self.l)
-
-        if r < -1 or r > 1:
-            raise TypeError
-
-        df = ((r - nds)[np.newaxis,:]*rcp) + np.eye(nds.size)
-        w = df.prod(axis=1)
-
-        return w
-
-    interp_coefficients = lagrange_poly_u
-    @classmethod
-    @memoize
-    def int_formulation(cls,N):
-        _, D, w = cls.quadrature(N)
-        A = np.linalg.inv(D[:,1:])
-        
-        return .5*A,.5*w
-        
 
 
