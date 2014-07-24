@@ -11,4 +11,3 @@ noft:
 	$(CMD)
 ft:
 	faketime -f '-150d' $(CMD)
-#faketime -f '-110d'  python test.py TestsAutorotation.test_pp_iter 

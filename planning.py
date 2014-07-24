@@ -322,10 +322,11 @@ class DynamicalSystem:
         msym = [jac[i] for i in m_inds]
         gsym = features[nfa:]
         
-        fn1 = codegen_cse(features, symbols)
-        fn2 = codegen_cse(jac, symbols)
-        fn3 = codegen_cse(msym, symbols[nx:])
-        fn4 = codegen_cse(gsym, symbols[nx:])
+        set_zeros = False
+        fn1 = codegen_cse(features, symbols, set_zeros = set_zeros)
+        fn2 = codegen_cse(jac, symbols, set_zeros = set_zeros)
+        fn3 = codegen_cse(msym, symbols[nx:], set_zeros = set_zeros)
+        fn4 = codegen_cse(gsym, symbols[nx:], set_zeros = set_zeros)
 
         return fn1,fn2,fn3,fn4
 
@@ -421,6 +422,8 @@ class DynamicalSystem:
     def __explf_cache(l,nx,nfa,nf):
         fm = array((l,nx,nfa))
         fg = array((l,nf-nfa))
+        fm.fill(0.0)
+        fg.fill(0.0)
         m   = array((l,nx,nx))
         m_  = array((l,nx,nx))
         g  = array((l,nx))
@@ -443,7 +446,6 @@ class DynamicalSystem:
         fm,fg,m,m_,g,dx = self.__explf_cache(l,nx,nfa,nf)
         wm,wg = self.__explf_wsplit(self.weights, nfa)
         
-        fm.fill(0)
         fm.shape = (l,nx*nfa)
         self.k_features_mass(z, fm)
         fm.shape = (l*nx,nfa)
@@ -453,7 +455,6 @@ class DynamicalSystem:
         fm.shape = (l,nx,nfa)
         m.shape = (l,nx,nx)
 
-        fg.fill(0)
         self.k_features_force(z, fg)
         matrix_mult(fg,wg.T,g)
         

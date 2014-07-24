@@ -1051,11 +1051,17 @@ row_max = row_reduction('a = b>a ? b : a')
 row_sum = row_reduction('a += b')
 # symbolics, codegen
 def codegen_cse(exprs,symbols, temp_name = 'tmp',
-                in_name = 'z', out_name = 'out'):
+                in_name = 'z', out_name = 'out', set_zeros = True):
     """ exprs is an iterable of symbolic outputs.  symbols is an interable of symbolic inputs.  Produces C code that populates an array of the outputs given an array of the inputs."""
 
     inputs  = [sympy.var(in_name+'['+str(i)+']') for i in range(len(symbols))]
     outputs = [sympy.var(out_name+'['+str(i)+']') for i in range(len(exprs))]
+    
+    if not set_zeros:
+        # remove expressions that are symbolically equal to zero
+        # the output array needs to be initialized to zero before use
+        outputs, exprs = zip(*[(o,e) for o,e in zip(outputs,exprs)
+                        if e != 0])
 
     exprs =  [ex.subs(zip(symbols, inputs)) for ex in exprs]
     l1,ex_ = sympy.cse(exprs,symbols = sympy.numbered_symbols(temp_name))
