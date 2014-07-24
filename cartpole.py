@@ -36,9 +36,6 @@ class CartPoleBase:
             )
             return dyn
 
-        def dpmm_features():
-            return (dw, dv, w, s,c,u)
-
         def pilco_cost():
 
             dx = (x + l*sin(t))/width
@@ -65,11 +62,11 @@ class Cartpole(CartPoleBase,DynamicalSystem):
 class CartpoleQ(CartPoleBase,CostsDS):
     pass
 
-class Tests(TestsDynamicalSystem):
+class TestsCartpole(TestsDynamicalSystem):
     DSLearned = Cartpole
     DSKnown   = Cartpole
 
-class TestsCosts(TestsDynamicalSystem):
+class TestsCartpoleCosts(TestsDynamicalSystem):
     DSLearned = CartpoleQ
     DSKnown   = CartpoleQ
     

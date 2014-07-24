@@ -65,6 +65,7 @@ class HeliBase:
             cm = Point('cm')
             og = Point('origin')
 
+
             cm.set_vel(H, 0.0*H.x + 0.0*H.y + 0.0*H.z)
             cm.set_pos(og, px*L.x + py*L.y + pz*L.z)
 

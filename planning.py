@@ -282,13 +282,16 @@ class DynamicalSystem:
         """ we don't currently check for linear independence of features,
             could potentially be a problem in the future"""
 
+        # simplify each implicit dynamic expression
         spl=lambda e : e.rewrite(sympy.exp).expand().rewrite(sympy.sin).expand()
         exprs = [spl(e) for e in exprs]
         
         # separate weights from features
         exprs = [e.as_coefficients_dict().items() for e in exprs]
+        #calculate unique set of monomials, mixed in from all the dynamics expressions
         features = set(zip(*sum(exprs,[]))[0])
         
+        # f1 becomes features that depend on derivatives, f2 everything else
         accs = set(symbols[:nx])
         f1 = set((f for f in features 
                 if len(f.free_symbols.intersection(accs))>0 ))
@@ -297,10 +300,11 @@ class DynamicalSystem:
         
         feat_ind =  dict(zip(features,range(len(features))))
         
-        weights = tuple((i,feat_ind[c],float(d)) 
-                for i,ex in enumerate(exprs) for c,d in ex)
+        weights = tuple((i,feat_ind[symb],float(coeff)) 
+                for i,ex in enumerate(exprs) for symb,coeff in ex)
 
         i,j,d = zip(*weights)
+        # really this is better as a sparse matrix, but for simplicity of gpu stuff we make it dense
         weights = scipy.sparse.coo_matrix((d, (i,j))).todense()
 
         return features, weights, len(f1), len(features)
@@ -312,8 +316,12 @@ class DynamicalSystem:
         jac = [sympy.diff(f,s) for s in symbols for f in features]
         
         # generate cuda code
+        # implicit dynamics: f(dot(x), x, u) = 0
+        # we f(dot(x), x, u) = 0 = M(x)*dot(x) - g(x, u)
+        # where g is the explicit dynamics function and M is the mass matrix
         
         m_inds = [s*nf + f  for s in range(nx) for f in range(nfa)]
+        # mass matrix
         msym = [jac[i] for i in m_inds]
         gsym = features[nfa:]
         
@@ -337,6 +345,7 @@ class DynamicalSystem:
 
 
         # compile cuda code
+        # if this is a bottleneck, we could compute subsets of features in parallel using different kernels, in addition to each row.  this would recompute the common sub-expressions, but would utilize more parallelism
         self.k_features = rowwise(fn1,'features')
         self.k_features_jacobian = rowwise(fn2,'features_jacobian')
         self.k_features_mass = rowwise(fn3,'features_mass')

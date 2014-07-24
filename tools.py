@@ -1052,6 +1052,7 @@ row_sum = row_reduction('a += b')
 # symbolics, codegen
 def codegen_cse(exprs,symbols, temp_name = 'tmp',
                 input_name = 'z', output_name = 'out'):
+    """ exprs is an iterable of symbolic outputs.  symbols is an interable of symbolic inputs.  Produces C code that populates an array of the outputs given an array of the inputs."""
 
     fs = set()
     for e in exprs:
