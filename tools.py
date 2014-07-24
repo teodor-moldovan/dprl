@@ -1057,9 +1057,7 @@ def codegen_cse(exprs,symbols, temp_name = 'tmp',
     inputs  = [sympy.var(in_name+'['+str(i)+']') for i in range(len(symbols))]
     outputs = [sympy.var(out_name+'['+str(i)+']') for i in range(len(exprs))]
 
-    substitute_list =  zip(symbols, inputs)
-    exprs =  [ex.subs(substitute_list ) for ex in exprs]
-        
+    exprs =  [ex.subs(zip(symbols, inputs)) for ex in exprs]
     l1,ex_ = sympy.cse(exprs,symbols = sympy.numbered_symbols(temp_name))
     l2 =  zip(outputs,ex_)
         
@@ -1081,10 +1079,8 @@ def codegen_cse(exprs,symbols, temp_name = 'tmp',
     {{ s }} = {{ d }};{% endfor %}
     }
     """)
-    fn = tpl.render(dtype = cuda_dtype, nin = in_name,
-                    nout = out_name,
-            lines = compiled_features,
-            declare = declare)
+    fn = tpl.render(dtype = cuda_dtype, nin = in_name, nout = out_name,
+            lines = compiled_features, declare = declare)
     
     return fn
     
