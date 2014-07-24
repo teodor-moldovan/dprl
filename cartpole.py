@@ -1,6 +1,6 @@
 from planning import *
-import unittest
-from test import TestsDynamicalSystem
+from test import TestsDynamicalSystem, unittest
+from sympy.physics.mechanics import *
 
 class CartPoleBase:
     noise = 0.05
@@ -9,10 +9,13 @@ class CartPoleBase:
         state[self.nx/2:] = .25*np.random.normal(size = self.nx/2)
         return state 
 
-        
     def symbolics(self):
-        symbols = sympy.var(" dw, dv, dt, dx, w, v, t, x, u ")
-
+        symbols = (dw,dv,dt,dx,w,v,t,x,u) = (
+            dynamicsymbols(" w, v, t, x ", 1) +
+            dynamicsymbols(" w, v, t, x ") +
+            [dynamicsymbols(" u "),]
+            )
+        
         l = 0.5   # [m]      length of pendulum
         m = 0.5   # [kg]     mass of pendulum
         M = 0.5   # [kg]     mass of cart
@@ -55,7 +58,6 @@ class CartPoleBase:
 
         cost = quad_cost
         return locals()
-
 
 class Cartpole(CartPoleBase,DynamicalSystem):
     pass

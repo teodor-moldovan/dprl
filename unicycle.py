@@ -231,7 +231,7 @@ class TestsUnicycle(TestsDynamicalSystem):
         v = np.array([float(v) for v in re.split("\s+", matvals)]).reshape(-1,2)
         
         x = to_gpu(v[:,0][np.newaxis,:] )
-        u = to_gpu(np.zeros((1,self.ds.nu)))
+        u = to_gpu(np.zeros((1,ds.nu)))
         
         r_ = ds.explf(x,u).get()[0]
         r = v[:,1]

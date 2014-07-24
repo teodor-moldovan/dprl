@@ -1,6 +1,5 @@
 from planning import *
-import unittest
-from test import TestsDynamicalSystem
+from test import TestsDynamicalSystem, unittest
 import sympy
 from sympy import sin, cos, diag,log,exp, sqrt
 from sympy import Matrix as mat
@@ -17,18 +16,22 @@ class HeliBase:
         
     def symbolics(self):
 
-        dstate = sympy.var("""
-                    dwx, dwy, dwz, dvx, dvy, dvz,
-                    drx, dry, drz,
-                    dpx, dpy, dpz,
-                    """)
-        state = sympy.var("""
-                    wx, wy, wz, vx, vy, vz,
-                    rx, ry, rz, 
-                    px, py, pz,
+        state = (wx, wy, wz, vx, vy, vz,
+                 rx, ry, rz, px,py,pz) = dynamicsymbols("""
+                        wx, wy, wz, vx, vy, vz,
+                        rx, ry, rz,
+                        px, py, pz,
                     """)
 
-        controls = ux,uy,uz, uc = sympy.symbols('ux,uy,uz,uc')
+        dstate = (wxd, wyd, wzd, vxd, vyd, vzd, 
+                  rxd,ryd,rzd, pxd, pyd, pzd ) = dynamicsymbols("""
+                        wx, wy, wz, vx, vy, vz,
+                        rx, ry, rz,
+                        px, py, pz,
+                    """, 1)
+
+
+        controls = (ux,uy,uz, uc) = dynamicsymbols('ux,uy,uz,uc')
 
         symbols = dstate + state + controls
 
@@ -38,27 +41,10 @@ class HeliBase:
         g = 9.81
 
         def dyn():
-
-            (wx, wy, wz, vx, vy, vz,
-            qw, qx, qy, qz,
-            px, py, pz,
-            rx,ry,rz, th) = dynamicsymbols("""
-                        wx, wy, wz, vx, vy, vz,
-                        qw, qx, qy, qz,
-                        px, py, pz,
-                        rx, ry, rz, th
-                    """)
-
-            (wxd, wyd, wzd, vxd, vyd, vzd,
-            qwd, qxd, qyd, qzd, 
-            pxd, pyd, pzd,
-            rxd, ryd, rzd, thd
-             ) = dynamicsymbols("""
-                        wx, wy, wz, vx, vy, vz,
-                        qw,qx, qy, qz, 
-                        px, py, pz,
-                        rx, ry, rz, th
-                    """, 1)
+            # helper state variables
+            (qw, qx, qy, qz,th) = dynamicsymbols("""qw, qx, qy, qz,th""")
+            # and their time derivatives
+            (qwd,qxd,qyd,qzd,thd) = dynamicsymbols("""qw, qx, qy, qz,th""", 1)
 
             L = ReferenceFrame('LabFrame') 
             H = ReferenceFrame('HeliFrame') 
@@ -111,41 +97,23 @@ class HeliBase:
 
             sublist = zip((qwd,qxd,qyd,qzd), qd_) + zip((qw,qx,qy,qz), q_)
 
-
             dyn = dyn.expand()
             dyn = dyn.subs(sublist)
-
 
             dyn = dyn.expand()
             dyn = dyn.subs(((thd,thd_),)).expand()
             dyn = dyn.subs(((th,th_),)).expand()
 
-            # replace functions with free variables. 
-            # Note that this should not be necessary in a proper setup
-
-            sublist = zip( (wxd, wyd, wzd, vxd, vyd, vzd,
-                        rxd, ryd, rzd,
-                        pxd, pyd, pzd,
-                        wx, wy, wz, vx, vy, vz,
-                        rx, ry, rz,
-                        px, py, pz,
-                        ), 
-                        dstate+state)
-
-            dyn = dyn.subs(sublist)
-
             return dyn
 
         def upright_hover_target():
-            return (wx, wy, wz, vx, vy, vz,rx, ry, rz-1.0)
+            return (wx, wy, wz, vx, vy, vz, rx, ry, rz-1.0)
 
         def inverted_hover_target():
-            return (wx, wy, wz, vx, vy, vz,
-                    rx, ry - np.pi, rz,)
+            return (wx, wy, wz, vx, vy, vz, rx, ry - np.pi, rz,)
 
         def dpmm_features():
-            return (dwx, dwy, dwz, dvx, dvy, dvz,rx, ry, rz,ux,uy,uz,uc)
-            #return (dwx, dwy, dwz, dvx, dvy, dvz,vx,vy,vz, wx,wy,wz,rx, ry, rz,ux,uy,uz,uc)
+            return (wxd, wyd, wzd, vxd, vyd, vzd,rx, ry, rz,ux,uy,uz,uc)
 
         # hack: should use subclasses instead of conditionals here
         if self.inverted_hover:

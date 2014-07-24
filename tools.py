@@ -1051,38 +1051,27 @@ row_max = row_reduction('a = b>a ? b : a')
 row_sum = row_reduction('a += b')
 # symbolics, codegen
 def codegen_cse(exprs,symbols, temp_name = 'tmp',
-                input_name = 'z', output_name = 'out'):
+                in_name = 'z', out_name = 'out'):
     """ exprs is an iterable of symbolic outputs.  symbols is an interable of symbolic inputs.  Produces C code that populates an array of the outputs given an array of the inputs."""
 
-    fs = set()
-    for e in exprs:
-        fs = fs.union(e.free_symbols)
+    inputs  = [sympy.var(in_name+'['+str(i)+']') for i in range(len(symbols))]
+    outputs = [sympy.var(out_name+'['+str(i)+']') for i in range(len(exprs))]
 
-    l0 = []
-    for i,e in enumerate(symbols):
-        if e in fs:
-            l0.append((e , sympy.var('z['+str(i)+']') ))
+    substitute_list =  zip(symbols, inputs)
+    exprs =  [ex.subs(substitute_list ) for ex in exprs]
         
     l1,ex_ = sympy.cse(exprs,symbols = sympy.numbered_symbols(temp_name))
-    
+    l2 =  zip(outputs,ex_)
         
-    l2 = []
-    for i,e in enumerate(ex_):
-        if e != 0:
-            l2.append((sympy.var(output_name+'['+str(i)+']'), e ))
-        
-    l =  l0+l1+l2
-    
     compiled_features = []
-
     codegen = sympy.utilities.codegen.codegen
-    for d,f in l:
+
+    for d,f in l1+l2:
         code = codegen(("f",f),'c','pendubot',header=False)[0][1]
         code = re.search(r"(?<=return).*(?=;)", code).group(0)
         compiled_features.append((d.name, code))
 
-
-    declare = [l[0].name for l in l0+l1] 
+    declare = [l[0].name for l in l1] 
 
     tpl = Template("""
     __device__ void f({{ dtype }} {{ nin }}[], {{ dtype }} {{ nout }}[]){
@@ -1092,8 +1081,8 @@ def codegen_cse(exprs,symbols, temp_name = 'tmp',
     {{ s }} = {{ d }};{% endfor %}
     }
     """)
-    fn = tpl.render(dtype = cuda_dtype, nin = input_name,
-                    nout = output_name,
+    fn = tpl.render(dtype = cuda_dtype, nin = in_name,
+                    nout = out_name,
             lines = compiled_features,
             declare = declare)
     
