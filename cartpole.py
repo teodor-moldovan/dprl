@@ -1,4 +1,6 @@
 from planning import *
+import unittest
+from test import TestsDynamicalSystem
 
 class CartPoleBase:
     noise = 0.05
@@ -57,8 +59,23 @@ class CartPoleBase:
         cost = quad_cost
         return locals()
 
-class CartPole(CartPoleBase,DynamicalSystem):
+
+class Cartpole(CartPoleBase,DynamicalSystem):
     pass
-class CartPoleQ(CartPoleBase,CostsDS):
+class CartpoleQ(CartPoleBase,CostsDS):
     pass
+
+class Tests(TestsDynamicalSystem):
+    DSLearned = Cartpole
+    DSKnown   = Cartpole
+
+class TestsCosts(TestsDynamicalSystem):
+    DSLearned = CartpoleQ
+    DSKnown   = CartpoleQ
     
+if __name__ == '__main__':
+    """ to avoid merge conflicts, let's run individual tests 
+        from command-line like this:
+	  python cartpole.py Tests.test_accs
+    """
+    unittest.main()

@@ -497,7 +497,8 @@ class TestsTools(unittest.TestCase):
 
 class TestsDynamicalSystem(unittest.TestCase):
     def test_implicit(self):
-        ds = self.ds
+        """ test implicit dynamics.  represents the dynamics as f(dot(x), x, u) = 0.  used for planning, need explicit for forward simulation."""
+        ds = self.DSKnown()
         
         l,nx,nu = 11*8*32, ds.nx,ds.nu
         n = 2*nx+nu
@@ -511,7 +512,8 @@ class TestsDynamicalSystem(unittest.TestCase):
         ds.implf_jac(z)
 
     def test_explicit(self):
-        ds = self.DS()
+        """ actual test.  tests compilation and timing and whether or not we can compute explicit dynamics for a large number of initial states"""
+        ds = self.DSKnown()
 
         l,nx,nu = 11*8*32, ds.nx, ds.nu
         n = 2*nx+nu
@@ -529,7 +531,8 @@ class TestsDynamicalSystem(unittest.TestCase):
         toc(t)
 
     def test_accs(self):
-        ds = self.DS()
+        """ actual test.  tests compilation"""
+        ds = self.DSKnown()
 
         np.random.seed(6)
         x = 2*np.pi*2*(np.random.random(ds.nx)-0.5)
@@ -549,16 +552,18 @@ class TestsDynamicalSystem(unittest.TestCase):
         
 
     def test_cca(self):
-        ds = self.DS()
+        """ generates a small trajectory with random controls and if you can update the model with those random controls one time (mostly testing compilation)"""
+        env = self.DSKnown()
+        ds = self.DSLearned()
         np.random.seed(10)
         
-        l,nx,nu = 1000, ds.nx, ds.nu
+        l,nx,nu = 1000, env.nx, env.nu
         n = 2*nx+nu
         zn = 3+10*np.random.normal(size=l*n).reshape(l,n)
         z = to_gpu(zn)
         
-        x,u = zn[:,ds.nx:2*ds.nx],zn[:,2*ds.nx:]
-        a = ds.explf(to_gpu(x),to_gpu(u)).get()
+        x,u = zn[:,env.nx:2*env.nx],zn[:,2*env.nx:]
+        a = env.explf(to_gpu(x),to_gpu(u)).get()
         
         a += 1e-3*np.random.normal(size=a.size).reshape(a.shape)
         trj =  (None,a,x,u)
@@ -566,7 +571,8 @@ class TestsDynamicalSystem(unittest.TestCase):
         
          
     def test_geometry(self):
-        ds = self.DS()
+        """ k stands for kernel.  geometry is a helper function for plotting, generates several useful other points from the recorded data (such as center of mass trajectory, joint position for swimmer, etc).  Should only be called by plotting"""
+        ds = self.DSKnown()
 
         np.random.seed(6)
         x = 2*np.pi*2*(np.random.random(ds.nx)-0.5)
@@ -578,20 +584,21 @@ class TestsDynamicalSystem(unittest.TestCase):
         print res.get()
 
     def test_forward(self):
+        """ tests if we can forward simulate one time"""
 
-        env = self.DS()
+        env = self.DSKnown()
         np.random.seed(1)
 
-        for t in range(10000):
-            s = env.state
-            env.print_state()
-            trj = env.step(ZeroPolicy(env.nu),5)
+        s = env.state
+        env.print_state()
+        trj = env.step(ZeroPolicy(env.nu),5)
 
 
     def test_learning(self):
+        """ not a test, top level for experiments."""
 
-        env = self.DS()     # proxy for real, known system.
-        ds = self.DSMM()    # model to be trained online
+        env = self.DSKnown()     # proxy for real, known system.
+        ds = self.DSLearned()    # model to be trained online
 
         pp = SlpNlp(GPMcompact(ds,ds.collocation_points))
 
@@ -637,18 +644,20 @@ class TestsDynamicalSystem(unittest.TestCase):
                 trj = env.step(pi,5)
 
     def test_pp(self):
+        """ tests whether we can plan in the known system. valuable for sanity check for planning.  used as a baseline experiment"""
 
         np.random.seed(3)
-        ds = self.DS()
+        ds = self.DSKnown()
         
         pp = SlpNlp(GPMcompact(ds,ds.collocation_points))
         pi = pp.solve()
 
 
     def test_pp_iter(self):
+        """ iteratively tests whether we can plan in the known system. valuable for sanity check for planning. used as a baseline experiment"""
 
-        env = self.DS()
-        ds = self.DS()
+        env = self.DSKnown()
+        ds = self.DSKnown()
         
         np.random.seed(1)
         pp = SlpNlp(GPMcompact(ds,ds.collocation_points))
@@ -664,168 +673,12 @@ class TestsDynamicalSystem(unittest.TestCase):
 
 
 
-class TestsCartpoleCost(TestsDynamicalSystem):
-    from cartpole import CartPoleQ as DS
-    from cartpole import CartPoleQ as DSMM
-class TestsCartpole(TestsDynamicalSystem):
-    from cartpole import CartPole as DS
-    from cartpole import CartPole as DSMM
-class TestsHeli(TestsDynamicalSystem):
-    from heli import Heli as DS
-    from heli import Heli as DSMM
-class TestsHeliInv(TestsDynamicalSystem):
-    from heli import HeliInverted as DS
-    from heli import HeliInverted as DSMM
-class TestsAutorotation(TestsDynamicalSystem):
-    from heli import Autorotation as DS
-    from heli import Autorotation as DSMM
-class TestsAutorotationCost(TestsDynamicalSystem):
-    from heli import AutorotationQ as DS
-    from heli import AutorotationQ as DSMM
-class TestsPendulum(TestsDynamicalSystem):
-    from pendulum import Pendulum as DS
-    from pendulum import Pendulum as DSMM
-class TestsDoublePendulum(TestsDynamicalSystem):
-    from doublependulum import DoublePendulum as DS
-    from doublependulum import DoublePendulum as DSMM
-class TestsDoublePendulumCost(TestsDynamicalSystem):
-    from doublependulum import DoublePendulumQ as DS
-    from doublependulum import DoublePendulumQ as DSMM
-class TestsCartDoublePole(TestsDynamicalSystem):
-    from cart2pole import CartDoublePole as DS
-    def test_pp_iter(self):
-
-        env = self.DS()
-        env.dt = .01
-        env.log_h_init = -1.0
-
-        pp = SlpNlp(GPMcompact(env,55))
-
-        for t in range(10000):
-            s = env.state
-            env.print_state()
-            pi = pp.solve()
-
-            trj = env.step(pi,5)
-
-
-class TestsPendubot(TestsDynamicalSystem):
-    from pendubot import Pendubot as DS
-    def test_cca(self):
-        ds = self.DS()
-        np.random.seed(10)
-        
-        l,nx,nu = 100, ds.nx,ds.nu
-        n = 2*nx+nu
-        zn = np.random.random(l*n).reshape(l,n)
-        z = to_gpu(zn)
-        
-        x,u = zn[:,4:-1],zn[:,-1:]
-        a = ds.explf(x,u)
-        
-        a += np.random.normal(size=a.size).reshape(a.shape)
-        trj =  (None,a,x,u)
-        
-        ds.update(trj)
-
-
-class TestsUnicycle(TestsDynamicalSystem):
-    from unicycle import Unicycle as DS
-    #from unicycle import UnicycleMM as DSMM
-    def test_learning(self):
-
-        env = self.DS()
-        env.dt = .01
-        env.noise = .01
-
-        #from unicycle import UnicycleSpl as DSs
-        ds = self.DS()
-        ds.log_h_init = 0.0
-        
-        pp = SlpNlp(GPMcompact(ds,35))
-
-        for t in range(10000):
-
-            env.reset_if_need_be()
-            env.print_state()
-                
-            ds.state = env.state.copy()+1e-5*np.random.normal(size=env.nx)
-            pi = pp.solve()
-
-            trj = env.step(pi,5)
-
-            ds.update(trj, prior = 1e-6)
 
 
 
-    def test_geometry(self):
-        ds = self.DS()
 
-        np.random.seed(6)
-        x = 2*np.pi*2*(np.random.random(ds.nx)-0.5)
-
-        ds.compute_geom(x)
-
-    def test_dyn(self):
-        matvals = (
-        """0.000334842149000  -0.000969415745309
-        -0.000395203896000   0.000000201686072
-        0.000244640482000  -0.095280176594652
-        -0.000139499164000   0.036560879846300
-        -0.000140689162000  -0.000000694800181
-        0.000109238381000   0.000055044108447
-        -0.000106220449000   0.000000000545069
-        -0.000090927390100   0.000334842149000
-        0.000009902409590  -0.000395203896000
-        0.000210147993000   0.000244640482000
-        0.000460526225000  -0.000139499164000
-        -0.000043378891100  -0.000140689162000""")
-        
-        v = np.array([float(v) for v in re.split("\s+", matvals)]).reshape(-1,2)
-        
-        x = to_gpu(v[:,0][np.newaxis,:] )
-        u = to_gpu(np.zeros((1,self.ds.nu)))
-        
-        r_ = self.ds.explf(x,u).get()[0]
-        r = v[:,1]
-        
-        np.testing.assert_almost_equal(r,r_)
         
         
-class TestsSwimmer(TestsDynamicalSystem):
-    from swimmer import Swimmer as DS 
-    def test_learning(self):
-
-        env = self.DS(dt = .01, noise = .01)
-
-        ds = self.DS() 
-        pp = SlpNlp(GPMcompact(ds,35))
-
-        for t in range(10000):
-            env.print_state()
-                
-            ds.state = env.state.copy()
-            ds.state[2] = 0
-            pi = pp.solve()
-
-            trj = env.step(pi,100)
-            ds.update(trj, prior = 1e-6)
-
-
-
-    def test_pp_iter(self):
-
-        env = self.DS(dt = .01)
-        pp = SlpNlp(GPMcompact(env,35))
-
-        for t in range(10000):
-            env.print_state()
-            state = env.state.copy()
-            env.state[2]= 0
-            pi = pp.solve()
-            env.state[:] = state
-
-            trj = env.step(pi,100)
 
 
 if __name__ == '__main__':

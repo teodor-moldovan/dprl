@@ -1,4 +1,6 @@
 from planning import *
+import unittest
+from test import TestsDynamicalSystem
 import sympy
 from sympy import sin, cos, diag,log,exp, sqrt
 from sympy import Matrix as mat
@@ -152,10 +154,6 @@ class HeliBase:
 
         return locals()
 
-class Heli(HeliBase, DynamicalSystem):
-    inverted_hover = False
-class HeliInverted(Heli):
-    inverted_hover = True
 class AutorotationBase:
     collocation_points = 15
     velocity_target = True
@@ -350,3 +348,29 @@ class AutorotationQ(Autorotation):
     log_h_init = 0.0
     fixed_horizon = True
 
+
+class Heli(HeliBase, DynamicalSystem):
+    inverted_hover = False
+class HeliInv(Heli):
+    inverted_hover = True
+
+class TestsHeli(TestsDynamicalSystem):
+    DSLearned = Heli
+    DSKnown   = Heli
+class TestsHeliInv(TestsDynamicalSystem):
+    DSLearned = HeliInv
+    DSKnown   = HeliInv
+class TestsAutorotation(TestsDynamicalSystem):
+    DSLearned = Autorotation
+    DSKnown   = Autorotation
+class TestsAutorotationCost(TestsDynamicalSystem):
+    DSLearned = AutorotationQ
+    DSKnown   = AutorotationQ
+
+
+if __name__ == '__main__':
+    """ to avoid merge conflicts, let's run individual tests 
+        from command-line like this:
+	  python cartpole.py Tests.test_accs
+    """
+    unittest.main()

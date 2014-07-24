@@ -1,4 +1,6 @@
 from planning import *
+import unittest
+from test import TestsDynamicalSystem
 
 class DoublePendulumBase:
     def initial_state(self):
@@ -64,3 +66,17 @@ class DoublePendulum(DoublePendulumBase,CostsDS):
     
 class DoublePendulumQ(DoublePendulumBase,CostsDS):
     log_h_init = 0
+
+class TestsDoublePendulum(TestsDynamicalSystem):
+    DSKnown   = DoublePendulum
+    DSLearned = DoublePendulum
+class TestsDoublePendulumCost(TestsDynamicalSystem):
+    DSKnown   = DoublePendulumQ
+    DSLearned = DoublePendulumQ
+
+if __name__ == '__main__':
+    """ to avoid merge conflicts, let's run individual tests 
+        from command-line like this:
+	  python cartpole.py Tests.test_accs
+    """
+    unittest.main()

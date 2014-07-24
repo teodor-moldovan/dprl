@@ -1,4 +1,6 @@
 from planning import *
+import unittest
+from test import TestsDynamicalSystem
 """ should also implement this one:
 http://papers.nips.cc/paper/3297-receding-horizon-differential-dynamic-programming.pdf
 """
@@ -10,6 +12,7 @@ class Swimmer(DynamicalSystem):
     #optimize_var = 0
     log_h_init = 0
     #fixed_horizon = True
+    collocation_points = 35
 
     def symbolics(self):
         nl = self.num_links
@@ -106,4 +109,48 @@ class Swimmer(DynamicalSystem):
         state = .01*np.random.normal(size = self.nx)
         return state
 
+class TestsSwimmer(TestsDynamicalSystem):
+    DSKnown   = Swimmer
+    DSLearned = Swimmer
+    def test_learning(self):
 
+        env = self.DSKnown(dt = .01, noise = .01)
+
+        ds = self.DSLearned() 
+        pp = SlpNlp(GPMcompact(ds,ds.collocation_points))
+
+        for t in range(10000):
+            env.print_state()
+                
+            ds.state = env.state.copy()
+            # Hack: hardcoded end state in planner/codegen, so we move the start state before planning
+            ds.state[2] = 0
+            pi = pp.solve()
+
+            trj = env.step(pi,100)
+            ds.update(trj, prior = 1e-6)
+
+
+
+    def test_pp_iter(self):
+
+        env = self.DSKnown(dt = .01)
+        pp = SlpNlp(GPMcompact(env,env.collocation_points))
+
+        for t in range(10000):
+            env.print_state()
+            state = env.state.copy()
+            # Hack: hardcoded end state in planner/codegen, so we move the start state before planning
+            env.state[2]= 0
+            pi = pp.solve()
+            env.state[:] = state
+
+            trj = env.step(pi,100)
+
+
+if __name__ == '__main__':
+    """ to avoid merge conflicts, let's run individual tests 
+        from command-line like this:
+	  python cartpole.py Tests.test_accs
+    """
+    unittest.main()

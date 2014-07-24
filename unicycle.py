@@ -1,9 +1,11 @@
 from planning import *
+import unittest
+from test import TestsDynamicalSystem
 
 class UnicycleBase:
     """http://mlg.eng.cam.ac.uk/pub/pdf/Dei10.pdf"""
     #log_h_init = 0
-    collocation_points = 25
+    collocation_points = 35
     def symbolics(self):
         symbols = sympy.var("""
             adtheta, adphi, adpsiw, adpsif, adpsit, 
@@ -180,3 +182,66 @@ class UnicycleBase:
 
 class Unicycle(UnicycleBase,DynamicalSystem):
     pass
+
+class TestsUnicycle(TestsDynamicalSystem):
+    DSKnown   = Unicycle
+    DSLearned = Unicycle
+    #from unicycle import UnicycleMM as DSMM
+    def test_learning(self):
+
+        env = self.DSKnown()
+        env.dt = .01
+        env.noise = .01
+
+        #from unicycle import UnicycleSpl as DSs
+        ds = self.DSLearned()
+        ds.log_h_init = 0.0
+        
+        pp = SlpNlp(GPMcompact(ds,ds.collocation_points))
+
+        for t in range(10000):
+
+            env.reset_if_need_be()
+            env.print_state()
+                
+            ds.state = env.state.copy()+1e-5*np.random.normal(size=env.nx)
+            pi = pp.solve()
+
+            trj = env.step(pi,5)
+
+            ds.update(trj, prior = 1e-6)
+
+
+    def test_dyn(self):
+        ds = self.DSKnown()
+        matvals = (
+        """0.000334842149000  -0.000969415745309
+        -0.000395203896000   0.000000201686072
+        0.000244640482000  -0.095280176594652
+        -0.000139499164000   0.036560879846300
+        -0.000140689162000  -0.000000694800181
+        0.000109238381000   0.000055044108447
+        -0.000106220449000   0.000000000545069
+        -0.000090927390100   0.000334842149000
+        0.000009902409590  -0.000395203896000
+        0.000210147993000   0.000244640482000
+        0.000460526225000  -0.000139499164000
+        -0.000043378891100  -0.000140689162000""")
+        
+        v = np.array([float(v) for v in re.split("\s+", matvals)]).reshape(-1,2)
+        
+        x = to_gpu(v[:,0][np.newaxis,:] )
+        u = to_gpu(np.zeros((1,self.ds.nu)))
+        
+        r_ = ds.explf(x,u).get()[0]
+        r = v[:,1]
+        
+        np.testing.assert_almost_equal(r,r_)
+
+
+if __name__ == '__main__':
+    """ to avoid merge conflicts, let's run individual tests 
+        from command-line like this:
+	  python cartpole.py Tests.test_accs
+    """
+    unittest.main()

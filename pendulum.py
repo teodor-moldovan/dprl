@@ -1,4 +1,6 @@
 from planning import *
+import unittest
+from test import TestsDynamicalSystem
 
 class PendulumBase:
     def initial_state(self):
@@ -39,3 +41,14 @@ class PendulumBase:
 
 class Pendulum(PendulumBase,DynamicalSystem):
     pass
+
+class TestsPendulum(TestsDynamicalSystem):
+    DSKnown   = Pendulum
+    DSLearned = Pendulum
+
+if __name__ == '__main__':
+    """ to avoid merge conflicts, let's run individual tests 
+        from command-line like this:
+	  python cartpole.py Tests.test_accs
+    """
+    unittest.main()

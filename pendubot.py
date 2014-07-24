@@ -1,4 +1,6 @@
 from planning import *
+import unittest
+from test import TestsDynamicalSystem
  
 class Pendubot(DynamicalSystem):
     """
@@ -58,77 +60,13 @@ class Pendubot(DynamicalSystem):
 
         return locals()
 
+class TestsPendubot(TestsDynamicalSystem):
+    DSKnown   = Pendubot
+    DSLearned = Pendubot
 
-    def plot_init(self):
-        plt.ion()
-        fig = plt.figure(1, figsize=(10, 15))
-
-    def plot_traj(self, tmp,r=None, u=None):
-
-        plt.sca(plt.subplot(3,1,1))
-
-        plt.xlim([-2*np.pi,2*np.pi])
-        plt.ylim([-60,60])
-        plt.plot(tmp[:,2],tmp[:,0])
-        if not r is None:
-            plt.scatter(tmp[:,2],tmp[:,0],c=r,linewidth=0,vmin=-1,vmax=1,s=40)
-
-        plt.sca(plt.subplot(3,1,2))
-
-        plt.xlim([-2*np.pi,2*np.pi])
-        plt.ylim([-60,60])
-        plt.plot(tmp[:,3],tmp[:,1])
-        if not r is None:
-            plt.scatter(tmp[:,3],tmp[:,1],c=r,linewidth=0,vmin=-1,vmax=1,s=40)
-
-        plt.sca(plt.subplot(3,1,3))
-        plt.ylim([0.0,1.2])
-
-        try:
-            plt.plot(self.spectrum)
-        except:
-            pass
-
-        if not u is None:
-            plt.plot(u)
-
-
-
-    def plot_draw(self):
-        
-        plt.draw()
-        plt.show()
-        fig = plt.gcf()
-        fig.savefig('out.pdf')
-        plt.clf()
-        
-    def plot_state_init(self):
-        
-        x = self.anim_x[0]
-        plt.xlim([-1.2,1.2])
-        plt.ylim([-1.2,1.2])
-        x1 = np.sin(x[2])*0.5
-        y1 = np.cos(x[2])*0.5
-        x2 = np.sin(x[2]+x[3])*0.5+x1
-        y2 = np.cos(x[2]+x[3])*0.5+y1
-        self.anim_plot, = plt.plot([0,x1,x2],[0,y1,y2],'go-',linewidth=4,markersize=12)
-        return self.anim_plot,
-        
-    def plot_state(self,t):
-        
-        print 'Frame ' + str(t) + ': ' + str(self.anim_x[t])
-        x = self.anim_x[t]
-        x1 = np.sin(x[2])*0.5
-        y1 = np.cos(x[2])*0.5
-        x2 = np.sin(x[3])*0.5+x1
-        y2 = np.cos(x[3])*0.5+y1
-        self.anim_plot.set_data([0,x1,x2],[0,y1,y2])
-        return self.anim_plot,
-        
-    def plot_state_seq(self,x):
-
-        self.anim_x = x
-        plt.clf()
-        anim = animation.FuncAnimation(plt.figure(1),self.plot_state,frames=len(x),interval=20,blit=False,init_func=self.plot_state_init,repeat=False)
-        anim._start()
-
+if __name__ == '__main__':
+    """ to avoid merge conflicts, let's run individual tests 
+        from command-line like this:
+	  python cartpole.py Tests.test_accs
+    """
+    unittest.main()
