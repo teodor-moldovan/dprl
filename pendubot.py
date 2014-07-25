@@ -23,8 +23,6 @@ class Pendubot(DynamicalSystem):
         I2 = m2*l2**2/12.0 # moment of inertia around pendulum midpoint (outer)
         u_max = 3.5 # force exerted at maximum control
         
-        width = 0.25    # used for pilco costs
-
         symbols = sympy.var("dw1, dw2, dt1, dt2, w1, w2, t1, t2, u")
         cos, sin, exp = sympy.cos, sympy.sin, sympy.exp
 
@@ -42,18 +40,6 @@ class Pendubot(DynamicalSystem):
                 (-dt1 + w1),
                 (-dt2 + w2)
             )
-        def quad_cost():
-            return  .5*(t1*t1 + t2*t2 ) + 1e-5*(u*u)
-
-        def pilco_cost():
-
-            dx = ( -l1 *sin(t1)  - l2*sin(t2))/width
-            dy = (l1 + l2 - l1*cos(t1) - l2*cos(t2))/width
-            dist = dx*dx + dy*dy
-            cost = 1 - exp(- .5 * dist)
-
-            return cost
-
         def state_target():
             return (w1,w2,t1,t2)
 

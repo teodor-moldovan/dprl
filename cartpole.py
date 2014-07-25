@@ -23,8 +23,6 @@ class CartPoleBase:
         g = 9.82  # [m/s^2]  acceleration of gravity
         um = 10   # max control
         
-        width = .25     # used by pilco cost function   
-
         sin,cos,exp = sympy.sin, sympy.cos, sympy.exp
         s,c = sympy.sin(t), sympy.cos(t)
 
@@ -39,39 +37,18 @@ class CartPoleBase:
             )
             return dyn
 
-        def pilco_cost():
-
-            dx = (x + l*sin(t))/width
-            dy = l*(cos(t)+1)/width
-            dist = dx*dx + dy*dy
-            cost = 0.5*(1 - exp(- .5 * dist))
-
-            return cost
-
-        def quad_cost(): 
-            return .5*( (t-np.pi)**2 + x**2 + 1e-2*u**2 )
-            #return .5*( t**2 + x**2 + 1e-2*u**2 )
-
         def state_target():
             #return (t-np.pi,)
             return (w,v,t-np.pi,x)
 
-        cost = quad_cost
         return locals()
 
 class Cartpole(CartPoleBase,DynamicalSystem):
     pass
-class CartpoleQ(CartPoleBase,CostsDS):
-    pass
-
 class TestsCartpole(TestsDynamicalSystem):
     DSLearned = Cartpole
     DSKnown   = Cartpole
 
-class TestsCartpoleCosts(TestsDynamicalSystem):
-    DSLearned = CartpoleQ
-    DSKnown   = CartpoleQ
-    
 if __name__ == '__main__':
     """ to avoid merge conflicts, let's run individual tests 
         from command-line like this:

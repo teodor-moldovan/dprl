@@ -36,7 +36,6 @@ class UnicycleBase:
         v_max = 10   # maximum controls
         T = 0        # no friction
         
-        width = 1    # used by pilco cost function
 
         cos, sin,exp = sympy.cos, sympy.sin, sympy.exp
         st,ct,sf,cf = sin(theta), cos(theta), sin(psif), cos(psif)
@@ -67,31 +66,6 @@ class UnicycleBase:
             exprs = exa + exb + exc
 
             return exprs
-
-        def pilco_cost_reg():
-            
-            dx = rw + rf - rw*ct - rf*ct*cf
-            dy = rw + rf - rw*ct - .5*rf*cos(theta-psif) - .5*rf*cos(theta+psif)
-
-            dist = (dx*dx + dy*dy)/(width*width)
-            cost = 1 - exp(- .5 * dist) + 1e-5*V*V + 1e-5*U*U
-
-            return cost
-
-        def pilco_cost():
-            
-            dx = rw + rf - rw*ct - rf*ct*cf
-            dy = rw + rf - rw*ct - .5*rf*cos(theta-psif) - .5*rf*cos(theta+psif)
-
-            dist = (dx*dx + dy*dy)/(width*width)
-            cost = 1 - exp(- .5 * dist)
-
-            return cost
-
-        def quad_cost():
-
-            v = sympy.Matrix((dtheta, dpsiw, dpsif, theta, psif))
-            return (v.T*v)[0] + 1e-2*V*V + 1e-2*U*U
 
         def state_target():
             return (dtheta,dpsiw, dpsif, dphi, theta,psif)

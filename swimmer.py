@@ -34,9 +34,6 @@ class Swimmer(DynamicalSystem):
         sin, cos = sympy.sin, sympy.cos
         Mat, diag = sympy.Matrix, sympy.diag
         
-        def quad_cost():
-            return (vx+1)*(vx+1) + vy*vy
-
         def state_target():
             return (x+.5, )+ t
 

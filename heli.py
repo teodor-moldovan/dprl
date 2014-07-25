@@ -304,13 +304,6 @@ class AutorotationBase:
 
 class Autorotation(AutorotationBase, DynamicalSystem):
     pass
-class AutorotationQ(Autorotation):
-    velocity_target = False
-    optimize_var = -2
-    log_h_init = 0.0
-    fixed_horizon = True
-
-
 class Heli(HeliBase, DynamicalSystem):
     inverted_hover = False
 class HeliInv(Heli):
@@ -325,11 +318,6 @@ class TestsHeliInv(TestsDynamicalSystem):
 class TestsAutorotation(TestsDynamicalSystem):
     DSLearned = Autorotation
     DSKnown   = Autorotation
-class TestsAutorotationCost(TestsDynamicalSystem):
-    DSLearned = AutorotationQ
-    DSKnown   = AutorotationQ
-
-
 if __name__ == '__main__':
     """ to avoid merge conflicts, let's run individual tests 
         from command-line like this:

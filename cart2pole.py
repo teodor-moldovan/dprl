@@ -24,32 +24,8 @@ class CartDoublePole(DynamicalSystem):
         g  = 9.82; # [m/s^2]  acceleration of gravity
         um = 20.0  # max control
 
-        width = .5 # [m]      width used in pilco cost function
 
         cos,sin,exp = sympy.cos, sympy.sin, sympy.exp
-
-        def pilco_cost_reg():
-
-            dx = (x - l2 *sin(t1)  - l3*sin(t2))/width
-            dy = (l2 + l3 - l2*cos(t1) - l3*cos(t2))/width
-            dist = dx*dx + dy*dy
-            cost = 1 - exp(- .5 * dist) + 1e-5*u*u
-            #cost = .5 * dist + 1e-5*u*u
-
-            return cost
-
-        def pilco_cost():
-
-            dx = (x - l2 *sin(t1)  - l3*sin(t2))/width
-            dy = (l2 + l3 - l2*cos(t1) - l3*cos(t2))/width
-            dist = dx*dx + dy*dy
-            cost = 1 - exp(- .5 * dist)
-
-            return cost
-
-        def quad_cost():
-            return .5*(1e-2*u*u + x*x + t1*t1 + t2*t2)
-
 
         def state_target():
             return (v,w1,w2,x,t1,t2)
@@ -73,8 +49,6 @@ class CartDoublePole(DynamicalSystem):
         return locals()
         
         
-        
-
 class TestsCartDoublePole(TestsDynamicalSystem):
     DSKnown   = CartDoublePole
     DSLearned = CartDoublePole

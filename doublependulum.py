@@ -24,7 +24,6 @@ class DoublePendulumBase:
         um = 2.0    # maximum control
 
         sin,cos, exp = sympy.sin, sympy.cos, sympy.exp
-        width = .5      # pilco cost function width
 
         def dyn():
             A = ((l1**2*(0.25*m1+m2) + I1,      0.5*m2*l1*l2*cos(t1-t2)),
@@ -42,35 +41,13 @@ class DoublePendulumBase:
             
         def state_target():
             return (w1,w2,t1,t2)
-        def quad_cost():
-            return .5*( t1**2 + t2**2 + 1e-2*(u1**2 + u2**2) )
-
-        def pilco_cost():
-            dx = l1*sin(t1) + l2*sin(t2)
-            dy = l1*(1-cos(t1)) + l2*(1-cos(t2))
-            dist = dx*dx + dy*dy
-            cost = 0.5*(1 - exp(- .5 * dist/(width**2)))
-
-            return cost
-
-        cost = quad_cost
 
         return locals()
 
 
-class DoublePendulum(DoublePendulumBase,CostsDS):
-    pass
-    
-class DoublePendulumQ(DoublePendulumBase,CostsDS):
-    log_h_init = 0
-
 class TestsDoublePendulum(TestsDynamicalSystem):
     DSKnown   = DoublePendulum
     DSLearned = DoublePendulum
-class TestsDoublePendulumCost(TestsDynamicalSystem):
-    DSKnown   = DoublePendulumQ
-    DSLearned = DoublePendulumQ
-
 if __name__ == '__main__':
     """ to avoid merge conflicts, let's run individual tests 
         from command-line like this:

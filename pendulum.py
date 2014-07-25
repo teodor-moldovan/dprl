@@ -27,10 +27,6 @@ class PendulumBase:
             )
             return dyn
 
-        def quad_cost(): 
-            # not implemented
-            return .5*w
-
         def state_target():
             return (w,t-np.pi)
 
