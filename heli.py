@@ -112,9 +112,6 @@ class HeliBase:
         def inverted_hover_target():
             return (wx, wy, wz, vx, vy, vz, rx, ry - np.pi, rz,)
 
-        def dpmm_features():
-            return (wxd, wyd, wzd, vxd, vyd, vzd,rx, ry, rz,ux,uy,uz,uc)
-
         # hack: should use subclasses instead of conditionals here
         if self.inverted_hover:
             state_target = inverted_hover_target
@@ -296,10 +293,6 @@ class AutorotationBase:
             return (wx, wy, wz, vx-8,vy, om-1150*self.rpm2w, rx, ry, rz-.1)
             #return (wx, wy, wz, vz-5.0,vx-8,vy, om-1150*self.rpm2w, rx, rz)
 
-
-        def dpmm_features():
-            return (dom,om,vx,vy,vz,ux,uy,uc)
-            #return (dwx,dwy,dwz, dvx, dvy, dvz,dom,vx,vy,vz,rx, ry, rz,om, ux,uy,uz,uc)
 
         if self.velocity_target:
             state_target = state_target_vel

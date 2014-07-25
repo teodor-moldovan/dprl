@@ -228,7 +228,7 @@ class PiecewiseConstantPolicy:
         
 class DynamicalSystem:
     dt, log_h_init,noise = 0.01, -1.0,0
-    squashing_function, optimize_var = None, None
+    optimize_var = None
     fixed_horizon= False
     collocation_points = 35
     episode_max_h = 20.0 
@@ -238,7 +238,7 @@ class DynamicalSystem:
         dct = self.symbolics()
 
         self.symbols = tuple(dct['symbols'])
-        self.exprs = tuple(dct['dyn']())
+        implf_sym = tuple(dct['dyn']())
         target_expr = tuple(dct['state_target']())
 
         try:
@@ -247,7 +247,7 @@ class DynamicalSystem:
             geom = None
 
 
-        self.nx = len(self.exprs)
+        self.nx = len(implf_sym)
         self.nu = len(self.symbols) - 2*self.nx
 
         if not geom is None:
@@ -255,15 +255,21 @@ class DynamicalSystem:
             f = codegen_cse(geom, self.symbols[self.nx:-self.nu])
             self.k_geometry = rowwise(f,'geometry')
 
-        features, weights, nfa, nf = self.__extract_features(
-                self.exprs,self.symbols,self.nx)
+        features, weights, self.nfa, self.nf = self.__extract_features(
+                implf_sym,self.symbols,self.nx)
         
-        if weights is not None:
-            self.weights = to_gpu(weights)
+        self.weights = to_gpu(weights)
 
-        self.nf, self.nfa = nf, nfa
+        fn1,fn2,fn3,fn4  = self.__codegen(
+                features, self.symbols,self.nx,self.nf,self.nfa)
 
-        self.codegen(features, self.squashing_function)
+        # compile cuda code
+        # if this is a bottleneck, we could compute subsets of features in parallel using different kernels, in addition to each row.  this would recompute the common sub-expressions, but would utilize more parallelism
+        
+        self.k_features = rowwise(fn1,'features')
+        self.k_features_jacobian = rowwise(fn2,'features_jacobian')
+        self.k_features_mass = rowwise(fn3,'features_mass')
+        self.k_features_force = rowwise(fn4,'features_force')
 
         self.initialize_state()
         self.initialize_target(target_expr)
@@ -329,27 +335,6 @@ class DynamicalSystem:
         fn4 = codegen_cse(gsym, symbols[nx:], set_zeros = set_zeros)
 
         return fn1,fn2,fn3,fn4
-
-    def codegen(self, feat, squashing_function):
-
-        nx = self.nx
-
-        if not squashing_function is None:
-            squ = [(u,squashing_function(u)) for u in self.symbols[-self.nu:]]
-            feat = tuple(( e.subs(squ) for e in feat))
-
-        fn1,fn2,fn3,fn4  = self.__codegen(
-                feat, self.symbols,self.nx,self.nf,self.nfa)
-
-
-        # compile cuda code
-        # if this is a bottleneck, we could compute subsets of features in parallel using different kernels, in addition to each row.  this would recompute the common sub-expressions, but would utilize more parallelism
-        
-        self.k_features = rowwise(fn1,'features')
-        self.k_features_jacobian = rowwise(fn2,'features_jacobian')
-        self.k_features_mass = rowwise(fn3,'features_mass')
-        self.k_features_force = rowwise(fn4,'features_force')
-
 
     @staticmethod
     @memoize
@@ -707,7 +692,16 @@ class CostsDS(DynamicalSystem):
 
         self.nf, self.nfa = nf, nfa
 
-        self.codegen(features, self.squashing_function)
+        fn1,fn2,fn3,fn4  = self.__codegen(
+                features, self.symbols,self.nx,self.nf,self.nfa)
+
+        # compile cuda code
+        # if this is a bottleneck, we could compute subsets of features in parallel using different kernels, in addition to each row.  this would recompute the common sub-expressions, but would utilize more parallelism
+        
+        self.k_features = rowwise(fn1,'features')
+        self.k_features_jacobian = rowwise(fn2,'features_jacobian')
+        self.k_features_mass = rowwise(fn3,'features_mass')
+        self.k_features_force = rowwise(fn4,'features_force')
 
         self.initialize_state()
         self.initialize_target(target_expr)

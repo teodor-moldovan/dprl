@@ -96,16 +96,6 @@ class UnicycleBase:
         def state_target():
             return (dtheta,dpsiw, dpsif, dphi, theta,psif)
 
-        def dpmm_features():
-            return (adtheta, adphi, adpsiw, adpsif, adpsit, 
-                    #ax, ay, 
-                    dtheta,dpsif,
-                    dpsiw, dpsit,dphi,
-                    #cos(phi), sin(phi),
-                    #st,ct,  sf,cf,
-                    theta, psif,
-                    V,U
-            )
         return locals()
         
     def reset_if_need_be(self):

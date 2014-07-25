@@ -27,9 +27,6 @@ class PendulumBase:
             )
             return dyn
 
-        def dpmm_features():
-            return (dw,w, s,c,u)
-
         def quad_cost(): 
             # not implemented
             return .5*w

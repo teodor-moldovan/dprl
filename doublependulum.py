@@ -40,9 +40,6 @@ class DoublePendulumBase:
             exb = tuple( -i + j for i,j in zip(symbols[2:4],symbols[4:6]))
             return exa + exb
             
-        def dpmm_features():
-            return (dw1, dw2, w1, w2,sin(t2),cos(t2),sin(t1),cos(t1),u1,u2)
-
         def state_target():
             return (w1,w2,t1,t2)
         def quad_cost():
