@@ -259,7 +259,7 @@ class DynamicalSystem:
 
         features, weights, self.nfa, self.nf = self.__extract_features(
                 implf_sym,self.symbols,self.nx)
-        
+
         self.weights = to_gpu(weights)
 
         fn1,fn2,fn3,fn4  = self.__codegen(
@@ -562,6 +562,11 @@ class DynamicalSystem:
         s = self.psi/self.n_obs
 
         if True:
+            # perform CCA 
+            # algorithm from wikipedia:
+            # http://en.wikipedia.org/wiki/Canonical_correlation
+            # tutorial:
+            # http://www.imt.liu.se/people/magnus/cca/tutorial/tutorial.pdf
             s11, s12, s22 = m(s[:k,:k]), m(s[:k,k:]), m(s[k:,k:])
             
             q11 = sqrt(inv(s11))
@@ -587,7 +592,6 @@ class DynamicalSystem:
         self.model_slack_bounds = 1.0/self.n_obs
         # eigenvalues of correlation matrix (s)
         self.spectrum = l
-        
         
     def print_state(self,s = None):
         if s is None:

@@ -16,23 +16,17 @@ class HeliBase:
         return state 
         
     def symbolics(self):
+        state_names = """ wx, wy, wz, vx, vy, vz,
+                          rx, ry, rz, px, py, pz, """
 
         state = (wx, wy, wz, vx, vy, vz,
-                 rx, ry, rz, px,py,pz) = dynamicsymbols("""
-                        wx, wy, wz, vx, vy, vz,
-                        rx, ry, rz,
-                        px, py, pz,
-                    """)
+                 rx, ry, rz, px,py,pz) = dynamicsymbols(state_names)
 
         dstate = (wxd, wyd, wzd, vxd, vyd, vzd, 
-                  rxd,ryd,rzd, pxd, pyd, pzd ) = dynamicsymbols("""
-                        wx, wy, wz, vx, vy, vz,
-                        rx, ry, rz,
-                        px, py, pz,
-                    """, 1)
-
+                  rxd,ryd,rzd, pxd, pyd, pzd ) = dynamicsymbols(state_names,1)
 
         controls = (ux,uy,uz, uc) = dynamicsymbols('ux,uy,uz,uc')
+
 
         symbols = dstate + state + controls
 
@@ -66,9 +60,8 @@ class HeliBase:
 
             cm.set_vel(L, vh)
 
-            kr = kinematic_equations( 
-                    [wx,wy,wz], [qw, qx,qy,qz], 'Quaternion')
-            embed()
+            # set up kinematics
+            kr = kinematic_equations([wx,wy,wz], [qw, qx,qy,qz], 'Quaternion')
             kt = [vlx-pxd, vly-pyd, vlz-pzd]
 
             BodyList = [
@@ -94,9 +87,14 @@ class HeliBase:
             rt = sin(th/2.0)/th
             q_  = mat(( cos(th/2.0), rx*rt, ry*rt, rz*rt ))
             qd_ = mat([sympy.diff(i,sympy.symbols('t')) for i in q_])
+            
+            # square root expressed as exponential to help 
+            # sympy automatic simplification
             th_  = exp(.5*log(rx**2+ry**2+rz**2))
             thd_ = (rx*rxd + ry*ryd + rz*rzd)/th
 
+            # replace old rotation parametrization (quaternion) with new
+            # representation (Euler axis time angle)
             sublist = zip((qwd,qxd,qyd,qzd), qd_) + zip((qw,qx,qy,qz), q_)
 
             dyn = dyn.expand()
@@ -105,7 +103,7 @@ class HeliBase:
             dyn = dyn.expand()
             dyn = dyn.subs(((thd,thd_),)).expand()
             dyn = dyn.subs(((th,th_),)).expand()
-
+            
             return dyn
 
         def upright_hover_target():
