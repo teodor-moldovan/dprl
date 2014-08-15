@@ -15,7 +15,7 @@ class CartPoleBase:
             dynamicsymbols(" w, v, t, x ") +
             [dynamicsymbols(" u "),]
             )
-        
+
         l = 0.5   # [m]      length of pendulum
         m = 0.5   # [kg]     mass of pendulum
         M = 0.5   # [kg]     mass of cart

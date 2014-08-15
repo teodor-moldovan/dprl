@@ -4,6 +4,7 @@ from planning import *
 import time
 import scipy.linalg
 import scipy.special
+from IPython import embed
 
 class TestsTools(unittest.TestCase):
     def test_array(self):
@@ -609,11 +610,10 @@ class TestsDynamicalSystem(unittest.TestCase):
 
             env.initialize_state()
             env.t = 0
-            env.dt = .01
-            env.noise = np.array([.01,0.0,0.0])
 
             # start with a sequence of random controls
-            trj = env.step(RandomPolicy(env.nu,umax=.1),2*ds.nf) 
+            #trj = env.step(RandomPolicy(env.nu,umax=.1),2*ds.nf) 
+            trj = env.step(RandomPolicy(env.nu,umax=.1),20) 
             cnt = 0
 
             while True:
@@ -665,7 +665,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         for t in range(10000):
             s = env.state
             env.print_state()
-            ds.state = env.state.copy()+1e-3*np.random.normal(size=env.nx)
+            ds.state = env.state.copy() + env.noise[0] * np.random.normal(size=env.nx)
             pi = pp.solve()
             trj = env.step(pi,5)
 

@@ -4,10 +4,10 @@ from pylab import *
 from mpl_toolkits.mplot3d.axes3d import Axes3D
 from mpl_toolkits.mplot3d import proj3d
 from matplotlib import animation
-from clustering import *
 from tools import *
 import cPickle
 import os
+from IPython import embed
 
 def ellipse((x,y),(r1,r2),a):
 
@@ -211,24 +211,12 @@ def regression(basename = './out/regression_%s.pdf', l=100,k=80, sg = .01):
 def plot_log(name, inds=None, labels=None, eps_stop = 0, succ_thrs = 20.0,
             state_avg = None, max_trials_to_plot = 30):
     
-    fname = 'out/'+name+'.pkl'
-    fout = fname + '.pdf'
-    f = open(fname) 
-    trjs = []
-    
-    while True:
-        try:
-            trjs.append(cPickle.load(f) )
-        except:
-            break
-    f.close()
+    trjs = load_trjs_file(name)
+
+    fout = 'out/' + name + '.pkl' + '.pdf'
         
-    lg = np.vstack([np.hstack((trj[0][:], trj[2][:])) for trj in trjs])
-    s = [0,] + list(np.where(lg[1:,0] < lg[:-1,0])[0]+1) 
-    e = s[1:] + [lg.shape[0],]
-    plts  = [ lg[s:e] for s,e in zip(s,e)[:-1]]
-        
-        
+    plts = extract_all_complete_trjs(trjs)
+
     #plts = [f[f[:,0]<20] for f in plts]
 
     pn = []
@@ -539,6 +527,8 @@ def animate_unicycle():
 #animate_unicycle()
 
 if True:
+    pass
+    """
     plot_log('pendulum.PendulumEMM', [lambda x: np.pi -x[1]], ['Angle (radians)'])
     plot_log('pendulum.Pendulum_bck', [lambda x: np.pi -x[1]], ['Angle (radians)'])
     plot_log('cartpole.CartPoleEMM', [lambda x: np.pi -x[2],3], ['Angle (radians)', 'Location (m) '])
@@ -551,6 +541,7 @@ if True:
 
     plot_log('heli.Heli_mm',[lambda x: 20-x[11],],['Altitude (m)'], state_avg = 11)
     plot_log('heli.HeliEMM',[lambda x: 20-x[11],],['Altitude (m)'])
+    """
 
 else:
     pass

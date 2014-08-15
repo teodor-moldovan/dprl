@@ -17,6 +17,7 @@ from tempfile import gettempdir
 from os.path import join
 from inspect import getsourcelines
 import shelve
+import cPickle
 
 from jinja2 import Template
 
@@ -1091,3 +1092,24 @@ def codegen_cse(exprs,symbols, temp_name = 'tmp',
     return fn
     
 
+def load_trjs_file(name):
+
+    fname = 'out/'+name+'.pkl'
+    f = open(fname) 
+    trjs = []
+    
+    while True:
+        try:
+            trjs.append(cPickle.load(f) )
+        except:
+            break
+    f.close()
+    return trjs
+
+
+def extract_all_complete_trjs(trjs):
+    lg = np.vstack([np.hstack((trj[0][:], trj[2][:])) for trj in trjs])
+    s = [0,] + list(np.where(lg[1:,0] < lg[:-1,0])[0]+1) 
+    e = s[1:] + [lg.shape[0],]
+    plts  = [ lg[ss:ee] for ss,ee in zip(s,e)]
+    return plts
