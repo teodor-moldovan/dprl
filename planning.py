@@ -7,6 +7,7 @@ import math
 import cPickle
 import re
 import sympy
+from IPython import embed
 
 try:
     import mosek
@@ -227,11 +228,12 @@ class PiecewiseConstantPolicy:
         u = self.us[t]
         
 class DynamicalSystem:
-    dt, log_h_init,noise = 0.01, -1.0,0
+    dt, log_h_init,noise = 0.01, -1.0, np.array([0, 0, 0])
     optimize_var = None
     fixed_horizon= False
     collocation_points = 35
     episode_max_h = 20.0 
+    #noise = np.array([.01,0.0,0.0])
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
 
@@ -317,6 +319,7 @@ class DynamicalSystem:
     def __codegen(features, symbols,nx,nf, nfa):
         
         jac = [sympy.diff(f,s) for s in symbols for f in features]
+
         
         # generate cuda code
         # implicit dynamics: f(dot(x), x, u) = 0
@@ -790,6 +793,7 @@ class GPMcompact():
         except:
             b[self.iv_model_slack] = 0
         
+        # bu bl: upper and lower bounds
         bl = -b
         bu = b
         
@@ -799,7 +803,8 @@ class GPMcompact():
             bl[self.iv_h] = hi
             bu[self.iv_h] = hi
         else:
-            #bu[self.iv_h] = 11
+            # self.iv_h is inverse of the trajectory length
+            bu[self.iv_h] = 100.0
             bl[self.iv_h] = .01
 
 

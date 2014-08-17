@@ -1,6 +1,7 @@
 from planning import *
 from test import TestsDynamicalSystem, unittest
 import sympy
+from IPython import embed
 from sympy import sin, cos, diag,log,exp, sqrt
 from sympy import Matrix as mat
 from sympy.physics.mechanics import *
