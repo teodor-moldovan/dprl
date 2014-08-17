@@ -584,6 +584,7 @@ class DynamicalSystem:
             rs = u.T[ind,:]
             
         self.weights = to_gpu(rs[:self.nx,:])
+        
 
         # encourages exploration, more or less empirical rate decay
         self.model_slack_bounds = 1.0/self.n_obs
