@@ -9,6 +9,8 @@ from IPython import embed
 from planning import *
 from test import TestsDynamicalSystem, unittest
 
+def nsimp(expr, tol=0.000001):
+    return trigsimp(nsimplify(expr, tolerance=tol))
 
 class RobotArmBase:
     #collocation_points = 15
@@ -19,7 +21,7 @@ class RobotArmBase:
         #state += .25*np.random.normal(size = self.nx)
         return state 
         
-    def symbolics(self, forward_gen=False):
+    def symbolics(self, forward_gen=False, end_effector=False):
 
 
         state  = (t0,  t1,  t2, w0, w1, w2)  = dynamicsymbols("""
@@ -107,10 +109,8 @@ class RobotArmBase:
                          (link2_center_frame, f2 * u2 * frame2.z) # link2 FBD
                          ] 
 
-
             coords = [t0, t1, t2]
             speeds = [w0, w1, w2]
-
 
             KM = KanesMethod(W, coords, speeds, kd_eqs=kr)
 
@@ -120,11 +120,11 @@ class RobotArmBase:
                 mm = KM.mass_matrix_full
                 msh0, msh1 = mm.shape
                 tol = self.tol
-                mass = mat([[trigsimp(nsimplify(mm[i, j],      tolerance=tol)) for j in range(msh1)] for i in range(msh0)])
+                mass = mat([[nsimp(mm[i, j], tol=tol) for j in range(msh1)] for i in range(msh0)])
 
                 forc= KM.forcing_full
                 fsh0, fsh1 = forc.shape
-                forcing = mat([[trigsimp(nsimplify(forc[i, j], tolerance=tol)) for j in range(fsh1)] for i in range(fsh0)])
+                forcing = mat([[nsimp(forc[i, j], tol=tol) for j in range(fsh1)] for i in range(fsh0)])
 
                 from pydy.codegen.code import generate_ode_function
                 right_hand_side = generate_ode_function(mass, forcing, [], coords, speeds, controls)
@@ -133,9 +133,12 @@ class RobotArmBase:
 
             return locals()
 
-        def dyn():
+        def dyn(full_dyn_locals_dict=None):
 
-            locals_dict = dyn_full()
+            if full_dyn_locals_dict is None:
+                locals_dict = dyn_full()
+            else:
+                locals_dict = full_dyn_locals_dict
 
             fr = locals_dict['fr']
             frstar = locals_dict['frstar']
@@ -145,8 +148,8 @@ class RobotArmBase:
             tol = self.tol
 
 
-            frsimp     = mat([[trigsimp(nsimplify(fr[i, j],     tolerance=tol)) for j in range(frsh1)] for i in range(frsh0)])
-            frstarsimp = mat([[trigsimp(nsimplify(frstar[i, j], tolerance=tol)) for j in range(frsh1)] for i in range(frsh0)])
+            frsimp     = mat([[nsimp(fr[i, j], tol=tol) for j in range(frsh1)] for i in range(frsh0)])
+            frstarsimp = mat([[nsimp(frstar[i, j], tol=tol) for j in range(frsh1)] for i in range(frsh0)])
 
             dyn = frsimp + frstarsimp
             # this next line is probably not needed since the frsimp + frstarsimp terms have different variables 
@@ -197,50 +200,65 @@ class RobotArmEffector(RobotArmBase, DynamicalSystem):
         dct = self.symbolics()
 
         sym = tuple(dct['symbols'])
-        exprs = tuple(dct['dyn']())
-        costf = dct['cost']()
+        full_dyn_locals_dict = dct['dyn_full']()
+        exprs = tuple(dct['dyn'](full_dyn_locals_dict=full_dyn_locals_dict))
         target_expr = tuple(dct['state_target']())
 
         nx = len(exprs)
         nu = len(sym) - 2*nx
+
         
-        self.nx = nx+6
+        self.nx = nx+3
         self.nu = nu
 
 
-        stateAug = (effx, effy, effz, veffx, veffy, veffz) = dynamicsymbols("""
-                        effx, effy, effz, veffx, veffy, veffz
+        #stateAug = (effx, effy, effz, veffx, veffy, veffz) = dynamicsymbols("""
+                        #effx, effy, effz, veffx, veffy, veffz
+                    #""")
+
+        #dstateAug = (effxd, effyd, effzd, veffxd, veffyd, veffzd) = dynamicsymbols("""
+                        #effx, effy, effz, veffx, veffy, veffz
+                    #""", 1)
+
+        stateAug = (effx, effy, effz) = dynamicsymbols("""
+                        effx, effy, effz
                     """)
 
-        dstateAug = (effxd, effyd, effzd, veffxd, veffyd, veffzd) = dynamicsymbols("""
-                        effx, effy, effz, veffx, veffy, veffz
+        dstateAug = (effxd, effyd, effzd) = dynamicsymbols("""
+                        effx, effy, effz
                     """, 1)
+
+        sym = sym[:nx] + tuple(dstateAug) + sym[nx:2*nx] + tuple(stateAug) + sym[2*nx:]
+
+        #target_expr = (effx - .5, effy - .5, effz - .5,) + tuple(list(target_expr)[3:])
+
+        #target_expr =  target_expr
+
+        # end effector position constraint
+        W = full_dyn_locals_dict['W']
+        og = full_dyn_locals_dict['og']
+        end_eff = full_dyn_locals_dict['point3']
+        coord_end_eff = end_eff.pos_from(og).express(W)
+        eff_constraint = (nsimp(coord_end_eff.dot(W.x), tol=self.tol) - effx,
+                          nsimp(coord_end_eff.dot(W.y), tol=self.tol) - effy,
+                          nsimp(coord_end_eff.dot(W.z), tol=self.tol) - effz)
+
+        # translational end effector kinematic diffeq
+        #kt = (veffx - effxd, veffy - effyd, veffz - effzd)
         
-        target_expr =  target_expr + (cost,)
-        
-        sym = sym[:nx] + (dcost,) + sym[nx:2*nx] + (cost,) + sym[2*nx:]
 
         self.symbols = sym
+        exprs = exprs + eff_constraint #+ kt
 
-        ft, weights, nfa, nf = self.extract_features(exprs,sym,nx)
-        
-        features = ft[:nfa] + (dcost, ) + ft[nfa:] + (costf, )
-        nfa += 1
-        nf += 2
-        
-        weights = np.insert(weights,nfa-1,0,axis=1)
-        weights = np.insert(weights,weights.shape[1],0,axis=1)
-        weights = np.insert(weights,weights.shape[0],0,axis=0)
-        
-        weights[-1,nfa-1] = -1
-        weights[-1,-1] = 1
+
+        features, weights, nfa, nf = self.extract_features(exprs,sym,self.nx)
         
         if weights is not None:
             self.weights = to_gpu(weights)
 
         self.nf, self.nfa = nf, nfa
 
-        fn1,fn2,fn3,fn4  = self.__codegen(
+        fn1,fn2,fn3,fn4  = self.codegen(
                 features, self.symbols,self.nx,self.nf,self.nfa)
 
         # compile cuda code
@@ -260,6 +278,10 @@ class RobotArmEffector(RobotArmBase, DynamicalSystem):
 class TestsRobotArm(TestsDynamicalSystem):
     DSLearned = RobotArm
     DSKnown   = RobotArm
+
+class TestsRobotArmEffector(TestsDynamicalSystem):
+    DSLearned = RobotArmEffector
+    DSKnown   = RobotArmEffector
 
 if __name__ == '__main__':
     """ to avoid merge conflicts, let's run individual tests 
