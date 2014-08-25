@@ -8,6 +8,7 @@ import cPickle
 import re
 import sympy
 from IPython import embed
+import os.path
 
 try:
     import mosek
@@ -290,6 +291,7 @@ class DynamicalSystem:
         # simplify each implicit dynamic expression
         spl=lambda e : e.rewrite(sympy.exp).expand().rewrite(sympy.sin).expand()
         exprs = [spl(e) for e in exprs]
+
         
         # separate weights from features
         exprs = [e.as_coefficients_dict().items() for e in exprs]
@@ -314,6 +316,9 @@ class DynamicalSystem:
 
         return features, weights, len(f1), len(features)
 
+    def codegen(self, *args):
+      return self.__codegen(*args)
+
     @staticmethod
     @memoize_to_disk
     def __codegen(features, symbols,nx,nf, nfa):
@@ -332,6 +337,7 @@ class DynamicalSystem:
         gsym = features[nfa:]
         
         set_zeros = False
+
         fn1 = codegen_cse(features, symbols, set_zeros = set_zeros)
         fn2 = codegen_cse(jac, symbols, set_zeros = set_zeros)
         fn3 = codegen_cse(msym, symbols[nx:], set_zeros = set_zeros)
@@ -505,12 +511,16 @@ class DynamicalSystem:
         trj = t,dx,x,u
 
 
+        if os.path.isfile(self.log_file):
+            mode = 'a'
+        else:
+            mode = 'w'
         try:
             self.written
             mode = 'a'
         except:
             self.written = True
-            mode = 'w'
+            #mode = 'w'
             
         fle = open(self.log_file,mode)
         cPickle.dump(trj, fle)
@@ -557,6 +567,7 @@ class DynamicalSystem:
             self.n_obs += f.shape[0]
         
         m,inv = np.matrix, np.linalg.inv
+        #pinv = np.linalg.pinv
         sqrt = lambda x: np.real(scipy.linalg.sqrtm(x))
 
         s = self.psi/self.n_obs
@@ -569,6 +580,9 @@ class DynamicalSystem:
             # http://www.imt.liu.se/people/magnus/cca/tutorial/tutorial.pdf
             s11, s12, s22 = m(s[:k,:k]), m(s[:k,k:]), m(s[k:,k:])
             
+            #q11 = sqrt(pinv(s11))
+            #q22 = sqrt(pinv(s22))
+
             q11 = sqrt(inv(s11))
             q22 = sqrt(inv(s22))
 
