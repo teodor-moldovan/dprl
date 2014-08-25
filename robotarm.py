@@ -4,6 +4,7 @@ from sympy import Matrix as mat
 from sympy.physics.mechanics import *
 from math import pi
 from numpy import zeros, array, linspace, ones, deg2rad
+import numpy as np
 from IPython import embed
 
 from planning import *
@@ -194,10 +195,18 @@ class RobotArm(RobotArmBase, DynamicalSystem):
     pass
 
 class RobotArmEffector(RobotArmBase, DynamicalSystem):
+    #collocation_points = 15
+    def initial_state(self):
+        state = np.zeros(self.nx)
+        state[1] = deg2rad(-89)
+        state[6:9] = self.forward_kin(*state[:3])
+        #state += .25*np.random.normal(size = self.nx)
+        return state 
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
 
         dct = self.symbolics()
+
 
         sym = tuple(dct['symbols'])
         full_dyn_locals_dict = dct['dyn_full']()
@@ -230,18 +239,33 @@ class RobotArmEffector(RobotArmBase, DynamicalSystem):
 
         sym = sym[:nx] + tuple(dstateAug) + sym[nx:2*nx] + tuple(stateAug) + sym[2*nx:]
 
-        #target_expr = (effx - .5, effy - .5, effz - .5,) + tuple(list(target_expr)[3:])
-
+        target_expr = (effz ,) + tuple(list(target_expr)[3:])
+#effx - .5, effy - .5, 
         #target_expr =  target_expr
 
         # end effector position constraint
         W = full_dyn_locals_dict['W']
         og = full_dyn_locals_dict['og']
         end_eff = full_dyn_locals_dict['point3']
-        coord_end_eff = end_eff.pos_from(og).express(W)
-        eff_constraint = (nsimp(coord_end_eff.dot(W.x), tol=self.tol) - effx,
-                          nsimp(coord_end_eff.dot(W.y), tol=self.tol) - effy,
-                          nsimp(coord_end_eff.dot(W.z), tol=self.tol) - effz)
+        vel_end_eff = end_eff.vel(W).express(W)
+        coords_end_eff = end_eff.pos_from(og).express(W)
+        coords = (nsimp(coords_end_eff.dot(W.x), tol=self.tol),
+                 nsimp(coords_end_eff.dot(W.y), tol=self.tol),
+                 nsimp(coords_end_eff.dot(W.z), tol=self.tol))
+        def forward_kin(t0, t1, t2):
+            
+            funarray = np.array([float(coord.subs(zip(sym[9:12], [t0, t1, t2]))) for coord in coords])
+            return funarray
+
+        self.forward_kin = forward_kin
+
+        eff_constraint = (nsimp(vel_end_eff.dot(W.x), tol=self.tol) - effxd,
+                          nsimp(vel_end_eff.dot(W.y), tol=self.tol) - effyd,
+                          nsimp(vel_end_eff.dot(W.z), tol=self.tol) - effzd)
+
+
+        eff_constraint = tuple([con.subs(zip(sym[:3], sym[12:15])) for con in eff_constraint])
+
 
         # translational end effector kinematic diffeq
         #kt = (veffx - effxd, veffy - effyd, veffz - effzd)
@@ -252,7 +276,7 @@ class RobotArmEffector(RobotArmBase, DynamicalSystem):
 
 
         features, weights, nfa, nf = self.extract_features(exprs,sym,self.nx)
-        
+
         if weights is not None:
             self.weights = to_gpu(weights)
 
