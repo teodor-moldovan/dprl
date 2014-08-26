@@ -300,10 +300,16 @@ class DynamicalSystem:
         
         # f1 becomes features that depend on derivatives, f2 everything else
         dstate = symbols[:nx]
-        f1 =  [f for f in features
-            if len(f.atoms(*dstate).intersection(dstate))>0]
+        f1 =  [[f for f in features
+            if len(f.atoms(ds).intersection((ds,)))>0] for ds in dstate]
+        # first simplest features that depend on derivatives
+        inds = [np.argsort([ len(f.atoms(*symbols).intersection(symbols)) 
+                for f in fs])[0] for fs in f1]
+        f11 = set([ fs[ind] for fs,ind in zip(f1,inds)])
+        f1 = set(sum(f1,[]))
+
         f2 = features.difference(f1)
-        features = tuple(f1) + tuple(f2)
+        features = tuple(f11) + tuple(f1.difference(f11)) + tuple(f2)
         
         feat_ind =  dict(zip(features,range(len(features))))
         
@@ -544,18 +550,89 @@ class DynamicalSystem:
         except:
           pass
 
-    def update(self,traj,prior=0.0):
+    def update_ls(self,traj,prior=0.0):
         # traj is t, dx, x, u, produced by self.step
+        psi, n_obs = self.update_sufficient_statistics(traj)
+        
+        nf,nx = self.nf,self.nx
+        psi   += prior * np.eye(nf)
+        n_obs += prior
+        
+        psi /= n_obs
+
+        m,inv = np.matrix, np.linalg.inv
+        w = np.zeros((nx,nf))
+        
+        for i in range(nx):
+            xx = np.delete(np.delete(psi,i,0),i,1)
+            xy = np.delete(psi[i,:],i )
+            # use pseudo-inverse to deal with singular matrices when not enough data is available
+            bt = np.linalg.pinv(xx)*m(xy).T
+            w[i,:] = np.insert(bt,i,-1)
+            # rescale by observed range of y values
+            w[i,:] /= np.sqrt(psi[i,i])
+        
+
+        # least squares estimate    
+        self.weights = to_gpu(w)
+
+        # encourages exploration, more or less empirical rate decay
+        self.model_slack_bounds = 1.0/self.n_obs
+        
+    def update_cca(self,traj,prior=0.0):
+        # traj is t, dx, x, u, produced by self.step
+        psi, n_obs = self.update_sufficient_statistics(traj)
         
         n,k = self.nf,self.nfa
+        psi   += prior * np.eye(n)
+        n_obs += prior
+        
+        m,inv = np.matrix, np.linalg.inv
+        #pinv = np.linalg.pinv
+        sqrt = lambda x: np.real(scipy.linalg.sqrtm(x))
+
+        s = self.psi/self.n_obs
+
+        # perform CCA 
+        # algorithm from wikipedia:
+        # http://en.wikipedia.org/wiki/Canonical_correlation
+        # tutorial:
+        # http://www.imt.liu.se/people/magnus/cca/tutorial/tutorial.pdf
+        s11, s12, s22 = m(s[:k,:k]), m(s[:k,k:]), m(s[k:,k:])
+        
+        #q11 = sqrt(pinv(s11))
+        #q22 = sqrt(pinv(s22))
+
+        q11 = sqrt(inv(s11))
+        q22 = sqrt(inv(s22))
+
+        r = q11*s12*q22
+        u,l,v = np.linalg.svd(r)
+        
+        km = min(s12.shape)
+        rs = np.vstack((q11*m(u)[:,:km], -q22*m(v.T)[:,:km]))
+        rs = m(rs)*m(np.diag(np.sqrt(l)))
+        rs = np.array(rs.T)
+
+        self.weights = to_gpu(rs[:self.nx,:])
+
+        # encourages exploration, more or less empirical rate decay
+        self.model_slack_bounds = 1.0/self.n_obs
+        # eigenvalues of correlation matrix (s)
+        self.spectrum = l
+        
+    update = update_cca
+    # update = update_ls
+    def update_sufficient_statistics(self,traj):
+        # traj is t, dx, x, u, produced by self.step
 
         try:
             # sufficient statistics initialized?
             self.psi
         except:
             # init sufficient statistics
-            self.psi = prior*np.eye((n))
-            self.n_obs = prior
+            self.psi = 0*np.eye((self.nf))
+            self.n_obs = 0.0
         
         
         if traj is not None:
@@ -566,47 +643,7 @@ class DynamicalSystem:
             self.psi += np.dot(f.T,f)
             self.n_obs += f.shape[0]
         
-        m,inv = np.matrix, np.linalg.inv
-        #pinv = np.linalg.pinv
-        sqrt = lambda x: np.real(scipy.linalg.sqrtm(x))
-
-        s = self.psi/self.n_obs
-
-        if True:
-            # perform CCA 
-            # algorithm from wikipedia:
-            # http://en.wikipedia.org/wiki/Canonical_correlation
-            # tutorial:
-            # http://www.imt.liu.se/people/magnus/cca/tutorial/tutorial.pdf
-            s11, s12, s22 = m(s[:k,:k]), m(s[:k,k:]), m(s[k:,k:])
-            
-            #q11 = sqrt(pinv(s11))
-            #q22 = sqrt(pinv(s22))
-
-            q11 = sqrt(inv(s11))
-            q22 = sqrt(inv(s22))
-
-            r = q11*s12*q22
-            u,l,v = np.linalg.svd(r)
-            
-            km = min(s12.shape)
-            rs = np.vstack((q11*m(u)[:,:km], -q22*m(v.T)[:,:km]))
-            rs = m(rs)*m(np.diag(np.sqrt(l)))
-            rs = np.array(rs.T)
-        else:
-            # simplified version, doesn't work as well
-            l,u = np.linalg.eigh(s)
-            ind = np.argsort(l)
-            l = l[ind]
-            rs = u.T[ind,:]
-            
-        self.weights = to_gpu(rs[:self.nx,:])
-        
-
-        # encourages exploration, more or less empirical rate decay
-        self.model_slack_bounds = 1.0/self.n_obs
-        # eigenvalues of correlation matrix (s)
-        self.spectrum = l
+        return self.psi, self.n_obs
         
     def print_state(self,s = None):
         if s is None:

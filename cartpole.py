@@ -49,6 +49,7 @@ class TestsCartpole(TestsDynamicalSystem):
     DSLearned = Cartpole
     DSKnown   = Cartpole
 
+
 if __name__ == '__main__':
     """ to avoid merge conflicts, let's run individual tests 
         from command-line like this:
