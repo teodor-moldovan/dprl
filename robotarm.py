@@ -46,26 +46,14 @@ class RobotArmBase:
 
         def dyn_full():
 
+
+
             # frame convention:
             # world frame is fixed
             # frame0 is pre-joint0
             # frame1 is pre-joint1
-            # frame1inter is pre-joint1 after the theta rotation
             # frame2 is pre-joint2
             # frame3 is post-joint2
-
-            W = ReferenceFrame('WorldFrame') # worldframe is at base of robot but not moving
-
-            frame0 = W.orientnew('frame0',           'Axis', [0.0, W.z])
-            frame0.set_ang_vel(W, 0.0 * frame0.x)
-            frame1inter = frame0.orientnew('frame1inter', 'Axis', [t0, frame0.z])
-            frame1inter.set_ang_vel(frame0, t0d * frame0.z)
-            frame1 = frame1inter.orientnew('frame1',      'Axis', [-pi / 2, frame1inter.x])
-            frame1.set_ang_vel(frame1inter, 0.0 * frame1inter.z)
-            frame2 = frame1.orientnew('frame2',           'Axis', [t1, frame1.z])
-            frame2.set_ang_vel(frame1, t1d * frame1.z)
-            frame3 = frame2.orientnew('frame3',           'Axis', [t2, frame2.z])
-            frame3.set_ang_vel(frame2, t2d * frame2.z)
 
             # point convention: 
             # og is origin in world frame (also base)
@@ -74,16 +62,16 @@ class RobotArmBase:
             # point2 is at the intersection of the first and second links
             # point3 is at the end of the second link
 
-            og = Point('origin') # origin, center of robot base and site of joint0 and joint1
+            W = ReferenceFrame('WorldFrame') # worldframe is at base of robot but not moving
+            frame0 = W
 
-            point0 = og.locatenew('point0', 0.0 * W.z)
-            point0.set_vel(frame0, 0.0 * frame0.x)
-            point1 = point0.locatenew('point1', 0.0 * frame0.z)
-            point1.set_vel(W, 0.0 * W.x)
-            point2 = point1.locatenew('point2', h1 * frame2.x)
-            point2.v2pt_theory(point1, W, frame2)
-            point3 = point2.locatenew('point3', h2 * frame3.x)
-            point3.v2pt_theory(point2, W, frame3)
+            og = Point('origin') # origin, center of robot base and site of joint0 and joint1
+            og.set_vel(W, 0)
+            point0 = og
+
+            frame1, point1 = denavit_hartenberg(W, point0, theta=t0, alpha=-pi/2, thetad=t0d, n=1)
+            frame2, point2 = denavit_hartenberg(frame1, point1, world_frame=W, theta=t1, thetad=t1d, a=h1, n=2)
+            frame3, point3 = denavit_hartenberg(frame2, point2, world_frame=W, theta=t2, thetad=t2d, a=h2, n=3)
 
             # inertial frames and centers of mass for links 1 and 2
             link1_center_frame, link1_center, link1_inertia, link1_body = \
@@ -91,9 +79,9 @@ class RobotArmBase:
             link2_center_frame, link2_center, link2_inertia, link2_body = \
                 cylinder(m2, r2, h2, index=2)
 
-            link1_center_frame.orient(frame2, 'Axis', [0.0, frame2.z])
+            link1_center_frame.orient(frame2, 'Axis', [0, frame2.z])
             link1_center_frame.set_ang_vel(frame1, t1d * frame1.z)
-            link2_center_frame.orient(frame3, 'Axis', [0.0, frame3.z])
+            link2_center_frame.orient(frame3, 'Axis', [0, frame3.z])
             link2_center_frame.set_ang_vel(frame2, t2d * frame2.z)
 
             link1_center.set_pos(point1, h1 / 2.0 * frame2.x)
@@ -190,6 +178,32 @@ def cylinder(mass, radius, height, index=None):
     I = inertia(F, Ix, Iy, Iz)
     B = RigidBody('Link' + i, cm, F, mass, (I, cm))
     return F, cm, I, B
+
+def denavit_hartenberg(initial_frame, initial_point, world_frame=None, a=0, d=0, alpha=0, theta=0, dd=0, thetad=0, n=1):
+    if world_frame is None:
+        world_frame = initial_frame
+    if np.allclose(alpha, 0):
+        frameintername = 'frame' + str(n)
+    else:
+        frameintername = 'frame' + str(n) + 'inter'
+    frameinter = initial_frame.orientnew(frameintername, 'Axis', [theta, initial_frame.z])
+    frameinter.set_ang_vel(initial_frame, thetad * initial_frame.z)
+    if np.allclose(alpha, 0):
+        frame = frameinter
+    else:
+        framename = 'frame' + str(n)
+        frame = frameinter.orientnew(framename, 'Axis', [alpha, frameinter.x])
+        frame.set_ang_vel(frameinter, 0)
+
+    pointname = 'point' + str(n)
+    if np.allclose(a + d, 0):
+        point = initial_point
+    else:
+        point = initial_point.locatenew(pointname, d * initial_frame.z + a * frame.x)
+        point.v2pt_theory(initial_point, world_frame, frame)
+
+    return frame, point
+
 
 class RobotArm(RobotArmBase, DynamicalSystem):
     pass
