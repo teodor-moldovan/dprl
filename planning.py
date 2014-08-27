@@ -260,6 +260,7 @@ class DynamicalSystem:
 
         features, weights, self.nfa, self.nf = self.__extract_features(
                 implf_sym,self.symbols,self.nx)
+        self.features = features
 
         self.weights = to_gpu(weights)
 
@@ -623,6 +624,83 @@ class DynamicalSystem:
         
     update = update_cca
     # update = update_ls
+    def cdyn(self, include_virtual_controls = False):
+        nx,nu,nf = self.nx,self.nu,self.nf
+        w  = sympy.symbols('weights[0:%i]'%(nf*nx))
+        ex = sympy.Matrix(w).reshape(nx,nf) * sympy.Matrix(self.features)
+        tv = self.target[np.logical_not(self.c_ignore)]
+        ti = np.where([np.logical_not(self.c_ignore)])[1]
+
+        
+        syms = self.symbols
+        dstate = self.symbols[:nx]
+
+        umin =  [-1.0]*nu
+        umax =  [ 1.0]*nu
+        if include_virtual_controls:
+            uvirtual = sympy.symbols('uvirtual0:%i'%(nx)) 
+            syms += uvirtual
+            nu += nx
+            umin += [-self.model_slack_bounds]*nx
+            umax += [ self.model_slack_bounds]*nx
+        else:
+            uvirtual = [0]*nx
+        M = [[e.diff(d) for d in dstate] + [e.subs(zip(dstate,[0]*nx))+uv] 
+                for e,uv in zip(ex,uvirtual)]
+        funct = codegen_cse(sum(M,[]), syms, out_name = 'out', in_name = 'z',
+                    function_definition = False )
+        funct = Template("""
+
+        /* Function specifying dynamics.
+        Format assumed: M(x) * \dot_x + g(x,u) = 0
+        where x is state and u are controls
+
+        Input:
+            z : [x,u] concatenated; z is assumed to have dimension NX + NU
+            weights : weight parameter vector as provided by learning component 
+        Output: 
+            M : output array equal to [M,g] concatenated,
+                  an NX x (NX + 1) matrix flattened in row major order.
+                  (note this output array needs to be pre-allocated)
+        
+        */
+
+        void f({{ dtype }} z[], {{ dtype }} weights[], {{ dtype }} out[]){ 
+        """).render(dtype = cuda_dtype) + funct + """
+        }
+        """
+        
+        
+        tpl = Template("""
+        #include <math.h>
+        #define NX {{ nx }}    // size of state space 
+        #define NU {{ nu }}    // number of controls
+        #define NT {{ nt }}    // number of constrained target state components
+        #define NW {{ nw }}    // number of weights (dynamics parameters)        
+
+        {{ dtype }} initial_state[NX] = { {{ xs|join(', ') }} };
+        {{ dtype }} control_min[NU] = { {{ umin|join(', ') }} };
+        {{ dtype }} control_max[NU] = { {{ umax|join(', ') }} };
+        
+        // Target state may only be specified partially. 
+        // Indices of target state components that are constrained
+        int target_ind[NT] = { {{ ti|join(', ') }} };
+        // Constraint values
+        {{ dtype }} target_val[NT] = { {{ tv|join(', ') }} };
+
+        
+        // ground truth weights corresponding to known system
+        {{ dtype }} weights[NW] = { {{ ws|join(', ') }} };
+
+                 """)
+        s2 = tpl.render(nx=nx,nu=nu,dtype = cuda_dtype,
+            xs=self.state, umin=umin, umax=umax,
+            nt = len(ti), ti = ti, tv = tv,
+            nw = self.weights.size, ws = self.weights.get().reshape(-1))
+        
+        return s2 + funct
+        
+        
     def update_sufficient_statistics(self,traj):
         # traj is t, dx, x, u, produced by self.step
 

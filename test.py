@@ -676,6 +676,10 @@ class TestsDynamicalSystem(unittest.TestCase):
             pi = pp.solve()
             trj = env.step(pi,5)
 
+    def test_cdyn(self):
+        env = self.DSKnown()
+        print env.cdyn() 
+
 if __name__ == '__main__':
     """ to avoid merge conflicts, let's run individual tests 
         from command-line like this:
