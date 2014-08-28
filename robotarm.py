@@ -13,7 +13,7 @@ from test import TestsDynamicalSystem, unittest
 def nsimp(expr, tol=0.000001):
     return trigsimp(nsimplify(expr, tolerance=tol))
 
-class RobotArmBase:
+class RobotArm3dofBase:
     #collocation_points = 15
     tol = 0.000001
     def initial_state(self):
@@ -45,8 +45,6 @@ class RobotArmBase:
 
 
         def dyn_full():
-
-
 
             # frame convention:
             # world frame is fixed
@@ -205,10 +203,10 @@ def denavit_hartenberg(initial_frame, initial_point, world_frame=None, a=0, d=0,
     return frame, point
 
 
-class RobotArm(RobotArmBase, DynamicalSystem):
+class RobotArm3dof(RobotArm3dofBase, DynamicalSystem):
     pass
 
-class RobotArmEffector(RobotArmBase, DynamicalSystem):
+class RobotArm3dofEffector(RobotArm3dofBase, DynamicalSystem):
     #collocation_points = 15
     def initial_state(self):
         state = np.zeros(self.nx)
@@ -313,13 +311,13 @@ class RobotArmEffector(RobotArmBase, DynamicalSystem):
         
         self.log_file  = 'out/'+ str(self.__class__)+'_log.pkl'
 
-class TestsRobotArm(TestsDynamicalSystem):
-    DSLearned = RobotArm
-    DSKnown   = RobotArm
+class TestsRobotArm3dof(TestsDynamicalSystem):
+    DSLearned = RobotArm3dof
+    DSKnown   = RobotArm3dof
 
-class TestsRobotArmEffector(TestsDynamicalSystem):
-    DSLearned = RobotArmEffector
-    DSKnown   = RobotArmEffector
+class TestsRobotArm3dofEffector(TestsDynamicalSystem):
+    DSLearned = RobotArm3dofEffector
+    DSKnown   = RobotArm3dofEffector
 
 if __name__ == '__main__':
     """ to avoid merge conflicts, let's run individual tests 
