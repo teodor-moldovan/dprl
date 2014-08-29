@@ -552,7 +552,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         print  ds.dstate2str(r)
         
 
-    def test_cca(self):
+    def test_model_update(self):
         """ generates a small trajectory with random controls and if you can update the model with those random controls one time (mostly testing compilation)"""
         env = self.DSKnown()
         ds = self.DSLearned()
@@ -612,8 +612,9 @@ class TestsDynamicalSystem(unittest.TestCase):
             env.t = 0
 
             # start with a sequence of random controls
-            #trj = env.step(RandomPolicy(env.nu,umax=.1),2*ds.nf) 
-            trj = env.step(RandomPolicy(env.nu,umax=.1),20) 
+            # need more random steps if system has more features
+            trj = env.step(RandomPolicy(env.nu,umax=.1),2*ds.nx) 
+            #trj = env.step(RandomPolicy(env.nu,umax=.1),20) 
             cnt = 0
 
             while True:
@@ -625,7 +626,13 @@ class TestsDynamicalSystem(unittest.TestCase):
 
                 env.reset_if_need_be()
                 env.print_state()
-                ds.state = env.state.copy() + env.noise[0]*np.random.normal(size=env.nx)
+                
+                try:
+                    nz = env.noise[0]
+                except TypeError:
+                    nz = env.noise
+
+                ds.state = env.state.copy() + nz*np.random.normal(size=env.nx)
 
                 tmm = time.time()
                 pi = pp.solve()
@@ -669,17 +676,9 @@ class TestsDynamicalSystem(unittest.TestCase):
             pi = pp.solve()
             trj = env.step(pi,5)
 
-
-
-
-
-
-
-
-
-        
-        
-
+    def test_cdyn(self):
+        env = self.DSKnown()
+        print env.cdyn() 
 
 if __name__ == '__main__':
     """ to avoid merge conflicts, let's run individual tests 

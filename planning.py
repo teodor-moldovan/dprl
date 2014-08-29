@@ -262,6 +262,7 @@ class DynamicalSystem:
 
         features, weights, self.nfa, self.nf = self.__extract_features(
                 implf_sym,self.symbols,self.nx)
+        self.features = features
 
         embed()
 
@@ -309,11 +310,17 @@ class DynamicalSystem:
         
         # f1 becomes features that depend on derivatives, f2 everything else
         dstate = symbols[:nx]
-        f1 =  [f for f in features
-            if len(f.atoms(*dstate).intersection(dstate))>0]
+        f1 =  [[f for f in features
+            if len(f.atoms(ds).intersection((ds,)))>0] for ds in dstate]
+        # first simplest features that depend on derivatives
+        inds = [np.argsort([ len(f.atoms(*symbols).intersection(symbols)) 
+                for f in fs])[0] for fs in f1]
+        f11 = set([ fs[ind] for fs,ind in zip(f1,inds)])
+        f1 = set(sum(f1,[]))
+
         f2 = features.difference(f1)
-        features = tuple(f1) + tuple(f2)
         print 'Separated derivative and nonderivative features'
+        features = tuple(f11) + tuple(f1.difference(f11)) + tuple(f2)
         
         feat_ind =  dict(zip(features,range(len(features))))
         
@@ -555,18 +562,166 @@ class DynamicalSystem:
         except:
           pass
 
-    def update(self,traj,prior=0.0):
+    def update_ls(self,traj,prior=0.0):
         # traj is t, dx, x, u, produced by self.step
+        psi, n_obs = self.update_sufficient_statistics(traj)
+        
+        nf,nx = self.nf,self.nx
+        psi   += prior * np.eye(nf)
+        n_obs += prior
+        
+        psi /= n_obs
+
+        m,inv = np.matrix, np.linalg.inv
+        w = np.zeros((nx,nf))
+        
+        for i in range(nx):
+            xx = np.delete(np.delete(psi,i,0),i,1)
+            xy = np.delete(psi[i,:],i )
+            # use pseudo-inverse to deal with singular matrices when not enough data is available
+            bt = np.linalg.pinv(xx)*m(xy).T
+            w[i,:] = np.insert(bt,i,-1)
+            # rescale by observed range of y values
+            w[i,:] /= np.sqrt(psi[i,i])
+        
+
+        # least squares estimate    
+        self.weights = to_gpu(w)
+
+        # encourages exploration, more or less empirical rate decay
+        self.model_slack_bounds = 1.0/self.n_obs
+        
+    def update_cca(self,traj,prior=0.0):
+        # traj is t, dx, x, u, produced by self.step
+        psi, n_obs = self.update_sufficient_statistics(traj)
         
         n,k = self.nf,self.nfa
+        psi   += prior * np.eye(n)
+        n_obs += prior
+        
+        m,inv = np.matrix, np.linalg.inv
+        #pinv = np.linalg.pinv
+        sqrt = lambda x: np.real(scipy.linalg.sqrtm(x))
+
+        s = self.psi/self.n_obs
+
+        # perform CCA 
+        # algorithm from wikipedia:
+        # http://en.wikipedia.org/wiki/Canonical_correlation
+        # tutorial:
+        # http://www.imt.liu.se/people/magnus/cca/tutorial/tutorial.pdf
+        s11, s12, s22 = m(s[:k,:k]), m(s[:k,k:]), m(s[k:,k:])
+        
+        #q11 = sqrt(pinv(s11))
+        #q22 = sqrt(pinv(s22))
+
+        q11 = sqrt(inv(s11))
+        q22 = sqrt(inv(s22))
+
+        r = q11*s12*q22
+        u,l,v = np.linalg.svd(r)
+        
+        km = min(s12.shape)
+        rs = np.vstack((q11*m(u)[:,:km], -q22*m(v.T)[:,:km]))
+        rs = m(rs)*m(np.diag(np.sqrt(l)))
+        rs = np.array(rs.T)
+
+        self.weights = to_gpu(rs[:self.nx,:])
+
+        # encourages exploration, more or less empirical rate decay
+        self.model_slack_bounds = 1.0/self.n_obs
+        # eigenvalues of correlation matrix (s)
+        self.spectrum = l
+        
+    update = update_cca
+    # update = update_ls
+    def cdyn(self, include_virtual_controls = False):
+        nx,nu,nf = self.nx,self.nu,self.nf
+        w  = sympy.symbols('weights[0:%i]'%(nf*nx))
+        ex = sympy.Matrix(w).reshape(nx,nf) * sympy.Matrix(self.features)
+        tv = self.target[np.logical_not(self.c_ignore)]
+        ti = np.where([np.logical_not(self.c_ignore)])[1]
+
+        
+        syms = self.symbols
+        dstate = self.symbols[:nx]
+
+        umin =  [-1.0]*nu
+        umax =  [ 1.0]*nu
+        if include_virtual_controls:
+            uvirtual = sympy.symbols('uvirtual0:%i'%(nx)) 
+            syms += uvirtual
+            nu += nx
+            umin += [-self.model_slack_bounds]*nx
+            umax += [ self.model_slack_bounds]*nx
+        else:
+            uvirtual = [0]*nx
+        M = [[e.diff(d) for d in dstate] + [e.subs(zip(dstate,[0]*nx))+uv] 
+                for e,uv in zip(ex,uvirtual)]
+        funct = codegen_cse(sum(M,[]), syms, out_name = 'out', in_name = 'z',
+                    function_definition = False )
+        funct = Template("""
+
+        /* Function specifying dynamics.
+        Format assumed: M(x) * \dot_x + g(x,u) = 0
+        where x is state and u are controls
+
+        Input:
+            z : [x,u] concatenated; z is assumed to have dimension NX + NU
+            weights : weight parameter vector as provided by learning component 
+        Output: 
+            M : output array equal to [M,g] concatenated,
+                  an NX x (NX + 1) matrix flattened in row major order.
+                  (note this output array needs to be pre-allocated)
+        
+        */
+
+        void f({{ dtype }} z[], {{ dtype }} weights[], {{ dtype }} out[]){ 
+        """).render(dtype = cuda_dtype) + funct + """
+        }
+        """
+        
+        
+        tpl = Template("""
+        #include <math.h>
+        #define NX {{ nx }}    // size of state space 
+        #define NU {{ nu }}    // number of controls
+        #define NT {{ nt }}    // number of constrained target state components
+        #define NW {{ nw }}    // number of weights (dynamics parameters)        
+
+        {{ dtype }} initial_state[NX] = { {{ xs|join(', ') }} };
+        {{ dtype }} control_min[NU] = { {{ umin|join(', ') }} };
+        {{ dtype }} control_max[NU] = { {{ umax|join(', ') }} };
+        
+        // Target state may only be specified partially. 
+        // Indices of target state components that are constrained
+        int target_ind[NT] = { {{ ti|join(', ') }} };
+        // Constraint values
+        {{ dtype }} target_val[NT] = { {{ tv|join(', ') }} };
+
+        
+        // ground truth weights corresponding to known system
+        {{ dtype }} weights[NW] = { {{ ws|join(', ') }} };
+
+                 """)
+        s2 = tpl.render(nx=nx,nu=nu,dtype = cuda_dtype,
+            xs=self.state, umin=umin, umax=umax,
+            nt = len(ti), ti = ti, tv = tv,
+            nw = self.weights.size, ws = self.weights.get().reshape(-1))
+        
+        return s2 + funct
+        
+        
+    def update_sufficient_statistics(self,traj):
+        # traj is t, dx, x, u, produced by self.step
 
         try:
             # sufficient statistics initialized?
             self.psi
         except:
             # init sufficient statistics
-            self.psi = prior*np.eye((n))
-            self.n_obs = prior
+            self.psi = 0*np.eye((self.nf))
+            self.n_obs = 0.0
         
         
         if traj is not None:
@@ -577,46 +732,7 @@ class DynamicalSystem:
             self.psi += np.dot(f.T,f)
             self.n_obs += f.shape[0]
         
-        m,inv = np.matrix, np.linalg.inv
-        #pinv = np.linalg.pinv
-        sqrt = lambda x: np.real(scipy.linalg.sqrtm(x))
-
-        s = self.psi/self.n_obs
-
-        if True:
-            # perform CCA 
-            # algorithm from wikipedia:
-            # http://en.wikipedia.org/wiki/Canonical_correlation
-            # tutorial:
-            # http://www.imt.liu.se/people/magnus/cca/tutorial/tutorial.pdf
-            s11, s12, s22 = m(s[:k,:k]), m(s[:k,k:]), m(s[k:,k:])
-            
-            #q11 = sqrt(pinv(s11))
-            #q22 = sqrt(pinv(s22))
-
-            q11 = sqrt(inv(s11))
-            q22 = sqrt(inv(s22))
-
-            r = q11*s12*q22
-            u,l,v = np.linalg.svd(r)
-            
-            km = min(s12.shape)
-            rs = np.vstack((q11*m(u)[:,:km], -q22*m(v.T)[:,:km]))
-            rs = m(rs)*m(np.diag(np.sqrt(l)))
-            rs = np.array(rs.T)
-        else:
-            # simplified version, doesn't work as well
-            l,u = np.linalg.eigh(s)
-            ind = np.argsort(l)
-            l = l[ind]
-            rs = u.T[ind,:]
-            
-        self.weights = to_gpu(rs[:self.nx,:])
-
-        # encourages exploration, more or less empirical rate decay
-        self.model_slack_bounds = 1.0/self.n_obs
-        # eigenvalues of correlation matrix (s)
-        self.spectrum = l
+        return self.psi, self.n_obs
         
     def print_state(self,s = None):
         if s is None:

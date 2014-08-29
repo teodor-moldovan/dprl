@@ -45,6 +45,8 @@ class DoublePendulumBase:
         return locals()
 
 
+class DoublePendulum(DoublePendulumBase,DynamicalSystem):
+    pass
 class TestsDoublePendulum(TestsDynamicalSystem):
     DSKnown   = DoublePendulum
     DSLearned = DoublePendulum

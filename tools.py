@@ -1052,7 +1052,10 @@ row_max = row_reduction('a = b>a ? b : a')
 row_sum = row_reduction('a += b')
 # symbolics, codegen
 def codegen_cse(exprs,symbols, temp_name = 'tmp',
-                in_name = 'z', out_name = 'out', set_zeros = True):
+                in_name = 'z', out_name = 'out', 
+                set_zeros = True,
+                function_definition = True
+                ):
     """ exprs is an iterable of symbolic outputs.  symbols is an interable of symbolic inputs.  Produces C code that populates an array of the outputs given an array of the inputs."""
 
     inputs  = [sympy.var(in_name+'['+str(i)+']') for i in range(len(symbols))]
@@ -1079,15 +1082,16 @@ def codegen_cse(exprs,symbols, temp_name = 'tmp',
     declare = [l[0].name for l in l1] 
 
     tpl = Template("""
-    __device__ void f({{ dtype }} {{ nin }}[], {{ dtype }} {{ nout }}[]){
+    {% if fdef %}__device__ void f({{ dtype }} {{ nin }}[], {{ dtype }} {{ nout }}[]){ {% endif %}
     {% for t in declare %}
     {{ dtype }} {{ t }};{% endfor %}
     {% for s,d in lines %}
     {{ s }} = {{ d }};{% endfor %}
-    }
+    {% if fdef %}} {% endif %}
     """)
     fn = tpl.render(dtype = cuda_dtype, nin = in_name, nout = out_name,
-            lines = compiled_features, declare = declare)
+            lines = compiled_features, declare = declare,
+            fdef = function_definition)
     
     return fn
     
