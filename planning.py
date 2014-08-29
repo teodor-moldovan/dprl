@@ -258,13 +258,19 @@ class DynamicalSystem:
             f = codegen_cse(geom, self.symbols[self.nx:-self.nu])
             self.k_geometry = rowwise(f,'geometry')
 
+        print 'Starting feature extraction'
+
         features, weights, self.nfa, self.nf = self.__extract_features(
                 implf_sym,self.symbols,self.nx)
 
+        embed()
+
         self.weights = to_gpu(weights)
 
+        print 'Starting codegen'
         fn1,fn2,fn3,fn4  = self.__codegen(
                 features, self.symbols,self.nx,self.nf,self.nfa)
+        print 'Finished codegen'
 
         # compile cuda code
         # if this is a bottleneck, we could compute subsets of features in parallel using different kernels, in addition to each row.  this would recompute the common sub-expressions, but would utilize more parallelism
@@ -290,7 +296,10 @@ class DynamicalSystem:
 
         # simplify each implicit dynamic expression
         spl=lambda e : e.rewrite(sympy.exp).expand().rewrite(sympy.sin).expand()
+        spl2=lambda e : e.expand()
         exprs = [spl(e) for e in exprs]
+
+        print 'Simplified implicit dynamics sin'
 
         
         # separate weights from features
@@ -304,6 +313,7 @@ class DynamicalSystem:
             if len(f.atoms(*dstate).intersection(dstate))>0]
         f2 = features.difference(f1)
         features = tuple(f1) + tuple(f2)
+        print 'Separated derivative and nonderivative features'
         
         feat_ind =  dict(zip(features,range(len(features))))
         
@@ -313,6 +323,7 @@ class DynamicalSystem:
         i,j,d = zip(*weights)
         # really this is better as a sparse matrix, but for simplicity of gpu stuff we make it dense
         weights = scipy.sparse.coo_matrix((d, (i,j))).todense()
+        print 'Calculated weights matrix'
 
         return features, weights, len(f1), len(features)
 
