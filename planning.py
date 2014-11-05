@@ -296,9 +296,17 @@ class DynamicalSystem:
             could potentially be a problem in the future"""
 
         # simplify each implicit dynamic expression
-        spl=lambda e : e.rewrite(sympy.exp).expand().rewrite(sympy.sin).expand()
-        spl2=lambda e : e.expand()
-        exprs = [spl(e) for e in exprs]
+        spl0=lambda e : e.rewrite(sympy.exp).expand().rewrite(sympy.sin).expand()
+        spl1=lambda e : e.expand()
+        spl2 = lambda e : sympy.simplify(e).expand()
+        spls = []
+
+        # choose simplification method
+        spls = [spl0, spl1, spl2]
+        method = 0
+        print 'Using simplification method: ', str(method)
+
+        exprs = [spls[method](e) for e in exprs]
 
         print 'Simplified implicit dynamics sin'
 
@@ -331,6 +339,8 @@ class DynamicalSystem:
         # really this is better as a sparse matrix, but for simplicity of gpu stuff we make it dense
         weights = scipy.sparse.coo_matrix((d, (i,j))).todense()
         print 'Calculated weights matrix'
+
+        embed()
 
         return features, weights, len(f1), len(features)
 

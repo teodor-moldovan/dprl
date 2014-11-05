@@ -188,6 +188,241 @@ class RobotArm3dofBase:
 
         return locals()
 
+class RobotArmndofBase:
+    #collocation_points = 15
+    n = 3 # assumes that n will be passed into __init__, default is 3
+    tol = 0.000001
+    def initial_state(self):
+        state = np.zeros(self.nx)
+        state[1] = deg2rad(-89)
+        #state += .25*np.random.normal(size = self.nx)
+        return state 
+        
+    def symbolics(self, forward_gen=False, end_effector=False):
+
+        def stringify_list(inp):
+            return reduce(lambda x, y: x + y, inp)
+
+        n = self.n
+        print "n = ", n
+
+        statet = dynamicsymbols(
+                 stringify_list(['t' + str(i) + ', ' for i in range(n)]))
+        statew = dynamicsymbols(
+                 stringify_list(['w' + str(i) + ', ' for i in range(n)]))
+        dstatet = dynamicsymbols(
+                  stringify_list(['t' + str(i) + ', ' for i in range(n)]), 1)
+        dstatew = dynamicsymbols(
+                  stringify_list(['w' + str(i) + ', ' for i in range(n)]), 1)
+
+        state = tuple(statet + statew)
+        dstate = tuple(dstatet + dstatew)
+
+        controls = tuple(dynamicsymbols(
+                  stringify_list(['u' + str(i) + ', ' for i in range(n)])))
+
+        symbols = dstate + state + controls
+
+
+        g = 9.81
+        m = [1.2, 1.1, 0.9, 0.8]
+        r = [0.2, 0.175, 0.15, 0.1]
+        h = [1.2, 1.1, 1.0, 0.9]
+        f = [150.0, 140.0, 130.0, 120.0, 110.0, 100.0, 90.0]
+
+        u = controls
+
+
+
+        def dyn_full():
+
+            # robot DH parameters and model are from: http://ieeexplore.ieee.org/ieee_pilot/articles/08tro05/tro-shimizu-2003266/article.html
+
+            # frame convention:
+            # world frame is fixed
+            # frame0 is pre-joint0
+            # frame1 is pre-joint1
+            # frame2 is pre-joint2
+            # frame3 is post-joint2
+
+            # point convention: 
+            # og is origin in world frame (also base)
+            # point0 is base
+            # point1 is also base (after the first rotational joint)
+            # point2 is at the intersection of the first and second links
+            # point3 is at the end of the second link
+
+            W = ReferenceFrame('WorldFrame') # worldframe is at base of robot but not moving
+            frames = [W]
+
+            interframes = []
+
+            og = Point('origin') # origin, center of robot base and site of joint0 and joint1
+            og.set_vel(W, 0)
+
+            points = [og]
+
+            for i in xrange(n):
+                if i % 2 == 0:
+                    if i == n - 1:
+                        frameip1, pointip1, frameip1inter = denavit_hartenberg(frames[i], points[i], world_frame=W, theta=state[i], thetad=dstate[i], d=h[i / 2], n=i + 1)
+                    else:
+                        frameip1, pointip1, frameip1inter = denavit_hartenberg(frames[i], points[i], world_frame=W, theta=state[i], alpha=-pi/2, thetad=dstate[i], d=h[i / 2], n=i + 1)
+                    interframes.append(frameip1inter)
+                else:
+                    frameip1, pointip1, frameip1inter = denavit_hartenberg(frames[i], points[i], world_frame=W, theta=state[i], alpha=pi/2, thetad=dstate[i], n=i + 1)
+                frames.append(frameip1)
+                points.append(pointip1)
+
+            """
+            frame3, point3, frame3inter = denavit_hartenberg(frame2, point2, world_frame=W, theta=t2, alpha=-pi/2, thetad=t2d, d=h2, n=3)
+            frame4, point4, frame4inter = denavit_hartenberg(frame3, point3, world_frame=W, theta=t3, alpha=pi/2, thetad=t3d, n=4)
+            frame5, point5, frame5inter = denavit_hartenberg(frame4, point4, world_frame=W, theta=t4, alpha=-pi/2, thetad=t4d, d=h3, n=5)
+            frame6, point6, frame6inter = denavit_hartenberg(frame5, point5, world_frame=W, theta=t5, alpha=pi/2, thetad=t5d, n=6)
+            frame7, point7, frame7inter = denavit_hartenberg(frame6, point6, world_frame=W, theta=t6, thetad=t6d, d=h4, n=7)
+            """
+
+            nlinks = ((n % 2) + n) / 2
+            # inertial frames and centers of mass for links 1-4
+            link_center_frames = interframes
+            link_centers, link_inertias, link_bodies = [], [], []
+            for i in xrange(nlinks):
+                linki_center_frame = link_center_frames[i]
+                linki_center, linki_inertia, linki_body = \
+                    cylinder(m[i], r[i], h[i], linki_center_frame, points[2 * i], world=W, index=i)
+                link_centers.append(linki_center)
+                link_inertias.append(linki_inertia)
+                link_bodies.append(linki_body)
+            """
+            link2_center_frame = frame3inter
+            link2_center, link2_inertia, link2_body = \
+                cylinder(m2, r2, h2, link2_center_frame, point2, world=W, index=2)
+            link3_center_frame = frame5inter
+            link3_center, link3_inertia, link3_body = \
+                cylinder(m3, r3, h3, link3_center_frame, point4, world=W, index=3)
+            link4_center_frame = frame7inter
+            link4_center, link4_inertia, link4_body = \
+                cylinder(m4, r4, h4, link4_center_frame, point6, world=W, index=4)
+            """
+
+
+            #link1_center_frame.orient(frame1inter, 'Axis', [0, frame1inter.z])
+            #link1_center_frame.set_ang_vel(frame0, t0d * frame0.z)
+            #link2_center_frame.orient(frame3inter, 'Axis', [0, W.z])
+            #link2_center_frame.set_ang_vel(frame1, t2d * frame2.z)
+            #link3_center_frame.orient(frame5inter, 'Axis', [0, W.z])
+            #link3_center_frame.set_ang_vel(frame2, t2d * frame2.z)
+            #link4_center_frame.orient(frame7     , 'Axis', [0, W.z])
+            #link4_center_frame.set_ang_vel(frame2, t2d * frame2.z)
+
+            #link1_center.set_pos(point0, h1 / 2.0 * link1_center_frame.z)
+            #link1_center.v2pt_theory(point0, W, link1_center_frame)
+            #link2_center.set_pos(point2, h2 / 2.0 * link2_center_frame.z)
+            #link2_center.v2pt_theory(point2, W, link2_center_frame)
+            #link3_center.set_pos(point4, h3 / 2.0 * link3_center_frame.z)
+            #link3_center.v2pt_theory(point4, W, link3_center_frame)
+            #link4_center.set_pos(point6, h4 / 2.0 * link4_center_frame.z)
+            #link4_center.v2pt_theory(point6, W, link4_center_frame)
+
+            kr = [state[i + n] - dstate[i] for i in range(n)]
+
+            
+            BodyList  = link_bodies
+
+            ForceList = []
+            for i in range(nlinks):
+                ForceList.append((link_centers[i], -g * m[i] * W.z))
+
+            ForceList.append((link_center_frames[0], f[0] * u[0] * frames[0].z -
+                                                     f[1] * u[1] * frames[1].z -
+                                                     f[2] * u[2] * frames[2].z))
+            for i in range(nlinks)[1:-1]:
+                i1 = i * 2 - 1
+                i2 = i * 2
+                i3 = i * 2 + 1
+                i4 = i * 2 + 2
+                ForceList.append((link_center_frames[i], f[i1] * u[i1] * frames[i1].z +
+                                                         f[i2] * u[i2] * frames[i2].z -
+                                                         f[i3] * u[i3] * frames[i3].z -
+                                                         f[i4] * u[i4] * frames[i4].z ))
+            ForceList.append((link_center_frames[-1], f[-2] * u[-2] * frames[-3].z +
+                                                      f[-1] * u[-1] * frames[-2].z))
+            """
+            ForceList = [(link1_center, -g * m1 * W.z), # gravity 1
+                         (link2_center, -g * m2 * W.z), # gravity 2
+                         (link3_center, -g * m3 * W.z), # gravity 3
+                         (link4_center, -g * m4 * W.z), # gravity 4
+                         (link1_center_frame, f0 * u0 * W.z - f1 * u1 * frame1.z - f2 * u2 * frame2.z), # link1 FBD
+                         (link2_center_frame, f1 * u1 * frame1.z + f2 * u2 * frame2.z - f3 * u3 * frame3.z - f4 * u4 * frame4.z), # link1 FBD
+                         (link3_center_frame, f3 * u3 * frame3.z + f4 * u4 * frame4.z - f5 * u5 * frame5.z - f6 * u6 * frame6.z), # link3 FBD
+                         (link4_center_frame, f5 * u5 * frame5.z + f6 * u6 * frame6.z) # link4 FBD
+                         ] 
+            """
+
+
+            coords = statet
+            speeds = statew
+
+
+            print 'Calculating kanes equations.'
+
+            KM = KanesMethod(W, coords, speeds, kd_eqs=kr)
+
+            (fr, frstar) = KM.kanes_equations(ForceList, BodyList)
+
+
+            print 'Calculated kanes equations.'
+
+            if forward_gen:
+                mm = KM.mass_matrix_full
+                msh0, msh1 = mm.shape
+                tol = self.tol
+                mass = mat([[nsimp(mm[i, j], tol=tol) for j in range(msh1)] for i in range(msh0)])
+
+                forc= KM.forcing_full
+                fsh0, fsh1 = forc.shape
+                forcing = mat([[nsimp(forc[i, j], tol=tol) for j in range(fsh1)] for i in range(fsh0)])
+
+                from pydy.codegen.code import generate_ode_function
+                right_hand_side = generate_ode_function(mass, forcing, [], coords, speeds, controls)
+
+
+
+            return locals()
+
+        def dyn(full_dyn_locals_dict=None):
+
+            if full_dyn_locals_dict is None:
+                locals_dict = dyn_full()
+            else:
+                locals_dict = full_dyn_locals_dict
+
+            fr = locals_dict['fr']
+            frstar = locals_dict['frstar']
+            kr = locals_dict['kr']
+
+            frsh0, frsh1 = fr.shape
+            tol = self.tol
+
+
+            #frsimp     = mat([[topleveladdmulsimp(fr[i, j]) for j in range(frsh1)] for i in range(frsh0)])
+            #frstarsimp = mat([[topleveladdmulsimp(frstar[i, j]) for j in range(frsh1)] for i in range(frsh0)])
+
+            #dyn = frsimp + frstarsimp
+            dyn = fr + frstar
+            # this next line is probably not needed since the frsimp + frstarsimp terms have different variables 
+            # and are thus orthogonal
+            #dynsimp = mat([[trigsimp(nsimplify(dyn[i, j], tolerance=tol)) for j in range(frsh1)] for i in range(frsh0)])
+
+            dyn = mat(list(dyn) + kr)
+
+            return dyn
+
+        def state_target(): 
+            return (state[0] - pi / 4, state[1] + pi / 4, state[2] - pi / 4, statew[0], statew[1], statew[2])
+
+        return locals()
+
 class RobotArm7dofBase:
     #collocation_points = 15
     tol = 0.000001
@@ -214,10 +449,10 @@ class RobotArm7dofBase:
         symbols = dstate + state + controls
 
         g = 9.81
-        m1, m2, m3, m4 = 1.0, 1.0, 1.0, 1.0
-        r1, r2, r3, r4 = 0.2, 0.2, 0.2, 0.2
+        m1, m2, m3, m4 = 1.2, 1.1, 0.9, 0.8
+        r1, r2, r3, r4 = 0.2, 0.175, 0.15, 0.1
         h1, h2, h3, h4 = 1.2, 1.1, 1.0, 0.9
-        f0, f1, f2, f3, f4, f5, f6 = 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0
+        f0, f1, f2, f3, f4, f5, f6 = 150.0, 140.0, 130.0, 120.0, 110.0, 100.0, 90.0
 
 
         def dyn_full():
@@ -266,6 +501,7 @@ class RobotArm7dofBase:
             link4_center_frame = frame7inter
             link4_center, link4_inertia, link4_body = \
                 cylinder(m4, r4, h4, link4_center_frame, point6, world=W, index=4)
+
 
             #link1_center_frame.orient(frame1inter, 'Axis', [0, frame1inter.z])
             #link1_center_frame.set_ang_vel(frame0, t0d * frame0.z)
@@ -565,9 +801,20 @@ class RobotArm3dofEffector(RobotArm3dofBase, DynamicalSystem):
 class RobotArm7dof(RobotArm7dofBase, DynamicalSystem):
     pass
 
+class RobotArmndof(RobotArmndofBase, DynamicalSystem):
+    pass
+
 class TestsRobotArm7dof(TestsDynamicalSystem):
     DSLearned = RobotArm7dof
     DSKnown   = RobotArm7dof
+    
+class TestsRobotArmndof(TestsDynamicalSystem):
+    n = 3
+    DSLearned = RobotArmndof
+    DSLearned.n = n
+    DSKnown   = RobotArmndof
+    DSKnown.n = n
+
 
 class TestsRobotArm3dof(TestsDynamicalSystem):
     DSLearned = RobotArm3dof
