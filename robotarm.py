@@ -55,6 +55,7 @@ class RobotArm3dofBase:
         state = np.zeros(self.nx)
         state[1] = deg2rad(-89)
         #state += .25*np.random.normal(size = self.nx)
+        self.name = "robotarm3dof"
         return state 
         
     def symbolics(self, forward_gen=False, end_effector=False):
@@ -430,6 +431,7 @@ class RobotArm7dofBase:
         state = np.zeros(self.nx)
         state[1] = deg2rad(-89)
         #state += .25*np.random.normal(size = self.nx)
+        self.name = "robotarm7dof"       
         return state 
         
     def symbolics(self, forward_gen=False, end_effector=False):

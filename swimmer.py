@@ -104,6 +104,7 @@ class Swimmer(DynamicalSystem):
         state = np.zeros(self.nx)
         n = self.num_links
         state = .01*np.random.normal(size = self.nx)
+        self.name = "swimmer"
         return state
 
 class TestsSwimmer(TestsDynamicalSystem):

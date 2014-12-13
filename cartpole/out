@@ -1,0 +1,39 @@
+You can set logging level with OPTCON_LOG_THRESH. Valid values: FATAL ERROR WARN INFO DEBUG TRACE. Defaulting to INFO
+[INFO] Initial constraint violation: 15.04901[0m
+[INFO] delta: 0.010000[0m
+[INFO] penalty coeff: 10.000000[0m
+[INFO]   sqp iter: 0[0m
+[INFO]        trust region size: 1.000000[0m
+[INFO]        approx improve: 142.209. exact improve: 19.486. ratio: 0.137[0m
+[INFO]   sqp iter: 1[0m
+[INFO]        trust region size: 1.250000[0m
+[INFO]        approx improve: 79.931. exact improve: 79.917. ratio: 1.000[0m
+[INFO]   sqp iter: 2[0m
+[INFO]        trust region size: 1.562500[0m
+[INFO]        approx improve: -0.000. exact improve: -0.000. ratio: 1.003[0m
+[INFO] Converged: y tolerance[0m
+[INFO] Constraint violation: 5.10970
+[0m
+[INFO] Initial constraint violation: nan[0m
+[INFO] delta: 0.110000[0m
+[INFO] penalty coeff: 10.000000[0m
+[INFO]   sqp iter: 0[0m
+[INFO]        trust region size: 1.000000[0m
+[31m[ERROR] Some problem in solver[0m
+[31m[ERROR] Merit function not minimized successfully
+[0m
+Failure...
+Pi:  [[ 0.]
+ [ 0.]
+ [ 0.]
+ [ 0.]
+ [ 0.]
+ [ 0.]
+ [ 0.]
+ [ 0.]
+ [ 0.]
+ [ 0.]
+ [ 0.]
+ [ 0.]
+ [ 0.]
+ [ 0.]]

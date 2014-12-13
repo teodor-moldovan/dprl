@@ -232,7 +232,7 @@ class DynamicalSystem:
     dt, log_h_init,noise = 0.01, -1.0, np.array([0, 0, 0])
     optimize_var = None
     fixed_horizon= False
-    collocation_points = 35
+    collocation_points = 15 #35
     episode_max_h = 20.0 
     #noise = np.array([.01,0.0,0.0])
     def __init__(self, **kwargs):
@@ -262,9 +262,9 @@ class DynamicalSystem:
 
         features, weights, self.nfa, self.nf = self.__extract_features(
                 implf_sym,self.symbols,self.nx)
-        self.features = features
+        self._features = features
 
-        embed()
+        #embed()
 
         self.weights = to_gpu(weights)
 
@@ -272,6 +272,9 @@ class DynamicalSystem:
         fn1,fn2,fn3,fn4  = self.__codegen(
                 features, self.symbols,self.nx,self.nf,self.nfa)
         print 'Finished codegen'
+
+	#import pdb
+	#pdb.set_trace()
 
         # compile cuda code
         # if this is a bottleneck, we could compute subsets of features in parallel using different kernels, in addition to each row.  this would recompute the common sub-expressions, but would utilize more parallelism
@@ -340,7 +343,7 @@ class DynamicalSystem:
         weights = scipy.sparse.coo_matrix((d, (i,j))).todense()
         print 'Calculated weights matrix'
 
-        embed()
+        #embed()
 
         return features, weights, len(f1), len(features)
 
@@ -514,7 +517,7 @@ class DynamicalSystem:
             
         # policy might not be valid for long enough to simulate n timesteps
         h = min(self.dt*n,policy.max_h)
-        
+
         ode = scipy.integrate.ode(lambda t_,x_ : f(t_,x_)[0])
         ode.set_integrator('dop853')
         ode.set_initial_value(self.state, 0)
@@ -648,7 +651,7 @@ class DynamicalSystem:
     def cdyn(self, include_virtual_controls = False):
         nx,nu,nf = self.nx,self.nu,self.nf
         w  = sympy.symbols('weights[0:%i]'%(nf*nx))
-        ex = sympy.Matrix(w).reshape(nx,nf) * sympy.Matrix(self.features)
+        ex = sympy.Matrix(w).reshape(nx,nf) * sympy.Matrix(self._features)
         tv = self.target[np.logical_not(self.c_ignore)]
         ti = np.where([np.logical_not(self.c_ignore)])[1]
 
@@ -720,6 +723,195 @@ class DynamicalSystem:
             nw = self.weights.size, ws = self.weights.get().reshape(-1))
         
         return s2 + funct
+
+    # C code for dynamics, this generated code is meant to be compiled
+    def c_dyn(self, include_virtual_controls = False):
+        nx,nu,nf = self.nx,self.nu,self.nf
+        w  = sympy.symbols('weights[0:%i]'%(nf*nx))
+        ex = sympy.Matrix(w).reshape(nx,nf) * sympy.Matrix(self._features)
+        tv = self.target[np.logical_not(self.c_ignore)]
+        ti = np.where([np.logical_not(self.c_ignore)])[1]
+
+        
+        syms = self.symbols
+        dstate = self.symbols[:nx]
+
+        # Hard coded contraints.. are dynamics scaled appropriately?
+        umin =  [-1.0]*nu
+        umax =  [ 1.0]*nu
+        #import pdb
+        #pdb.set_trace()
+        if include_virtual_controls:
+            uvirtual = sympy.symbols('uvirtual0:%i'%(nx)) 
+            syms += uvirtual
+            #nu += nx
+            #umin += [-self.model_slack_bounds]*nx
+            #umax += [ self.model_slack_bounds]*nx
+        else:
+            uvirtual = [0]*nx
+        syms = syms[nx:] # Hack to get rid of Derivative(w(t), t) stuff
+        M = [[e.diff(d) for d in dstate] + [e.subs(zip(dstate,[0]*nx))+uv] 
+                for e,uv in zip(ex,uvirtual)]
+        funct = codegen_cse(sum(M,[]), syms, out_name = 'out', in_name = 'z',
+                    function_definition = False )
+        funct = Template("""
+
+namespace {{ name }} {
+
+    /* Function specifying dynamics.
+    Format assumed: M(x) * \dot_x + g(x,u) = 0
+    where x is state and u are controls
+
+    Input:
+        z : [x,u,xi] concatenated; z is assumed to have dimension NX + NU + NV
+        weights : weight parameter vector as provided by learning component 
+    Output: 
+        M : output array equal to [M,g] concatenated,
+              an NX x (NX + 1) matrix flattened in row major order.
+              (note this output array needs to be pre-allocated)
+        
+    */
+
+    void feval({{ dtype }} z[], {{ dtype }} weights[], {{ dtype }} out[])
+    { 
+        """).render(dtype = cuda_dtype, name = self.name) + funct + """
+    }"""
+        
+        
+        tpl = Template("""
+#ifndef {{ name }}_DYNAMICS_H_
+#define {{ name }}_DYNAMICS_H_
+
+
+#include <math.h>
+#define NX {{ nx }}    // size of state space 
+#define NU {{ nu }}    // number of controls
+#define NV {{ nx }}    // number of virtual controls
+#define NT {{ nt }}    // number of constrained target state components
+#define NW {{ nw }}    // number of weights (dynamics parameters)
+
+#include <eigen3/Eigen/Eigen>
+#include <eigen3/Eigen/LU>
+using namespace Eigen;        
+
+{{ dtype }} control_min[NU] = { {{ umin|join(', ') }} };
+{{ dtype }} control_max[NU] = { {{ umax|join(', ') }} };
+
+#define EPS 1e-5
+        
+// Target state may only be specified partially. 
+// Indices of target state components that are constrained
+int target_ind[NT] = { {{ ti|join(', ') }} };
+// Constraint values
+{{ dtype }} target_state[NT] = { {{ tv|join(', ') }} };
+
+                 """)
+        s2 = tpl.render(nx=nx,nu=nu,dtype = cuda_dtype,
+            umin=umin, umax=umax,
+            nt = len(ti), ti = ti, tv = tv,
+            nw = self.weights.size, name = self.name.upper())
+
+        utils = Template("""
+
+    VectorXd rk4(VectorXd (*f)(VectorXd, VectorXd, double[]), VectorXd x, VectorXd u, double delta, double weights[]) 
+    {
+        VectorXd k1 = delta*f(x, u, weights);
+        VectorXd k2 = delta*f(x + .5*k1, u, weights);
+        VectorXd k3 = delta*f(x + .5*k2, u, weights);
+        VectorXd k4 = delta*f(x + k3, u, weights);
+
+        VectorXd x_new = x + (k1 + 2*k2 + 2*k3 + k4)/6;
+        return x_new;
+    }
+
+    VectorXd continuous_dynamics(VectorXd x, VectorXd u, double weights[])
+    {
+        double Mg[NX*(NX+1)];
+        double z[NX+NU+NV];
+
+        // state
+        for(int i = 0; i < NX; ++i) {
+            z[i] = x(i);
+        }
+        // controls
+        for(int i = 0; i < NU; ++i) {
+            z[i+NX] = u(i);
+        }
+        // virtual controls
+        for(int i = 0; i < NV; ++i) {
+            z[i+NX+NU] = u(i+NU);
+        }
+
+        //z[0] = x(0); z[1] = x(1); z[2] = x(2); z[3] = x(3); z[4] = u(0);
+
+        feval(z, weights, Mg);
+
+        MatrixXd M(NX,NX);
+        VectorXd g(NX);
+
+        int idx = 0;
+        for(int i = 0; i < NX; ++i) {
+            for(int j = 0; j < NX; ++j) {
+                M(i,j) = Mg[idx++];
+            }
+            g(i) = Mg[idx++];
+        }
+
+        VectorXd xdot(NX);
+        xdot = M.lu().solve(-g);
+
+        return xdot;
+    }
+
+    MatrixXd numerical_jacobian(VectorXd (*f)(VectorXd, VectorXd, double[]), VectorXd x, VectorXd u, double delta, double weights[])
+    {
+        int nX = x.rows();
+        int nU = u.rows();
+
+        // Create matrix, set it to all zeros
+        MatrixXd jac(nX, nX+nU+1);
+        jac.setZero(nX, nX+nU+1);
+
+        int index = 0;
+
+        MatrixXd I;
+        I.setIdentity(nX, nX);
+        for(int i = 0; i < nX; ++i) {
+            jac.col(index) = rk4(f, x + .5*EPS*I.col(i), u, delta, weights) - rk4(f, x - .5*EPS*I.col(i), u, delta, weights);
+            index++;
+        }
+
+        I.setIdentity(nU, nU);
+        for(int i = 0; i < nU; ++i) {
+            jac.col(index) = rk4(f, x, u + .5*EPS*I.col(i), delta, weights) - rk4(f, x, u - .5*EPS*I.col(i), delta, weights);
+            index++;
+        }
+
+        jac.col(index) = rk4(f, x, u, delta + .5*EPS, weights) - rk4(f, x, u, delta - .5*EPS, weights);
+
+        // Must divide by eps for finite differences formula
+        jac /= EPS;
+
+        return jac;
+    }
+
+    VectorXd dynamics_difference(VectorXd (*f)(VectorXd, VectorXd, double[]), VectorXd x, VectorXd x_next, VectorXd u, double delta, double weights[])
+    {
+        VectorXd simulated_x_next = rk4(f, x, u, delta, weights);
+        return x_next - simulated_x_next;
+    }
+
+};
+
+#endif /* {{ name }}_DYNAMICS_H_ */
+
+            """).render(name=self.name.upper())
+
+        ws = Template("""        {{ dtype }} weights[NW] = { {{ ws|join(', ') }} };
+""").render(ws = self.weights.get().reshape(-1))
+
+        #print ws
+        return s2 + funct + utils
         
         
     def update_sufficient_statistics(self,traj):
@@ -750,6 +942,12 @@ class DynamicalSystem:
         print self.__symvals2str((self.t,),('time(s)',))
         print self.state2str(s)
             
+    def print_time(self,s = None):
+        if s is None:
+            s = self.state
+        print self.__symvals2str((self.t,),('time(s)',))
+        
+
     @staticmethod
     def __symvals2str(s,syms):
         out = ['{:8} {: 8.4f}'.format(str(n),x)

@@ -5,6 +5,7 @@ import time
 import scipy.linalg
 import scipy.special
 from IPython import embed
+import os
 
 class TestsTools(unittest.TestCase):
     def test_array(self):
@@ -601,7 +602,16 @@ class TestsDynamicalSystem(unittest.TestCase):
         env = self.DSKnown()     # proxy for real, known system.
         ds = self.DSLearned()    # model to be trained online
 
-        pp = SlpNlp(GPMcompact(ds,ds.collocation_points))
+        use_FORCES = True
+
+        if use_FORCES:
+            import sys
+            sys.path.append('./{0}'.format(env.name))
+            SQP = __import__("{0}_sqp_solver".format(env.name))
+            total_SQP_calls = 0
+            total_SQP_successes = 0
+        else:
+            pp = SlpNlp(GPMcompact(ds,ds.collocation_points))
 
         while True:
             # loop over learning episodes
@@ -617,15 +627,19 @@ class TestsDynamicalSystem(unittest.TestCase):
             #trj = env.step(RandomPolicy(env.nu,umax=.1),20) 
             cnt = 0
 
+            num_iters = 0
+
             while True:
                 # loop over time steps
 
                 tmm = time.time()
                 ds.update(trj)
-                print 'clock time spent updating model: ', time.time()-tmm
+                #print 'clock time spent updating model: ', time.time()-tmm
 
                 env.reset_if_need_be()
-                env.print_state()
+                #env.print_state()
+                env.print_time()
+                print ds.state
                 
                 try:
                     nz = env.noise[0]
@@ -635,9 +649,31 @@ class TestsDynamicalSystem(unittest.TestCase):
                 ds.state = env.state.copy() + nz*np.random.normal(size=env.nx)
 
                 tmm = time.time()
-                pi = pp.solve()
-                print 'clock time spent planning: ', time.time()-tmm
-                
+                if use_FORCES:
+                    
+                    # Get weights
+                    weights = ds.weights.get().reshape(-1)
+                    # Instantiate control matrix (the -1 is because there are always T states with T-1 controls)
+                    controls = np.zeros([ds.collocation_points-1, env.nu], dtype=float)
+                    # Get current state
+                    curr_state = ds.state
+                    # Get slack bounds on model dynamics
+                    vc_max = ds.model_slack_bounds
+                    # Solve BVP
+                    #import pdb
+                    #pdb.set_trace()
+                    success, delta = SQP.solve(weights, controls, curr_state, vc_max)
+                    # Create PiecewisePolicy object
+                    pi = PiecewiseConstantPolicy(controls, delta*ds.collocation_points)
+
+                    if success:
+                        total_SQP_successes += 1
+                    total_SQP_calls += 1
+
+                else:
+                    pi = pp.solve()
+                #print 'clock time spent planning: ', time.time()-tmm
+
                 # stopping criterion
                 dst = np.nansum( 
                     ((ds.state - ds.target)**2)[np.logical_not(ds.c_ignore)])
@@ -648,7 +684,19 @@ class TestsDynamicalSystem(unittest.TestCase):
                 if env.t >= ds.episode_max_h:
                     break
 
-                trj = env.step(pi,5)
+                # If FORCES Failed, pi is a random control. Apply it for 1 timestep
+                if use_FORCES and not success:
+                    trj = env.step(RandomPolicy(env.nu,umax=.1),1) 
+                else:
+                    trj = env.step(pi, 5) # Play with this parameter
+
+                if use_FORCES:
+                    print "Success rate: {0}".format(total_SQP_successes/float(total_SQP_calls))
+                num_iters += 1
+
+                if num_iters % 30 == 0:
+                    embed()
+
 
     def test_pp(self):
         """ tests whether we can plan in the known system. valuable for sanity check for planning.  used as a baseline experiment"""
@@ -676,9 +724,31 @@ class TestsDynamicalSystem(unittest.TestCase):
             pi = pp.solve()
             trj = env.step(pi,5)
 
-    def test_cdyn(self):
+    """ C Code Generation
+    """
+    def test_cdyn(self, include_virtual_controls=True):
         env = self.DSKnown()
-        print env.cdyn() 
+        #env = self.DSLearned()
+        #print env.cdyn()
+        #print env.c_dyn()
+        
+        # Write dynamics to file called self.name + "_dynamics.h"
+        if not os.path.exists('{0}'.format(env.name)):
+            os.mkdir('{0}'.format(env.name))            
+
+        f = open("{0}/{0}_dynamics.h".format(env.name), 'w')
+        f.write(env.c_dyn(include_virtual_controls))
+        f.close()
+
+        # Write mini matlab script containing variables
+        f = open("{0}/{0}_matlab_params.m".format(env.name), 'w')
+        target_state = env.target[np.logical_not(env.c_ignore)]
+        nx,nu,timesteps = env.nx,env.nu,env.collocation_points
+        f.write("nX = {0};\n".format(nx))
+        f.write("nU = {0};\n".format(nu))
+        f.write("timesteps = {0};\n".format(timesteps))
+        f.write("name = \'{0}\'".format(env.name))
+        f.close()
 
 if __name__ == '__main__':
     """ to avoid merge conflicts, let's run individual tests 
