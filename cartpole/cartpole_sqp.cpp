@@ -36,13 +36,13 @@ typedef std::vector<VectorU> StdVectorU;
 namespace cfg {
 const double improve_ratio_threshold = .1; // .1
 const double min_approx_improve = 1e-4; // 1e-4
-const double min_trust_box_size = 1e-3; // 1e-3
-const double trust_shrink_ratio = .99; // .5
-const double trust_expand_ratio = 1.01; // 1.5
+const double min_trust_box_size = 1e-4; // 1e-3
+const double trust_shrink_ratio = .9; // .5
+const double trust_expand_ratio = 1.1; // 1.5
 const double cnt_tolerance = 1e-5; // 1e-5
 const double penalty_coeff_increase_ratio = 10; // 10
-const double initial_penalty_coeff = 0.1; // 1
-const double initial_trust_box_size = 1; // 10
+const double initial_penalty_coeff = 1; // 1
+const double initial_trust_box_size = .1; // 10
 const int max_penalty_coeff_increases = 3; // 3
 const int max_sqp_iterations = 100; // 100
 }
@@ -504,7 +504,7 @@ bool penalty_sqp(StdVectorX& X, StdVectorU& U, double& delta, bounds_t bounds,
 
 		if (constraint_violation <= cfg::cnt_tolerance) {
 			break;
-		} else if (constraint_violation > 1 && penalty_increases == 0) {
+		} else if (constraint_violation > 3 && penalty_increases == 0) {
 
 			if (delta > bounds.delta_max) {
 				LOG_ERROR("Delta exceeds maximum allowed.\n");
@@ -531,6 +531,7 @@ bool penalty_sqp(StdVectorX& X, StdVectorU& U, double& delta, bounds_t bounds,
 				U[t] = MatrixXd::Zero(U_DIM+VC_DIM, 1);
 				//U[t] = c*MatrixXd::Ones(U_DIM, 1);
 			}
+
 		}
 		else
 		{
@@ -545,9 +546,9 @@ bool penalty_sqp(StdVectorX& X, StdVectorU& U, double& delta, bounds_t bounds,
 
 		
 		// warm start?
-		//for(int t = 0; t < T-2; ++t) {
-		//	X[t+1] = rk4(continuous_dynamics, X[t], U[t], delta, dynamics_weights);
-		//}
+		for(int t = 0; t < T-2; ++t) {
+			X[t+1] = rk4(continuous_dynamics, X[t], U[t], delta, dynamics_weights);
+		}
 	}
 
 	return success;
@@ -584,7 +585,7 @@ int solve_BVP(double weights[], double pi[], double start_state[], double& delta
 
 	// Smart initialization
 	//delta = std::min((bounds.x_start - bounds.x_goal).norm()/10, .5);
-	delta = 0.01; // 0.01
+	delta = 0.001; // 0.01
 	//std::cout << "Initial delta: " << delta << "\n";
 
 	// Initialize X variable
@@ -609,7 +610,7 @@ int solve_BVP(double weights[], double pi[], double start_state[], double& delta
 	cleanup_state_vars();
 
 	// Update pi with U[0] here. DO NOT ADD virtual controls. If failed, then add random controls.
-	if (success) {
+	if (true) {
 		for(int t = 0; t < T-1; ++t) {
 			for(int i = 0; i < U_DIM; ++i) {
 				pi[t*U_DIM + i] = U[t][i];

@@ -5,6 +5,7 @@ from test import TestsDynamicalSystem
 class PendulumBase:
     def initial_state(self):
         state = 1.0*np.random.normal(size = self.nx)
+        self.name = "pendulum"
         return state 
 
         

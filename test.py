@@ -602,7 +602,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         env = self.DSKnown()     # proxy for real, known system.
         ds = self.DSLearned()    # model to be trained online
 
-        use_FORCES = True
+        use_FORCES = False
 
         if use_FORCES:
             import sys
@@ -613,8 +613,13 @@ class TestsDynamicalSystem(unittest.TestCase):
         else:
             pp = SlpNlp(GPMcompact(ds,ds.collocation_points))
 
+        counter = 0
+
         while True:
             # loop over learning episodes
+
+            if counter >= 15:
+                break
 
             ds.clear()
 
@@ -628,6 +633,9 @@ class TestsDynamicalSystem(unittest.TestCase):
             cnt = 0
 
             num_iters = 0
+
+            # For plotting purposes
+            #embed()
 
             while True:
                 # loop over time steps
@@ -686,7 +694,8 @@ class TestsDynamicalSystem(unittest.TestCase):
 
                 # If FORCES Failed, pi is a random control. Apply it for 1 timestep
                 if use_FORCES and not success:
-                    trj = env.step(RandomPolicy(env.nu,umax=.1),1) 
+                    #trj = env.step(RandomPolicy(env.nu,umax=.1),1)
+                    trj = env.step(pi, 2) # Just use what you have
                 else:
                     trj = env.step(pi, 5) # Play with this parameter
 
@@ -694,9 +703,10 @@ class TestsDynamicalSystem(unittest.TestCase):
                     print "Success rate: {0}".format(total_SQP_successes/float(total_SQP_calls))
                 num_iters += 1
 
-                if num_iters % 30 == 0:
-                    embed()
+                # if use_FORCES and num_iters % 30 == 0:
+                #     embed()
 
+            counter += 1
 
     def test_pp(self):
         """ tests whether we can plan in the known system. valuable for sanity check for planning.  used as a baseline experiment"""

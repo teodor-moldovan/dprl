@@ -582,6 +582,8 @@ class DynamicalSystem:
         nf,nx = self.nf,self.nx
         psi   += prior * np.eye(nf)
         n_obs += prior
+
+        #embed()
         
         psi /= n_obs
 
@@ -603,7 +605,54 @@ class DynamicalSystem:
 
         # encourages exploration, more or less empirical rate decay
         self.model_slack_bounds = 1.0/self.n_obs
+
+    def update_sufficient_statistics_pendulum(self, traj):
+        # traj is t, dx, x, u, produced by self.step
+
+        # Let psi = H.T * H
+        # Let gamma = H.T * tao
+
+        # Matrx function
+        m = np.matrix
+
+        try:
+            self.psi
+            self.gamma
+            self.n_obs
+        except:
+            # init psi and gamma with hard coded values for pendulum example
+            self.psi = 0 * m(np.eye((3)))
+            self.gamma = 0 * m(np.ones((3,1)))
+            self.n_obs = 0
+
+        if traj is not None:
+
+            H = np.concatenate((traj[1], m(np.sin(traj[2][:,1])).T), axis=1)
+            H /= 5
+            tao = m(traj[3])
+            
+            # update psi, gamma, n_obs
+            self.psi += H.T*H
+            self.gamma += H.T*tao
+            self.n_obs += tao.shape[0]
         
+        return self.psi, self.gamma, self.n_obs
+
+
+    def update_ls_pendulum(self, traj):
+        # traj is t, dx, x, u, produced by self.step
+        psi, gamma, n_obs = self.update_sufficient_statistics_pendulum(traj)
+
+        # least squares estimate    
+        w = psi.I * gamma
+        self.weights = to_gpu(w)
+
+        # Weights are in the form 1/5*[ml^2, b, mgl]
+        # With values specified in pendulum.py, true values are: [0.2, 0.01, 1.964]
+
+        # encourages exploration, more or less empirical rate decay
+        self.model_slack_bounds = 1.0/self.n_obs
+
     def update_cca(self,traj,prior=0.0):
         # traj is t, dx, x, u, produced by self.step
         psi, n_obs = self.update_sufficient_statistics(traj)
@@ -611,7 +660,7 @@ class DynamicalSystem:
         n,k = self.nf,self.nfa
         psi   += prior * np.eye(n)
         n_obs += prior
-        
+
         m,inv = np.matrix, np.linalg.inv
         #pinv = np.linalg.pinv
         sqrt = lambda x: np.real(scipy.linalg.sqrtm(x))
@@ -647,7 +696,9 @@ class DynamicalSystem:
         self.spectrum = l
         
     update = update_cca
-    # update = update_ls
+    #update = update_ls
+    #update = update_ls_pendulum
+    
     def cdyn(self, include_virtual_controls = False):
         nx,nu,nf = self.nx,self.nu,self.nf
         w  = sympy.symbols('weights[0:%i]'%(nf*nx))
@@ -752,6 +803,7 @@ class DynamicalSystem:
         syms = syms[nx:] # Hack to get rid of Derivative(w(t), t) stuff
         M = [[e.diff(d) for d in dstate] + [e.subs(zip(dstate,[0]*nx))+uv] 
                 for e,uv in zip(ex,uvirtual)]
+        embed()
         funct = codegen_cse(sum(M,[]), syms, out_name = 'out', in_name = 'z',
                     function_definition = False )
         funct = Template("""
@@ -1542,7 +1594,7 @@ class SlpNlp():
             hi = z[self.nlp.iv_h]
             #print ('{:9.5f} '*(3)).format(hi, cost, r) + ret
 
-            print ('{:9.5f} '*(2+len(grid))).format(hi, cost, *grid) + ret
+            #print ('{:9.5f} '*(2+len(grid))).format(hi, cost, *grid) + ret
 
             if np.abs(old_cost - cost)<1e-4:
                 break
