@@ -313,7 +313,8 @@ class DynamicalSystem:
 
         print 'Simplified implicit dynamics sin'
 
-        
+        #embed()
+
         # separate weights from features
         exprs = [e.as_coefficients_dict().items() for e in exprs]
         #calculate unique set of monomials, mixed in from all the dynamics expressions
@@ -337,6 +338,8 @@ class DynamicalSystem:
         
         weights = tuple((i,feat_ind[symb],float(coeff)) 
                 for i,ex in enumerate(exprs) for symb,coeff in ex)
+
+        #embed()
 
         i,j,d = zip(*weights)
         # really this is better as a sparse matrix, but for simplicity of gpu stuff we make it dense
@@ -499,7 +502,7 @@ class DynamicalSystem:
 
         return dx
 
-    def step(self, policy, n = 1):
+    def step(self, policy, n = 1, debug_flag = False):
         """ forward simulate system according to stored weight matrix and policy"""
 
         seed = int(np.random.random()*1000)
@@ -514,14 +517,44 @@ class DynamicalSystem:
             dx = dx.reshape(-1)
             
             return dx,u
+
+        def rk4(f, x, delta): # f is the function defined above, x is the state
+            "RK4 integration"
+            k1 = f(0, x)
+            k2 = f(.5*delta, x + .5*k1)
+            k3 = f(.5*delta, x + .5*k2)
+            k4 = f(delta, x + k3)
+
+            return x + delta/6.0 * (k1 + 2*k2 + 2*k3 + k4)
             
         # policy might not be valid for long enough to simulate n timesteps
         h = min(self.dt*n,policy.max_h)
 
         ode = scipy.integrate.ode(lambda t_,x_ : f(t_,x_)[0])
-        ode.set_integrator('dop853')
+        ode.set_integrator('dopri5')
         ode.set_initial_value(self.state, 0)
-        
+
+        if debug_flag:
+            import pdb
+            pdb.set_trace() 
+        """
+        t = 0
+        y = self.state # Initial state
+        trj = []
+        while t + self.dt <= h:
+            y = rk4(f, y, self.dt)                  # Integrate the state forward by a small time step (0.01)
+            t += self.dt                            # Update t, y
+            dx, u = f(t, y);                        # Find dx, u for this step
+            trj.append((self.t+t, dx, y, u))        # Append it to trj
+
+        # If max horizon too small, just integrate that part. Copied from below
+        if len(trj) == 0:
+            next_y = rk4(f, y, h)
+            self.state[:] = next_y
+            self.t += h
+            return None
+        """
+
         trj = []
         while ode.successful() and ode.t + self.dt <= h:
             ode.integrate(ode.t+self.dt) 
@@ -560,7 +593,11 @@ class DynamicalSystem:
         nz = self.noise * np.ones(3)
         x  += nz[0]*np.random.normal(size= x.size).reshape( x.shape)
         dx += nz[1]*np.random.normal(size= x.size).reshape( x.shape)
-        u  += nz[2]*np.random.normal(size= u.size).reshape( u.shape)
+        u  += nz[2]*np.random.normal(size= u.size).reshape( u.shape)       
+
+        if debug_flag:
+            import pdb
+            pdb.set_trace()
 
         trj = t,dx,x,u
 
@@ -608,7 +645,7 @@ class DynamicalSystem:
 
     def update_sufficient_statistics_pendulum(self, traj):
         # traj is t, dx, x, u, produced by self.step
-
+        
         # Let psi = H.T * H
         # Let gamma = H.T * tao
 
@@ -621,8 +658,9 @@ class DynamicalSystem:
             self.n_obs
         except:
             # init psi and gamma with hard coded values for pendulum example
-            self.psi = 0 * m(np.eye((3)))
-            self.gamma = 0 * m(np.ones((3,1)))
+            num_weights = 3
+            self.psi = 0 * m(np.eye((num_weights)))
+            self.gamma = 0 * m(np.ones((num_weights,1)))
             self.n_obs = 0
 
         if traj is not None:
@@ -638,7 +676,6 @@ class DynamicalSystem:
         
         return self.psi, self.gamma, self.n_obs
 
-
     def update_ls_pendulum(self, traj):
         # traj is t, dx, x, u, produced by self.step
         psi, gamma, n_obs = self.update_sufficient_statistics_pendulum(traj)
@@ -648,10 +685,155 @@ class DynamicalSystem:
         self.weights = to_gpu(w)
 
         # Weights are in the form 1/5*[ml^2, b, mgl]
-        # With values specified in pendulum.py, true values are: [0.2, 0.01, 1.964]
+        # With values specified in pendulum.py, true values are: [1, 0.05, 9.82]
+        print self.weights
 
         # encourages exploration, more or less empirical rate decay
         self.model_slack_bounds = 1.0/self.n_obs
+
+    def update_sufficient_statistics_doublependulum(self, traj):
+        # traj is t, dx, x, u, produced by self.step
+        #embed()
+        # Let psi = H.T * H
+        # Let gamma = H.T * tao
+
+        # Matrx function
+        m = np.matrix
+
+        try:
+            self.psi
+            self.gamma
+            self.n_obs
+        except:
+            # init psi and gamma with hard coded values for pendulum example
+            num_weights = 10
+            self.psi = 0 * m(np.eye((num_weights)))
+            self.gamma = 0 * m(np.ones((num_weights,1)))
+            self.n_obs = 0
+
+        if traj is not None:
+
+            H_1 = np.concatenate((m(traj[1][:,0]).T,                                        # dw1
+                                  m(traj[1][:,1]*np.cos(traj[2][:,2]-traj[2][:,3])).T,      # dw2*cos(t1-t2)
+                                  m(traj[2][:,1]**2*np.sin(traj[2][:,2]-traj[2][:,3])).T,   # w2^2*sin(t1-t2)
+                                  m(np.sin(traj[2][:,2])).T,                                # sin(t1)
+                                  m(traj[2][:,0]).T),                                       # w1
+            axis=1)
+
+            # Fill in with 0's
+            i = 1
+            while i <= len(H_1):
+                H_1 = np.insert(H_1, i, 0, axis=0)
+                i += 2
+
+            H_2 = np.concatenate((m(traj[1][:,0]*np.cos(traj[2][:,2]-traj[2][:,3])).T,      # dw1*cos(t1-t2)
+                                  m(traj[1][:,1]).T,                                        # dw2
+                                  m(traj[2][:,0]**2*np.sin(traj[2][:,2]-traj[2][:,3])).T,   # w1^2*sin(t1-t2)
+                                  m(np.sin(traj[2][:,3])).T,                                # sin(t2)
+                                  m(traj[2][:,1]).T),                                       # w2
+            axis=1)
+
+            # Fill in with 0's
+            i = 0
+            while i < len(H_2):
+                H_2 = np.insert(H_2, i, 0, axis=0)
+                i += 2
+
+            # Concatenate
+            H = np.concatenate((H_1, H_2), axis=1)
+            tao = 2*m(np.concatenate((traj[3][:,0], traj[3][:,1]))).T
+            
+            # update psi, gamma, n_obs
+            self.psi += H.T*H
+            self.gamma += H.T*tao
+            self.n_obs += tao.shape[0]
+        
+        return self.psi, self.gamma, self.n_obs
+
+    def update_ls_doublependulum(self, traj):
+        # traj is t, dx, x, u, produced by self.step
+        psi, gamma, n_obs = self.update_sufficient_statistics_doublependulum(traj)
+
+        # least squares estimate    
+        w = psi.I * gamma
+        self.weights = to_gpu(w)
+
+        # Weights are in the form 1/5*[ml^2, b, mgl]
+        # With values specified in pendulum.py, true values are: [1, 0.05, 9.82]
+        print self.weights
+
+        # encourages exploration, more or less empirical rate decay
+        self.model_slack_bounds = 1.0/self.n_obs   
+
+
+    def update_sufficient_statistics_cartpole(self, traj):
+        # traj is t, dx, x, u, produced by self.step
+        #embed()
+        # Let psi = H.T * H
+        # Let gamma = H.T * tao
+
+        # Matrx function
+        m = np.matrix
+
+        try:
+            self.psi
+            self.gamma
+            self.n_obs
+        except:
+            # init psi and gamma with hard coded values for pendulum example
+            num_weights = 6
+            self.psi = 0 * m(np.eye((num_weights)))
+            self.gamma = 0 * m(np.ones((num_weights,1)))
+            self.n_obs = 0
+
+        if traj is not None:
+
+            H_1 = np.concatenate((m(traj[1][:,1]).T,                                        # dv
+                                  m(traj[1][:,0]*np.cos(traj[2][:,2])).T,                   # dw*cos(t)
+                                  m(traj[2][:,0]**2*np.sin(traj[2][:,2])).T,                # w^2*sin(t)
+                                  m(traj[2][:,1]).T),                                       # v
+            axis=1)
+
+            # H_2 = np.concatenate((m(traj[1][:,1]*np.cos(traj[2][:,2])/np.sin(traj[2][:,2])).T,      # dv*cos(t)/sin(t)
+            #                       m(traj[1][:,0]/np.sin(traj[2][:,2])).T),                          # dw/sin(t)
+            # axis=1)
+
+            H_2 = np.concatenate((m(traj[1][:,1]*np.cos(traj[2][:,2])).T,      # dv*cos(t)
+                                  m(traj[1][:,0]).T),                          # dw
+            axis=1)
+
+            # Concatenate
+            import scipy.linalg
+            H = m(scipy.linalg.block_diag(H_1, H_2))
+            max_control, g = 10, 9.82
+            # temp = np.ones(traj[3][:,0].shape)*-3*g
+            temp = g*np.sin(traj[2][:,2]) # g*sin(t)
+            tao = m(np.concatenate((max_control*traj[3][:,0], temp))).T
+            
+            # update psi, gamma, n_obs
+            self.psi += H.T*H
+            self.gamma += H.T*tao
+            self.n_obs += tao.shape[0]
+        
+        return self.psi, self.gamma, self.n_obs
+
+    def update_ls_cartpole(self, traj):
+        # traj is t, dx, x, u, produced by self.step
+        psi, gamma, n_obs = self.update_sufficient_statistics_cartpole(traj)
+
+        # least squares estimate    
+        w = psi.I * gamma
+        # w = np.matrix([1.0, .125, -.125, .1, -1.0, -1.0/3])
+        # w = w.T
+        self.weights = to_gpu(w)
+
+        # Weights are in the form 1/5*[ml^2, b, mgl]
+        # With values specified in pendulum.py, true values are: [1, 0.05, 9.82]
+        print self.weights
+
+        # encourages exploration, more or less empirical rate decay
+        self.model_slack_bounds = 1.0/self.n_obs
+        # self.model_slack_bounds = 0        
 
     def update_cca(self,traj,prior=0.0):
         # traj is t, dx, x, u, produced by self.step
@@ -695,9 +877,11 @@ class DynamicalSystem:
         # eigenvalues of correlation matrix (s)
         self.spectrum = l
         
-    update = update_cca
+    #update = update_cca
     #update = update_ls
-    #update = update_ls_pendulum
+    update = update_ls_pendulum
+    #update = update_ls_doublependulum
+    #update = update_ls_cartpole
     
     def cdyn(self, include_virtual_controls = False):
         nx,nu,nf = self.nx,self.nu,self.nf
@@ -803,7 +987,7 @@ class DynamicalSystem:
         syms = syms[nx:] # Hack to get rid of Derivative(w(t), t) stuff
         M = [[e.diff(d) for d in dstate] + [e.subs(zip(dstate,[0]*nx))+uv] 
                 for e,uv in zip(ex,uvirtual)]
-        embed()
+        #embed()
         funct = codegen_cse(sum(M,[]), syms, out_name = 'out', in_name = 'z',
                     function_definition = False )
         funct = Template("""
@@ -894,8 +1078,6 @@ int target_ind[NT] = { {{ ti|join(', ') }} };
             z[i+NX+NU] = u(i+NU);
         }
 
-        //z[0] = x(0); z[1] = x(1); z[2] = x(2); z[3] = x(3); z[4] = u(0);
-
         feval(z, weights, Mg);
 
         MatrixXd M(NX,NX);
@@ -962,7 +1144,7 @@ int target_ind[NT] = { {{ ti|join(', ') }} };
         ws = Template("""        {{ dtype }} weights[NW] = { {{ ws|join(', ') }} };
 """).render(ws = self.weights.get().reshape(-1))
 
-        #print ws
+        print ws
         return s2 + funct + utils
         
         

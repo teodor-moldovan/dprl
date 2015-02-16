@@ -22,8 +22,5 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR} ${Boost_INCLUDE_DIRS} ${Eigen_IN
 
 link_directories(${Boost_LIBRARY_DIRS})
 
-#add_executable(cartpole-test test_dynamics.cpp)
-#target_link_libraries(cartpole-test ${Boost_LIBRARIES} ${TIMER_LIBRARIES})
-
-add_executable(cartpole-test cartpole_sqp.cpp cartpole_QP_solver.c)
+add_executable(cartpole-test test_dynamics.cpp)
 target_link_libraries(cartpole-test ${Boost_LIBRARIES} ${TIMER_LIBRARIES})

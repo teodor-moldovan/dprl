@@ -84,6 +84,9 @@ typedef double cartpole_QP_solver_FLOAT;
 /* fill this with data before calling the solver! */
 typedef struct cartpole_QP_solver_params
 {
+    /* diagonal matrix of size [18 x 18] (only the diagonal is stored) */
+    cartpole_QP_solver_FLOAT H1[18];
+
     /* vector of size 18 */
     cartpole_QP_solver_FLOAT f1[18];
 
@@ -98,6 +101,9 @@ typedef struct cartpole_QP_solver_params
 
     /* vector of size 9 */
     cartpole_QP_solver_FLOAT e1[9];
+
+    /* diagonal matrix of size [18 x 18] (only the diagonal is stored) */
+    cartpole_QP_solver_FLOAT H2[18];
 
     /* vector of size 18 */
     cartpole_QP_solver_FLOAT f2[18];
@@ -114,6 +120,9 @@ typedef struct cartpole_QP_solver_params
     /* vector of size 5 */
     cartpole_QP_solver_FLOAT e2[5];
 
+    /* diagonal matrix of size [18 x 18] (only the diagonal is stored) */
+    cartpole_QP_solver_FLOAT H3[18];
+
     /* vector of size 18 */
     cartpole_QP_solver_FLOAT f3[18];
 
@@ -128,6 +137,9 @@ typedef struct cartpole_QP_solver_params
 
     /* vector of size 5 */
     cartpole_QP_solver_FLOAT e3[5];
+
+    /* diagonal matrix of size [18 x 18] (only the diagonal is stored) */
+    cartpole_QP_solver_FLOAT H4[18];
 
     /* vector of size 18 */
     cartpole_QP_solver_FLOAT f4[18];
@@ -144,6 +156,9 @@ typedef struct cartpole_QP_solver_params
     /* vector of size 5 */
     cartpole_QP_solver_FLOAT e4[5];
 
+    /* diagonal matrix of size [18 x 18] (only the diagonal is stored) */
+    cartpole_QP_solver_FLOAT H5[18];
+
     /* vector of size 18 */
     cartpole_QP_solver_FLOAT f5[18];
 
@@ -158,6 +173,9 @@ typedef struct cartpole_QP_solver_params
 
     /* vector of size 5 */
     cartpole_QP_solver_FLOAT e5[5];
+
+    /* diagonal matrix of size [18 x 18] (only the diagonal is stored) */
+    cartpole_QP_solver_FLOAT H6[18];
 
     /* vector of size 18 */
     cartpole_QP_solver_FLOAT f6[18];
@@ -174,6 +192,9 @@ typedef struct cartpole_QP_solver_params
     /* vector of size 5 */
     cartpole_QP_solver_FLOAT e6[5];
 
+    /* diagonal matrix of size [18 x 18] (only the diagonal is stored) */
+    cartpole_QP_solver_FLOAT H7[18];
+
     /* vector of size 18 */
     cartpole_QP_solver_FLOAT f7[18];
 
@@ -188,6 +209,9 @@ typedef struct cartpole_QP_solver_params
 
     /* vector of size 5 */
     cartpole_QP_solver_FLOAT e7[5];
+
+    /* diagonal matrix of size [18 x 18] (only the diagonal is stored) */
+    cartpole_QP_solver_FLOAT H8[18];
 
     /* vector of size 18 */
     cartpole_QP_solver_FLOAT f8[18];
@@ -204,6 +228,9 @@ typedef struct cartpole_QP_solver_params
     /* vector of size 5 */
     cartpole_QP_solver_FLOAT e8[5];
 
+    /* diagonal matrix of size [18 x 18] (only the diagonal is stored) */
+    cartpole_QP_solver_FLOAT H9[18];
+
     /* vector of size 18 */
     cartpole_QP_solver_FLOAT f9[18];
 
@@ -218,6 +245,9 @@ typedef struct cartpole_QP_solver_params
 
     /* vector of size 5 */
     cartpole_QP_solver_FLOAT e9[5];
+
+    /* diagonal matrix of size [18 x 18] (only the diagonal is stored) */
+    cartpole_QP_solver_FLOAT H10[18];
 
     /* vector of size 18 */
     cartpole_QP_solver_FLOAT f10[18];
@@ -234,6 +264,9 @@ typedef struct cartpole_QP_solver_params
     /* vector of size 5 */
     cartpole_QP_solver_FLOAT e10[5];
 
+    /* diagonal matrix of size [18 x 18] (only the diagonal is stored) */
+    cartpole_QP_solver_FLOAT H11[18];
+
     /* vector of size 18 */
     cartpole_QP_solver_FLOAT f11[18];
 
@@ -248,6 +281,9 @@ typedef struct cartpole_QP_solver_params
 
     /* vector of size 5 */
     cartpole_QP_solver_FLOAT e11[5];
+
+    /* diagonal matrix of size [18 x 18] (only the diagonal is stored) */
+    cartpole_QP_solver_FLOAT H12[18];
 
     /* vector of size 18 */
     cartpole_QP_solver_FLOAT f12[18];
@@ -264,6 +300,9 @@ typedef struct cartpole_QP_solver_params
     /* vector of size 5 */
     cartpole_QP_solver_FLOAT e12[5];
 
+    /* diagonal matrix of size [18 x 18] (only the diagonal is stored) */
+    cartpole_QP_solver_FLOAT H13[18];
+
     /* vector of size 18 */
     cartpole_QP_solver_FLOAT f13[18];
 
@@ -278,6 +317,9 @@ typedef struct cartpole_QP_solver_params
 
     /* vector of size 5 */
     cartpole_QP_solver_FLOAT e13[5];
+
+    /* diagonal matrix of size [18 x 18] (only the diagonal is stored) */
+    cartpole_QP_solver_FLOAT H14[18];
 
     /* vector of size 18 */
     cartpole_QP_solver_FLOAT f14[18];

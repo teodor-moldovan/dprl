@@ -602,7 +602,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         env = self.DSKnown()     # proxy for real, known system.
         ds = self.DSLearned()    # model to be trained online
 
-        use_FORCES = False
+        use_FORCES = True
 
         if use_FORCES:
             import sys
@@ -634,8 +634,15 @@ class TestsDynamicalSystem(unittest.TestCase):
 
             num_iters = 0
 
+            if use_FORCES:
+                total_SQP_calls = 0
+                total_SQP_successes = 0
+
             # For plotting purposes
             #embed()
+
+            # Initialize pi to a random policy. Hopefully this will be overwritten in the first time step.
+            pi = RandomPolicy(env.nu,umax=.1)
 
             while True:
                 # loop over time steps
@@ -647,7 +654,6 @@ class TestsDynamicalSystem(unittest.TestCase):
                 env.reset_if_need_be()
                 #env.print_state()
                 env.print_time()
-                print ds.state
                 
                 try:
                     nz = env.noise[0]
@@ -655,6 +661,20 @@ class TestsDynamicalSystem(unittest.TestCase):
                     nz = env.noise
 
                 ds.state = env.state.copy() + nz*np.random.normal(size=env.nx)
+
+                # Mod any angles that need to be modded by 2pi
+                try:
+                    # Mod in learned system
+                    modded_angles = (ds.state[ds.angles_to_mod] % (2*np.pi))
+                    ds.state[ds.angles_to_mod] = modded_angles
+
+                    # Mod in simulated system
+                    modded_angles = (env.state[env.angles_to_mod] % (2*np.pi))
+                    env.state[env.angles_to_mod] = modded_angles                    
+                except:
+                    pass
+
+                print ds.state
 
                 tmm = time.time()
                 if use_FORCES:
@@ -671,40 +691,69 @@ class TestsDynamicalSystem(unittest.TestCase):
                     #import pdb
                     #pdb.set_trace()
                     success, delta = SQP.solve(weights, controls, curr_state, vc_max)
-                    # Create PiecewisePolicy object
-                    pi = PiecewiseConstantPolicy(controls, delta*ds.collocation_points)
+                    if not success:
+                        success, delta = SQP.solve(weights, controls, curr_state, vc_max+env.vc_slack_add)
 
+                    """
+                    success = False
+                    num_failures = 0
+                    while not success:
+                        success, delta = SQP.solve(weights, controls, curr_state, vc_max)
+                        vc_max += 0.25
+                        if not success:
+                            num_failures +=1
+                            # print "Failed..."
+                            # print "Now trying with VC_MAX = ", vc_max
+                            if num_failures > 8:
+                                # embed()
+                                print "Failed..."
+                                break
+                    """
+
+                    # Create PiecewisePolicy object
                     if success:
+                        pi = PiecewiseConstantPolicy(controls, delta*ds.collocation_points)
                         total_SQP_successes += 1
+                    else:
+                        print "FAILED..."
                     total_SQP_calls += 1
 
                 else:
                     pi = pp.solve()
                 #print 'clock time spent planning: ', time.time()-tmm
 
-                # stopping criterion
+                if use_FORCES:
+                    print "Success rate: {0}".format(total_SQP_successes/float(total_SQP_calls))
+                # num_iters += 1
+
+                # stopping criteria
                 dst = np.nansum( 
                     ((ds.state - ds.target)**2)[np.logical_not(ds.c_ignore)])
-                if pi.max_h < .1 or dst < 1e-4:
-                    cnt += 1
-                if cnt>20:
+                if (pi.max_h < .1 and success) or dst < .1: # 1e-4
+                    # embed()
+                    # cnt += 1
                     break
+                # if cnt>20:
+                #     break
                 if env.t >= ds.episode_max_h:
                     break
 
-                # If FORCES Failed, pi is a random control. Apply it for 1 timestep
-                if use_FORCES and not success:
-                    #trj = env.step(RandomPolicy(env.nu,umax=.1),1)
-                    trj = env.step(pi, 2) # Just use what you have
-                else:
-                    trj = env.step(pi, 5) # Play with this parameter
-
-                if use_FORCES:
-                    print "Success rate: {0}".format(total_SQP_successes/float(total_SQP_calls))
-                num_iters += 1
-
-                # if use_FORCES and num_iters % 30 == 0:
+                # if use_FORCES and success:# and num_iters % 10 == 0:
                 #     embed()
+
+                if use_FORCES and not success:
+                    timesteps = 3
+                    # if pi.max_h > timesteps*.1:
+                    #     trj = env.step(pi, timesteps) # Just use what you have
+                    # else:
+                    trj = env.step(RandomPolicy(env.nu,umax=.1), timesteps) # tends not to work..
+                else:
+                    trj = env.step(pi, 0.5*delta/0.01) # Play with this parameter
+
+                # print "Count: {0}".format(cnt)
+
+
+
 
             counter += 1
 

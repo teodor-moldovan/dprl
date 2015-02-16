@@ -36,8 +36,9 @@ stages(i).dims.p = 0;                             % number of affine constraints
 stages(i).dims.q = 0;                                       % number of quadratic constraints
 
 % Cost of the first stage
-stages(i).cost.H = zeros(stages(i).dims.n);                 
-params(1) = newParam(['f' i_str], i, 'cost.f');             % Parameter for penalty coefficient and distance from target state
+stages(i).cost.H = zeros(stages(i).dims.n);
+%params(1) = newParam(['H' i_str], i, 'cost.H', 'diag');         % To penalize slacks
+params(end+1) = newParam(['f' i_str], i, 'cost.f');             % Parameter for penalty coefficient and distance from target state
 
 % Lower Bounds
 stages(i).ineq.b.lbidx = 1:stages(i).dims.l;             % Lower bounds on states, controls, and time
@@ -64,7 +65,8 @@ for i=2:N
     stages(i).dims.q = 0;                                       % number of quadratic constraints
     
     % Cost
-    stages(i).cost.H = zeros(stages(i).dims.n);                 
+    stages(i).cost.H = zeros(stages(i).dims.n);
+    %params(end+1) = newParam(['H' i_str], i, 'cost.H', 'diag');         % To penalize slacks
     params(end+1) = newParam(['f' i_str], i, 'cost.f');         % Parameter for cost
     
     % Lower Bounds

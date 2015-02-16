@@ -228,6 +228,9 @@ def plot_log(name, inds=None, labels=None, eps_stop = 0, succ_thrs = 20.0,
             pn.append(l[:tst[0],:])
     plts = pn
     
+    # import pdb
+    # pdb.set_trace()
+
     ts  = np.array([l[-1,0] for l in plts])
     tss = ts[ts<succ_thrs] 
 

@@ -301,7 +301,7 @@ void fill_in_C_and_e(StdVectorX& X, StdVectorU& U, double& delta, double trust_b
 
 	fill_col_major(C[0], C0_temp);
 
-	xt1 = rk4(continuous_dynamics, x0, u0, delta, dynamics_weights);
+	xt1 = rk45_DP(continuous_dynamics, x0, u0, delta, dynamics_weights);
 
 	e0_temp.setZero();
 	e0_temp.head(X_DIM) = bounds.x_start;
@@ -317,7 +317,7 @@ void fill_in_C_and_e(StdVectorX& X, StdVectorU& U, double& delta, double trust_b
 		VectorX& xt = X[t];
 		VectorU& ut = U[t];
 
-		xt1 = rk4(continuous_dynamics, xt, ut, delta, dynamics_weights);
+		xt1 = rk45_DP(continuous_dynamics, xt, ut, delta, dynamics_weights);
 		jac = numerical_jacobian(continuous_dynamics, xt, ut, delta, dynamics_weights);
 		DH_X = jac.leftCols(X_DIM);
 		DH_U = jac.middleCols(X_DIM, U_DIM+VC_DIM);
@@ -547,7 +547,7 @@ bool penalty_sqp(StdVectorX& X, StdVectorU& U, double& delta, bounds_t bounds,
 		
 		// warm start?
 		for(int t = 0; t < T-2; ++t) {
-			X[t+1] = rk4(continuous_dynamics, X[t], U[t], delta, dynamics_weights);
+			X[t+1] = rk45_DP(continuous_dynamics, X[t], U[t], delta, dynamics_weights);
 		}
 	}
 

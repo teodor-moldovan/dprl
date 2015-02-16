@@ -9,7 +9,7 @@ cartpole_QP_solver_FLOAT **f, **lb, **ub, **C, **e, **z;
 
 #include "../../optcontrol/util/logging.h"
 
-#include "cartpole_dynamics.h"
+#include "cartpole_dynamics_by_hand.h"
 using namespace cartpole;
 
 #define INFTY 1e10
@@ -34,11 +34,11 @@ typedef std::vector<VectorX> StdVectorX;
 typedef std::vector<VectorU> StdVectorU;
 
 namespace cfg {
-const double improve_ratio_threshold = .1; // .1
+const double improve_ratio_threshold = .25; // .1
 const double min_approx_improve = 1e-4; // 1e-4
 const double min_trust_box_size = 1e-4; // 1e-3
-const double trust_shrink_ratio = .9; // .5
-const double trust_expand_ratio = 1.1; // 1.5
+const double trust_shrink_ratio = .75; // .5
+const double trust_expand_ratio = 1.2; // 1.5
 const double cnt_tolerance = 1e-5; // 1e-5
 const double penalty_coeff_increase_ratio = 10; // 10
 const double initial_penalty_coeff = 1; // 1
@@ -301,7 +301,7 @@ void fill_in_C_and_e(StdVectorX& X, StdVectorU& U, double& delta, double trust_b
 
 	fill_col_major(C[0], C0_temp);
 
-	xt1 = rk4(continuous_dynamics, x0, u0, delta, dynamics_weights);
+	xt1 = rk45_DP(continuous_dynamics, x0, u0, delta, dynamics_weights);
 
 	e0_temp.setZero();
 	e0_temp.head(X_DIM) = bounds.x_start;
@@ -317,7 +317,7 @@ void fill_in_C_and_e(StdVectorX& X, StdVectorU& U, double& delta, double trust_b
 		VectorX& xt = X[t];
 		VectorU& ut = U[t];
 
-		xt1 = rk4(continuous_dynamics, xt, ut, delta, dynamics_weights);
+		xt1 = rk45_DP(continuous_dynamics, xt, ut, delta, dynamics_weights);
 		jac = numerical_jacobian(continuous_dynamics, xt, ut, delta, dynamics_weights);
 		DH_X = jac.leftCols(X_DIM);
 		DH_U = jac.middleCols(X_DIM, U_DIM+VC_DIM);
@@ -545,9 +545,9 @@ bool penalty_sqp(StdVectorX& X, StdVectorU& U, double& delta, bounds_t bounds,
 		}
 
 		
-		// warm start?
+		// // warm start?
 		for(int t = 0; t < T-2; ++t) {
-			X[t+1] = rk4(continuous_dynamics, X[t], U[t], delta, dynamics_weights);
+			X[t+1] = rk45_DP(continuous_dynamics, X[t], U[t], delta, dynamics_weights);
 		}
 	}
 
@@ -585,7 +585,7 @@ int solve_BVP(double weights[], double pi[], double start_state[], double& delta
 
 	// Smart initialization
 	//delta = std::min((bounds.x_start - bounds.x_goal).norm()/10, .5);
-	delta = 0.001; // 0.01
+	delta = 0.01; // 0.01
 	//std::cout << "Initial delta: " << delta << "\n";
 
 	// Initialize X variable
@@ -619,8 +619,9 @@ int solve_BVP(double weights[], double pi[], double start_state[], double& delta
 	}
 
 	if (success) {
-		// std::cout << "Final state:\n" << X[T-1] << "\n";
-		//printf("Delta: %.5f\n", delta);
+		// for(int t = 0; t < T; ++t){
+		// 	std::cout << X[t].transpose() << "\n";
+		// }
 		return 1;
 	} else {
 		return 0;

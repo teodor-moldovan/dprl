@@ -7,6 +7,7 @@ class DoublePendulumBase:
         state = np.zeros(self.nx)
         state[2:] = np.pi
         state[self.nx/2:] += .25*np.random.normal(size = self.nx/2)
+        self.name = "doublependulum"
         return state 
         
     def symbolics(self):

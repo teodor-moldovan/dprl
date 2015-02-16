@@ -2,71 +2,85 @@
 %
 %   OUTPUT = cartpole_QP_solver(PARAMS) solves a multistage problem
 %   subject to the parameters supplied in the following struct:
+%       PARAMS.H1 - column vector of length 18
 %       PARAMS.f1 - column vector of length 18
 %       PARAMS.lb1 - column vector of length 18
 %       PARAMS.ub1 - column vector of length 10
 %       PARAMS.C1 - matrix of size [9 x 18]
 %       PARAMS.e1 - column vector of length 9
+%       PARAMS.H2 - column vector of length 18
 %       PARAMS.f2 - column vector of length 18
 %       PARAMS.lb2 - column vector of length 18
 %       PARAMS.ub2 - column vector of length 10
 %       PARAMS.C2 - matrix of size [5 x 18]
 %       PARAMS.e2 - column vector of length 5
+%       PARAMS.H3 - column vector of length 18
 %       PARAMS.f3 - column vector of length 18
 %       PARAMS.lb3 - column vector of length 18
 %       PARAMS.ub3 - column vector of length 10
 %       PARAMS.C3 - matrix of size [5 x 18]
 %       PARAMS.e3 - column vector of length 5
+%       PARAMS.H4 - column vector of length 18
 %       PARAMS.f4 - column vector of length 18
 %       PARAMS.lb4 - column vector of length 18
 %       PARAMS.ub4 - column vector of length 10
 %       PARAMS.C4 - matrix of size [5 x 18]
 %       PARAMS.e4 - column vector of length 5
+%       PARAMS.H5 - column vector of length 18
 %       PARAMS.f5 - column vector of length 18
 %       PARAMS.lb5 - column vector of length 18
 %       PARAMS.ub5 - column vector of length 10
 %       PARAMS.C5 - matrix of size [5 x 18]
 %       PARAMS.e5 - column vector of length 5
+%       PARAMS.H6 - column vector of length 18
 %       PARAMS.f6 - column vector of length 18
 %       PARAMS.lb6 - column vector of length 18
 %       PARAMS.ub6 - column vector of length 10
 %       PARAMS.C6 - matrix of size [5 x 18]
 %       PARAMS.e6 - column vector of length 5
+%       PARAMS.H7 - column vector of length 18
 %       PARAMS.f7 - column vector of length 18
 %       PARAMS.lb7 - column vector of length 18
 %       PARAMS.ub7 - column vector of length 10
 %       PARAMS.C7 - matrix of size [5 x 18]
 %       PARAMS.e7 - column vector of length 5
+%       PARAMS.H8 - column vector of length 18
 %       PARAMS.f8 - column vector of length 18
 %       PARAMS.lb8 - column vector of length 18
 %       PARAMS.ub8 - column vector of length 10
 %       PARAMS.C8 - matrix of size [5 x 18]
 %       PARAMS.e8 - column vector of length 5
+%       PARAMS.H9 - column vector of length 18
 %       PARAMS.f9 - column vector of length 18
 %       PARAMS.lb9 - column vector of length 18
 %       PARAMS.ub9 - column vector of length 10
 %       PARAMS.C9 - matrix of size [5 x 18]
 %       PARAMS.e9 - column vector of length 5
+%       PARAMS.H10 - column vector of length 18
 %       PARAMS.f10 - column vector of length 18
 %       PARAMS.lb10 - column vector of length 18
 %       PARAMS.ub10 - column vector of length 10
 %       PARAMS.C10 - matrix of size [5 x 18]
 %       PARAMS.e10 - column vector of length 5
+%       PARAMS.H11 - column vector of length 18
 %       PARAMS.f11 - column vector of length 18
 %       PARAMS.lb11 - column vector of length 18
 %       PARAMS.ub11 - column vector of length 10
 %       PARAMS.C11 - matrix of size [5 x 18]
 %       PARAMS.e11 - column vector of length 5
+%       PARAMS.H12 - column vector of length 18
 %       PARAMS.f12 - column vector of length 18
 %       PARAMS.lb12 - column vector of length 18
 %       PARAMS.ub12 - column vector of length 10
 %       PARAMS.C12 - matrix of size [5 x 18]
 %       PARAMS.e12 - column vector of length 5
+%       PARAMS.H13 - column vector of length 18
 %       PARAMS.f13 - column vector of length 18
 %       PARAMS.lb13 - column vector of length 18
 %       PARAMS.ub13 - column vector of length 10
 %       PARAMS.C13 - matrix of size [5 x 18]
 %       PARAMS.e13 - column vector of length 5
+%       PARAMS.H14 - column vector of length 18
 %       PARAMS.f14 - column vector of length 18
 %       PARAMS.lb14 - column vector of length 18
 %       PARAMS.ub14 - column vector of length 10

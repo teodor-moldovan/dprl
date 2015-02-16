@@ -3,6 +3,9 @@ import unittest
 from test import TestsDynamicalSystem
 
 class PendulumBase:
+    noise = np.array([0.01])
+    # angles_to_mod = np.array([False, True])
+    vc_slack_add = 0.1
     def initial_state(self):
         state = 1.0*np.random.normal(size = self.nx)
         self.name = "pendulum"
