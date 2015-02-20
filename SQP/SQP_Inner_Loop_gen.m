@@ -38,7 +38,8 @@ stages(i).dims.q = 0;                                       % number of quadrati
 % Cost of the first stage
 stages(i).cost.H = zeros(stages(i).dims.n);
 %params(1) = newParam(['H' i_str], i, 'cost.H', 'diag');         % To penalize slacks
-params(end+1) = newParam(['f' i_str], i, 'cost.f');             % Parameter for penalty coefficient and distance from target state
+%params(end+1) = newParam(['f' i_str], i, 'cost.f');             % Parameter for penalty coefficient and distance from target state
+params(1) = newParam(['f' i_str], i, 'cost.f');             % Parameter for penalty coefficient and distance from target state
 
 % Lower Bounds
 stages(i).ineq.b.lbidx = 1:stages(i).dims.l;             % Lower bounds on states, controls, and time

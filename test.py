@@ -665,12 +665,13 @@ class TestsDynamicalSystem(unittest.TestCase):
                 # Mod any angles that need to be modded by 2pi
                 try:
                     # Mod in learned system
-                    modded_angles = (ds.state[ds.angles_to_mod] % (2*np.pi))
+                    modded_angles = ((ds.state[ds.angles_to_mod] + ds.add_before_mod) % (2*np.pi)) - ds.add_before_mod
                     ds.state[ds.angles_to_mod] = modded_angles
 
                     # Mod in simulated system
-                    modded_angles = (env.state[env.angles_to_mod] % (2*np.pi))
-                    env.state[env.angles_to_mod] = modded_angles                    
+                    modded_angles = ((env.state[env.angles_to_mod] + ds.add_before_mod) % (2*np.pi)) - ds.add_before_mod
+                    env.state[env.angles_to_mod] = modded_angles
+
                 except:
                     pass
 
@@ -712,7 +713,7 @@ class TestsDynamicalSystem(unittest.TestCase):
 
                     # Create PiecewisePolicy object
                     if success:
-                        pi = PiecewiseConstantPolicy(controls, delta*ds.collocation_points)
+                        pi = PiecewiseConstantPolicy(controls, delta*(ds.collocation_points-1))
                         total_SQP_successes += 1
                     else:
                         print "FAILED..."
@@ -729,7 +730,8 @@ class TestsDynamicalSystem(unittest.TestCase):
                 # stopping criteria
                 dst = np.nansum( 
                     ((ds.state - ds.target)**2)[np.logical_not(ds.c_ignore)])
-                if (pi.max_h < .1 and success) or dst < .1: # 1e-4
+                # if (pi.max_h < .1 and success) or dst < 1e-4: # 1e-4
+                if dst < 1e-3:
                     # embed()
                     # cnt += 1
                     break
@@ -748,7 +750,8 @@ class TestsDynamicalSystem(unittest.TestCase):
                     # else:
                     trj = env.step(RandomPolicy(env.nu,umax=.1), timesteps) # tends not to work..
                 else:
-                    trj = env.step(pi, 0.5*delta/0.01) # Play with this parameter
+                    # trj = env.step(pi, 0.5*delta/0.01) # Play with this parameter
+                    trj = env.step(pi, 5) # Play with this parameter
 
                 # print "Count: {0}".format(cnt)
 

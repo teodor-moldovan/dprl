@@ -15,7 +15,7 @@ int main() {
 	double g = 9.82;
 	double new_formulation_weights[10] = {1.0/6, 1.0/16, 1.0/16, -3.0/8*g, 0, 1.0/16, 1.0/24, -1.0/16, -g/8, 0};
 
-	for (int i = 0; i < 1000; i++) {
+	for (int i = 0; i < 100000; i++) {
 
 		Vector4d x;
 		x << uniform(-1,1), uniform(-1,1), uniform(-1,1), uniform(-1,1);
@@ -33,5 +33,7 @@ int main() {
 		}
 
 	}
+
+	std::cout << "Done.\n";
 
 }

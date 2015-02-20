@@ -425,7 +425,7 @@ bool minimize_merit_function(StdVectorX& X, StdVectorU& U, double& delta, bounds
 							Uopt[t](i) = z[t][index++];
 						}
 						for(int i=0; i < VC_DIM; ++i) {
-							Uopt[t](i+1) = z[t][index++];
+							Uopt[t](i+U_DIM) = z[t][index++];
 						}
 					}
 				}

@@ -5,6 +5,7 @@ from sympy.physics.mechanics import *
 class CartPoleBase:
     noise = np.array([0.05])
     angles_to_mod = np.array([False, False, True, False])
+    add_before_mod = 0
     vc_slack_add = 4
     def initial_state(self):
         state = np.zeros(self.nx)

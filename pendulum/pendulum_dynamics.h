@@ -25,9 +25,7 @@ int target_ind[NT] = { 0, 1 };
 // Constraint values
 double target_state[NT] = { 0.0, 3.14159265359 };
 
-// ground truth weights corresponding to known system
-double true_weights[NW] = { 0.0, -1.0, 5.0, -9.82, -0.05, -1.0, 0.0, 0.0, 0.0, 1.0 };
-
+                 
 
 namespace pendulum {
 
@@ -91,8 +89,6 @@ namespace pendulum {
         for(int i = 0; i < NV; ++i) {
             z[i+NX+NU] = u(i+NU);
         }
-
-        //z[0] = x(0); z[1] = x(1); z[2] = x(2); z[3] = x(3); z[4] = u(0);
 
         feval(z, weights, Mg);
 

@@ -3,6 +3,10 @@ import unittest
 from test import TestsDynamicalSystem
 
 class DoublePendulumBase:
+    noise = np.array([0.05])
+    angles_to_mod = np.array([False, False, True, True])
+    add_before_mod = np.pi # Should be 2pi in length
+    vc_slack_add = 6
     def initial_state(self):
         state = np.zeros(self.nx)
         state[2:] = np.pi

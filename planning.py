@@ -9,6 +9,7 @@ import re
 import sympy
 from IPython import embed
 import os.path
+import sys
 
 try:
     import mosek
@@ -290,6 +291,17 @@ class DynamicalSystem:
         
         self.log_file  = 'out/'+ str(self.__class__)+'_log.pkl'
 
+        # Import python code for dynamics
+        try:
+            if self.name == 'pendulum':
+                sys.path.append('./pendulum/sympybotics version')
+                from pendulum_python_true_dynamics import dynamics, H
+                self.dynamics = dynamics
+                self.H = H
+            # elif self.name == 'WAM 7 DOF arm'
+        except:
+            pass
+
     def extract_features(self,*args):
         return self.__extract_features(*args)
     @staticmethod
@@ -512,20 +524,14 @@ class DynamicalSystem:
             u = policy.u(t,x).reshape(-1)[:self.nu]
             u = np.maximum(-1.0, np.minimum(1.0,u) )
 
-            dx = self.explf(to_gpu(x.reshape(1,x.size)),
-                        to_gpu(u.reshape(1,u.size))).get()
-            dx = dx.reshape(-1)
+            if self.name in ['pendulum']:
+                dx = self.dynamics(x, u)
+            else:
+                dx = self.explf(to_gpu(x.reshape(1,x.size)),
+                            to_gpu(u.reshape(1,u.size))).get()
+                dx = dx.reshape(-1)
             
             return dx,u
-
-        def rk4(f, x, delta): # f is the function defined above, x is the state
-            "RK4 integration"
-            k1 = f(0, x)
-            k2 = f(.5*delta, x + .5*k1)
-            k3 = f(.5*delta, x + .5*k2)
-            k4 = f(delta, x + k3)
-
-            return x + delta/6.0 * (k1 + 2*k2 + 2*k3 + k4)
             
         # policy might not be valid for long enough to simulate n timesteps
         h = min(self.dt*n,policy.max_h)
@@ -537,23 +543,6 @@ class DynamicalSystem:
         if debug_flag:
             import pdb
             pdb.set_trace() 
-        """
-        t = 0
-        y = self.state # Initial state
-        trj = []
-        while t + self.dt <= h:
-            y = rk4(f, y, self.dt)                  # Integrate the state forward by a small time step (0.01)
-            t += self.dt                            # Update t, y
-            dx, u = f(t, y);                        # Find dx, u for this step
-            trj.append((self.t+t, dx, y, u))        # Append it to trj
-
-        # If max horizon too small, just integrate that part. Copied from below
-        if len(trj) == 0:
-            next_y = rk4(f, y, h)
-            self.state[:] = next_y
-            self.t += h
-            return None
-        """
 
         trj = []
         while ode.successful() and ode.t + self.dt <= h:
@@ -666,8 +655,7 @@ class DynamicalSystem:
         if traj is not None:
 
             H = np.concatenate((traj[1], m(np.sin(traj[2][:,1])).T), axis=1)
-            H /= 5
-            tao = m(traj[3])
+            tao = 5*m(traj[3])
             
             # update psi, gamma, n_obs
             self.psi += H.T*H
@@ -684,8 +672,72 @@ class DynamicalSystem:
         w = psi.I * gamma
         self.weights = to_gpu(w)
 
-        # Weights are in the form 1/5*[ml^2, b, mgl]
-        # With values specified in pendulum.py, true values are: [1, 0.05, 9.82]
+        # Weights are in the form [1/3*ml^2, b, 1/2*mgl]
+        # With values specified in pendulum.py, true values are: [1/3, 0.05, 4.91]
+        print self.weights
+
+        # encourages exploration, more or less empirical rate decay
+        self.model_slack_bounds = 1.0/self.n_obs
+
+    def update_sufficient_statistics_pendulum_sympybotics(self, traj):
+        # traj is t, dx, x, u, produced by self.step
+
+        # Let psi = H_mat.T * H_mat
+        # Let gamma = H_mat.T * tao
+
+        max_control = 5
+
+        # Matrx function
+        m = np.matrix
+
+        try:
+            self.psi
+            self.gamma
+            self.n_obs
+        except:
+            # init psi and gamma with hard coded values for pendulum example
+            num_weights = 10
+            self.psi = 0 * m(np.eye((num_weights)))
+            self.gamma = 0 * m(np.ones((num_weights,1)))
+            self.n_obs = 0
+
+        if traj is not None:
+
+            # First timestep
+            ddq = traj[1][0,:][0:nX/2]
+            dq = traj[1][0,:][nX/2:]
+            q = traj[2][0,:][nX/2:]
+            H_mat = self.H(q, dq, ddq)
+
+            import pdb
+            pdb.set_trace()
+
+            # Rest of the timesteps
+            for i in range( 1, traj[0].shape[0] ):
+                ddq = traj[1][i,:][0:nX/2]
+                dq = traj[1][i,:][nX/2:]
+                q = traj[2][i,:][nX/2:]
+                H_mat = np.concatenate((H_mat, self.H(q, dq, ddq)), axis=0)
+
+            tao = max_control*m(traj[3]).reshape(-1)
+            
+            # update psi, gamma, n_obs
+            self.psi += H_mat.T*H_mat
+            self.gamma += H_mat.T*tao
+            self.n_obs += tao.shape[0]
+        
+        return self.psi, self.gamma, self.n_obs
+
+    def update_ls_pendulum_sympybotics(self, traj):
+        # traj is t, dx, x, u, produced by self.step
+        psi, gamma, n_obs = self.update_sufficient_statistics_pendulum(traj)
+
+        # least squares estimate    
+        w = psi.I * gamma
+        self.weights = to_gpu(w)
+
+        # Weights are in the form [1/3*ml^2, b, 1/2*mgl]
+        # With values specified in pendulum.py, true values are: [1/3, 0.05, 4.91]
         print self.weights
 
         # encourages exploration, more or less empirical rate decay
@@ -721,10 +773,10 @@ class DynamicalSystem:
             axis=1)
 
             # Fill in with 0's
-            i = 1
-            while i <= len(H_1):
-                H_1 = np.insert(H_1, i, 0, axis=0)
-                i += 2
+            # i = 1
+            # while i <= len(H_1):
+            #     H_1 = np.insert(H_1, i, 0, axis=0)
+            #     i += 2
 
             H_2 = np.concatenate((m(traj[1][:,0]*np.cos(traj[2][:,2]-traj[2][:,3])).T,      # dw1*cos(t1-t2)
                                   m(traj[1][:,1]).T,                                        # dw2
@@ -734,15 +786,21 @@ class DynamicalSystem:
             axis=1)
 
             # Fill in with 0's
-            i = 0
-            while i < len(H_2):
-                H_2 = np.insert(H_2, i, 0, axis=0)
-                i += 2
+            # i = 0
+            # while i < len(H_2):
+            #     H_2 = np.insert(H_2, i, 0, axis=0)
+            #     i += 2
 
             # Concatenate
-            H = np.concatenate((H_1, H_2), axis=1)
-            tao = 2*m(np.concatenate((traj[3][:,0], traj[3][:,1]))).T
+            # H = np.concatenate((H_1, H_2), axis=1)
+            # tao = 2*m(np.concatenate((traj[3][:,0], traj[3][:,1]))).T
             
+            # Concatenate
+            import scipy.linalg
+            H = m(scipy.linalg.block_diag(H_1, H_2))
+            max_control = 2
+            tao = max_control*m(np.concatenate((traj[3][:,0], traj[3][:,1]))).T
+
             # update psi, gamma, n_obs
             self.psi += H.T*H
             self.gamma += H.T*tao
@@ -877,11 +935,12 @@ class DynamicalSystem:
         # eigenvalues of correlation matrix (s)
         self.spectrum = l
         
-    #update = update_cca
-    #update = update_ls
-    update = update_ls_pendulum
-    #update = update_ls_doublependulum
-    #update = update_ls_cartpole
+    # update = update_cca
+    # update = update_ls
+    # update = update_ls_pendulum
+    update = update_ls_pendulum_sympybotics
+    # update = update_ls_doublependulum
+    # update = update_ls_cartpole
     
     def cdyn(self, include_virtual_controls = False):
         nx,nu,nf = self.nx,self.nu,self.nf

@@ -5,6 +5,7 @@ from test import TestsDynamicalSystem
 class PendulumBase:
     noise = np.array([0.01])
     # angles_to_mod = np.array([False, True])
+    add_before_mod = 0
     vc_slack_add = 0.1
     def initial_state(self):
         state = 1.0*np.random.normal(size = self.nx)
@@ -17,8 +18,8 @@ class PendulumBase:
 
         l = 1.0   # [m]      length of pendulum
         m = 1.0   # [kg]     mass of pendulum
-        b = 0.05  # [N/m/s]  coefficient of friction between cart and ground
-        g = 9.82  # [m/s^2]  acceleration of gravity
+        b = 0.00  # [N/m/s]  coefficient of friction between cart and ground
+        g = 9.81  # [m/s^2]  acceleration of gravity
         um = 5.0  # max control
         
         sin,cos = sympy.sin, sympy.cos
@@ -26,7 +27,7 @@ class PendulumBase:
 
         def dyn():
             dyn = (
-            -dw*(m*l*l) +  um*u - b*w - m*g*l*sin(t) ,
+            -dw*(1.0/3)*(m*l*l) +  um*u - b*w - .5*m*g*l*sin(t) ,
             -dt + w
             )
             return dyn

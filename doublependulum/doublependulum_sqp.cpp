@@ -9,7 +9,7 @@ doublependulum_QP_solver_FLOAT **f, **lb, **ub, **C, **e, **z;
 
 #include "../../optcontrol/util/logging.h"
 
-#include "doublependulum_dynamics.h" // Normally it's just doublependulum_dynamics, but experimenting right now
+#include "doublependulum_dynamics_by_hand.h" // Normally it's just doublependulum_dynamics, but experimenting right now
 using namespace doublependulum;
 
 #define INFTY 1e10
@@ -36,15 +36,15 @@ typedef std::vector<VectorU> StdVectorU;
 namespace cfg {
 const double improve_ratio_threshold = .1; // .1
 const double min_approx_improve = 1e-4; // 1e-4
-const double min_trust_box_size = 1e-6; // 1e-3
-const double trust_shrink_ratio = .25; // .5
-const double trust_expand_ratio = 2; // 1.5
+const double min_trust_box_size = 1e-5; // 1e-3
+const double trust_shrink_ratio = .75; // .5
+const double trust_expand_ratio = 1.25; // 1.5
 const double cnt_tolerance = 1e-5; // 1e-5
 const double penalty_coeff_increase_ratio = 10; // 10
-const double initial_penalty_coeff = 50; // 1
+const double initial_penalty_coeff = 1; // 1
 const double initial_trust_box_size = 1; // 10
 const int max_penalty_coeff_increases = 3; // 3
-const int max_sqp_iterations = 200; // 100
+const int max_sqp_iterations = 100; // 100
 }
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
@@ -301,7 +301,7 @@ void fill_in_C_and_e(StdVectorX& X, StdVectorU& U, double& delta, double trust_b
 
 	fill_col_major(C[0], C0_temp);
 
-	xt1 = rk4(continuous_dynamics, x0, u0, delta, dynamics_weights);
+	xt1 = rk45_DP(continuous_dynamics, x0, u0, delta, dynamics_weights);
 
 	e0_temp.setZero();
 	e0_temp.head(X_DIM) = bounds.x_start;
@@ -317,7 +317,7 @@ void fill_in_C_and_e(StdVectorX& X, StdVectorU& U, double& delta, double trust_b
 		VectorX& xt = X[t];
 		VectorU& ut = U[t];
 
-		xt1 = rk4(continuous_dynamics, xt, ut, delta, dynamics_weights);
+		xt1 = rk45_DP(continuous_dynamics, xt, ut, delta, dynamics_weights);
 		jac = numerical_jacobian(continuous_dynamics, xt, ut, delta, dynamics_weights);
 		DH_X = jac.leftCols(X_DIM);
 		DH_U = jac.middleCols(X_DIM, U_DIM+VC_DIM);
@@ -425,7 +425,7 @@ bool minimize_merit_function(StdVectorX& X, StdVectorU& U, double& delta, bounds
 							Uopt[t](i) = z[t][index++];
 						}
 						for(int i=0; i < VC_DIM; ++i) {
-							Uopt[t](i+1) = z[t][index++];
+							Uopt[t](i+U_DIM) = z[t][index++];
 						}
 					}
 				}
@@ -505,7 +505,7 @@ bool penalty_sqp(StdVectorX& X, StdVectorU& U, double& delta, bounds_t bounds,
 
 		if (constraint_violation <= cfg::cnt_tolerance) {
 			break;
-		} else if (constraint_violation > 1 && penalty_increases == 0) {
+		} else if (constraint_violation > 3 && penalty_increases == 0) {
 
 			if (delta > bounds.delta_max) {
 				LOG_ERROR("Delta exceeds maximum allowed.\n");
@@ -548,7 +548,7 @@ bool penalty_sqp(StdVectorX& X, StdVectorU& U, double& delta, bounds_t bounds,
 		
 		// warm start?
 		for(int t = 0; t < T-2; ++t) {
-			X[t+1] = rk4(continuous_dynamics, X[t], U[t], delta, dynamics_weights);
+			X[t+1] = rk45_DP(continuous_dynamics, X[t], U[t], delta, dynamics_weights);
 		}
 	}
 
