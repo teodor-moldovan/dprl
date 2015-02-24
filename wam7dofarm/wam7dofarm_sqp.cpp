@@ -40,12 +40,12 @@ const double min_approx_improve = 1e-4; // 1e-4
 const double min_trust_box_size = 1e-5; // 1e-3
 const double trust_shrink_ratio = .5; // .5
 const double trust_expand_ratio = 1.5; // 1.5
-const double cnt_tolerance = 1e-5; // 1e-5
+const double cnt_tolerance = 1e-4; // 1e-5
 const double penalty_coeff_increase_ratio = 10; // 10
 const double initial_penalty_coeff = 1; // 1
 const double initial_trust_box_size = 10; // 10
 const int max_penalty_coeff_increases = 3; // 3
-const int max_sqp_iterations = 150; // 100
+const int max_sqp_iterations = 150; // 150
 }
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
@@ -67,6 +67,7 @@ struct bounds_t {
 double *dynamics_weights;
 double prev_delta;
 double QP_count = 0;
+double goal_radius = 0.1;
 
 // fill in X in column major format with matrix XMat
 inline void fill_col_major(double *X, const MatrixXd& XMat) {
@@ -424,6 +425,9 @@ void fill_A_T_and_b_T(StdVectorX& X, StdVectorU& U, double& delta, double trust_
 	// Create matrices that I will need, start by setting them to zero
 	Matrix<double, 12,X_DIM+1+6+6> A_T_temp;
 	Matrix<double, 12, 1> b_T_temp;
+	
+	Matrix<double, 3, 1> buffer = Matrix<double, 3, 1>::Ones()*goal_radius;	
+
 	A_T_temp.setZero(); b_T_temp.setZero();
 
 	// Numerically calculate the jacobian of the end effector functions of the last joint angle
@@ -439,14 +443,14 @@ void fill_A_T_and_b_T(StdVectorX& X, StdVectorU& U, double& delta, double trust_
 	A_T_temp.block<3, X_DIM>(6,0) = -pos_jac;
 	A_T_temp.block<3, X_DIM>(9,0) = -vel_jac;
 
-        A_T_temp.block<6,6>(0, X_DIM+1) = minusI;        
-        A_T_temp.block<6,6>(6, X_DIM+1+6) = minusI;
+    A_T_temp.block<6,6>(0, X_DIM+1) = minusI;        
+    A_T_temp.block<6,6>(6, X_DIM+1+6) = minusI;
 	
-	b_T_temp.block<3,1>(0,0) = bounds.pos_goal - x_T_pos_eval + pos_jac*x_T;
-	b_T_temp.block<3,1>(3,0) = bounds.vel_goal - x_T_vel_eval + vel_jac*x_T;
+	b_T_temp.block<3,1>(0,0) = bounds.pos_goal - x_T_pos_eval + pos_jac*x_T + buffer;
+	b_T_temp.block<3,1>(3,0) = bounds.vel_goal - x_T_vel_eval + vel_jac*x_T + buffer;
 
-	b_T_temp.block<3,1>(6,0) = -bounds.pos_goal + x_T_pos_eval - pos_jac*x_T;
-	b_T_temp.block<3,1>(9,0) = -bounds.vel_goal + x_T_vel_eval - vel_jac*x_T;
+	b_T_temp.block<3,1>(6,0) = -bounds.pos_goal + x_T_pos_eval - pos_jac*x_T + buffer;
+	b_T_temp.block<3,1>(9,0) = -bounds.vel_goal + x_T_vel_eval - vel_jac*x_T + buffer;
 
 	//std::cout << "A_T_temp:\n" << A_T_temp << "\n";
 	//std::cout << "b_T_temp:\n" << b_T_temp << "\n";
@@ -478,10 +482,30 @@ double computeMerit(double& delta, StdVectorX& X, StdVectorU& U, double penalty_
 	}
 
 	// Last time step slacks
+	Vector3d buffer;
+	buffer << goal_radius, goal_radius, goal_radius;
+
 	VectorXd pos_viol = bounds.pos_goal - end_effector_pos(X[T-1]);
-	merit += penalty_coeff*(pos_viol.cwiseAbs()).sum();
 	VectorXd vel_viol = bounds.vel_goal - end_effector_lin_vel(X[T-1]);
-	merit += penalty_coeff*(vel_viol.cwiseAbs()).sum();
+
+	pos_viol = pos_viol.cwiseAbs() - buffer;
+	vel_viol = vel_viol.cwiseAbs() - buffer;
+
+	for(int i = 0; i < 3; ++i) {
+		if (pos_viol(i) < 0) {
+			pos_viol(i) = 0;
+		}		
+		if (vel_viol(i) < 0) {
+			vel_viol(i) = 0;
+		}
+
+		// pos_viol(i) = std::max(0, pos_viol(i));	
+		// vel_viol(i) = std::max(0, vel_viol(i));	
+	}
+	
+
+	merit += penalty_coeff*(pos_viol).sum();
+	merit += penalty_coeff*(vel_viol).sum();
 
 	return merit;
 }
@@ -675,11 +699,11 @@ bool penalty_sqp(StdVectorX& X, StdVectorU& U, double& delta, bounds_t bounds,
 
 		
 		// warm start?
-		for(int t = 0; t < T-1; ++t) {
-			X[t+1] = rk45_DP(continuous_dynamics, X[t], U[t], delta, dynamics_weights);
-			// std::cout << "X:\n" << X[t+1] << "\n";
-			// std::cout << "U:\n" << U[t] << "\n";
-		}
+		// for(int t = 0; t < T-1; ++t) {
+		// 	X[t+1] = rk45_DP(continuous_dynamics, X[t], U[t], delta, dynamics_weights);
+		// 	// std::cout << "X:\n" << X[t+1] << "\n";
+		// 	// std::cout << "U:\n" << U[t] << "\n";
+		// }
 	}
 
 	return success;
@@ -732,7 +756,7 @@ int solve_BVP(double weights[], double pi[], double start_state[], double& delta
 
 	// Smart initialization
 	//delta = std::min((bounds.x_start - bounds.x_goal).norm()/10, .5);
-	delta = 0.01; // 0.01
+	delta = 0.1; // 0.01
 	//std::cout << "Initial delta: " << delta << "\n";
 
 	// Initialize X variable

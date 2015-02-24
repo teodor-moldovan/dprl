@@ -13,5 +13,6 @@ setup(
                              sources=["wam7dofarm_sqp_solver.pyx", "wam7dofarm_QP_solver.c"],
                              include_dirs=[numpy.get_include(), '.'],
                              language="c++",
-                             extra_compile_args=['-ldl', '-lrt'])],
+                             extra_compile_args=['-ldl', '-lrt', '-fopenmp'],
+    						 extra_link_args=['-fopenmp'])],
 )
