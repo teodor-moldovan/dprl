@@ -606,10 +606,16 @@ class TestsDynamicalSystem(unittest.TestCase):
 
         if use_FORCES:
             import sys
-            sys.path.append('./{0}'.format(env.name))
-            SQP = __import__("{0}_sqp_solver".format(env.name))
             total_SQP_calls = 0
             total_SQP_successes = 0
+            if env.name == 'pendulum':
+                sys.path.append('./{0}/sympybotics version'.format(env.name))
+            elif env.name == 'wam7dofarm':
+                sys.path.append('./{0}'.format(env.name))
+                import forward_kin                
+            else:
+                sys.path.append('./{0}'.format(env.name))
+            SQP = __import__("{0}_sqp_solver".format(env.name))
         else:
             pp = SlpNlp(GPMcompact(ds,ds.collocation_points))
 
@@ -628,7 +634,10 @@ class TestsDynamicalSystem(unittest.TestCase):
 
             # start with a sequence of random controls
             # need more random steps if system has more features
-            trj = env.step(RandomPolicy(env.nu,umax=.1),2*ds.nx) 
+            if env.name == 'wam7dofarm':
+                trj = env.step(RandomPolicy(env.nu,umax=.1),70) # A bit more than number of base parameters
+            else:
+                trj = env.step(RandomPolicy(env.nu,umax=.1),2*ds.nx) 
             #trj = env.step(RandomPolicy(env.nu,umax=.1),20) 
             cnt = 0
 
@@ -675,7 +684,7 @@ class TestsDynamicalSystem(unittest.TestCase):
                 except:
                     pass
 
-                print ds.state
+                # print ds.state
 
                 tmm = time.time()
                 if use_FORCES:
@@ -695,22 +704,6 @@ class TestsDynamicalSystem(unittest.TestCase):
                     if not success:
                         success, delta = SQP.solve(weights, controls, curr_state, vc_max+env.vc_slack_add)
 
-                    """
-                    success = False
-                    num_failures = 0
-                    while not success:
-                        success, delta = SQP.solve(weights, controls, curr_state, vc_max)
-                        vc_max += 0.25
-                        if not success:
-                            num_failures +=1
-                            # print "Failed..."
-                            # print "Now trying with VC_MAX = ", vc_max
-                            if num_failures > 8:
-                                # embed()
-                                print "Failed..."
-                                break
-                    """
-
                     # Create PiecewisePolicy object
                     if success:
                         pi = PiecewiseConstantPolicy(controls, delta*(ds.collocation_points-1))
@@ -728,8 +721,15 @@ class TestsDynamicalSystem(unittest.TestCase):
                 # num_iters += 1
 
                 # stopping criteria
-                dst = np.nansum( 
-                    ((ds.state - ds.target)**2)[np.logical_not(ds.c_ignore)])
+                if env.name == 'wam7dofarm':
+                    pos = forward_kin.end_effector_pos(ds.state)
+                    vel = forward_kin.end_effector_lin_vel(ds.state)
+                    current_end_effector_pos_vel = np.array([pos, vel])
+                    dst = np.nansum((current_end_effector_pos_vel - ds.target)**2)
+                    print "Distance to goal: ", dst
+                else:
+                    dst = np.nansum( 
+                        ((ds.state - ds.target)**2)[np.logical_not(ds.c_ignore)])
                 # if (pi.max_h < .1 and success) or dst < 1e-4: # 1e-4
                 if dst < 1e-3:
                     # embed()

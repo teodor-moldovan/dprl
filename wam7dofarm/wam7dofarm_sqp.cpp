@@ -35,17 +35,17 @@ typedef std::vector<VectorX> StdVectorX;
 typedef std::vector<VectorU> StdVectorU;
 
 namespace cfg {
-const double improve_ratio_threshold = .1; // .1
+double improve_ratio_threshold = .01; // .1
 const double min_approx_improve = 1e-4; // 1e-4
-const double min_trust_box_size = 1e-5; // 1e-3
-const double trust_shrink_ratio = .5; // .5
-const double trust_expand_ratio = 1.5; // 1.5
-const double cnt_tolerance = 1e-4; // 1e-5
+const double min_trust_box_size = 1e-4; // 1e-3
+const double trust_shrink_ratio = .2; // .5
+const double trust_expand_ratio = 1.1; // 1.5
+const double cnt_tolerance = 1e-3; // 1e-5
 const double penalty_coeff_increase_ratio = 10; // 10
 const double initial_penalty_coeff = 1; // 1
-const double initial_trust_box_size = 10; // 10
+double initial_trust_box_size = 10; // 10
 const int max_penalty_coeff_increases = 3; // 3
-const int max_sqp_iterations = 150; // 150
+const int max_sqp_iterations = 100; // 150
 }
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
@@ -517,6 +517,9 @@ bool minimize_merit_function(StdVectorX& X, StdVectorU& U, double& delta, bounds
 	// Initialize trust box size
 	double trust_box_size;
 	trust_box_size = cfg::initial_trust_box_size;
+	
+	cfg::initial_trust_box_size = 1;
+
 
 	// Initialize these things
 	double merit = 0, optcost = 0;
@@ -531,6 +534,7 @@ bool minimize_merit_function(StdVectorX& X, StdVectorU& U, double& delta, bounds
 
 	LOG_INFO("delta: %f",delta);
 	LOG_INFO("penalty coeff: %f",penalty_coeff);
+	LOG_INFO("Trust region size: %.5f", trust_box_size);
 
 	// fill in f. Constant across all iterations because the penalty is constant until we break from this "loop"
 	fill_f(penalty_coeff);
@@ -549,7 +553,7 @@ bool minimize_merit_function(StdVectorX& X, StdVectorU& U, double& delta, bounds
 		}
 
 		for(int trust_iter=0; true; ++trust_iter) {
-			// LOG_INFO("       trust region size: %f",trust_box_size);
+			LOG_INFO("       trust region size: %f",trust_box_size);
 
 			// fill in lb, ub
 			fill_lb_and_ub(X, U, delta, trust_box_size, bounds);
@@ -586,13 +590,15 @@ bool minimize_merit_function(StdVectorX& X, StdVectorU& U, double& delta, bounds
 				return success;
 			}
 
+			double constraint_violation = (computeMerit(deltaopt, Xopt, Uopt, penalty_coeff, bounds) - computeObjective(deltaopt, Xopt, Uopt))/penalty_coeff;
+			
 			double model_merit = optcost;
 			double new_merit = computeMerit(deltaopt, Xopt, Uopt, penalty_coeff, bounds);
 			double approx_merit_improve = merit - model_merit;
 			double exact_merit_improve = merit - new_merit;
 			double merit_improve_ratio = exact_merit_improve/approx_merit_improve;
 
-			// LOG_INFO("       approx improve: %.3f. exact improve: %.3f. ratio: %.3f", approx_merit_improve, exact_merit_improve, merit_improve_ratio);
+			LOG_INFO("       approx improve: %.3f. exact improve: %.3f. ratio: %.3f. constraint_violation: %.3f.", approx_merit_improve, exact_merit_improve, merit_improve_ratio, constraint_violation);
 			if (approx_merit_improve < -1) {
 				LOG_INFO("Approximate merit function got worse (%.3e).", approx_merit_improve);
 				LOG_INFO("Either convexification is wrong to zeroth order, or you're in numerical trouble");
@@ -614,6 +620,8 @@ bool minimize_merit_function(StdVectorX& X, StdVectorU& U, double& delta, bounds
 				LOG_INFO("Converged x tolerance\n");
 				return success;
 			}
+
+			cfg::improve_ratio_threshold = 0.1;
 
 		} // end trust_region loop
 
@@ -790,7 +798,7 @@ int solve_BVP(double weights[], double pi[], double start_state[], double& delta
 		}
 	}
 
-	std::cout << "Number of QP solves: " << QP_count << "\n";
+	// std::cout << "Number of QP solves: " << QP_count << "\n";
 
 	if (success) {
 		// std::cout << "Final state:\n" << X[T-1] << "\n";

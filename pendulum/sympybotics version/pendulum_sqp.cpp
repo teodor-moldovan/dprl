@@ -7,7 +7,7 @@ pendulum_QP_solver_FLOAT **f, **lb, **ub, **C, **e, **z;
 #include <vector>
 #include <ctime>
 
-#include "../../optcontrol/util/logging.h"
+#include "../../../optcontrol/util/logging.h"
 
 #include "pendulum_dynamics_by_hand.h" // Normally it's just pendulum_dynamics, but experimenting right now
 using namespace pendulum;

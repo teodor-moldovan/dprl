@@ -14,18 +14,18 @@
 #include <eigen3/Eigen/LU>
 using namespace Eigen;        
 
-// double control_min[NU] = { -1.0 };
-// double control_max[NU] = { 1.0 };
+double control_min[NU] = { -1.0 };
+double control_max[NU] = { 1.0 };
 
-// #define EPS 1e-5
+#define EPS 1e-5
 
-// // Target state may only be specified partially. 
-// // Indices of target state components that are constrained
-// int target_ind[NT] = { 0, 1 };
-// // Constraint values
-// double target_state[NT] = { 0.0, 3.14159265359 };
+// Target state may only be specified partially. 
+// Indices of target state components that are constrained
+int target_ind[NT] = { 0, 1 };
+// Constraint values
+double target_state[NT] = { 0.0, 3.14159265359 };
 
-namespace pendulum_by_hand {
+namespace pendulum {
 
     VectorXd rk45_DP(VectorXd (*f)(VectorXd, VectorXd, double[]), VectorXd x, VectorXd u, double delta, double weights[]) 
     // void rk45_DP5_DP(float f(float, float), float* t, float* x, float h, float* epsilon)

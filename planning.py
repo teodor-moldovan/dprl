@@ -261,17 +261,17 @@ class DynamicalSystem:
 
         print 'Starting feature extraction'
 
-        features, weights, self.nfa, self.nf = self.__extract_features(
-                implf_sym,self.symbols,self.nx)
-        self._features = features
+        # features, weights, self.nfa, self.nf = self.__extract_features(
+        #         implf_sym,self.symbols,self.nx)
+        # self._features = features
 
         #embed()
 
-        self.weights = to_gpu(weights)
+        # self.weights = to_gpu(weights)
 
         print 'Starting codegen'
-        fn1,fn2,fn3,fn4  = self.__codegen(
-                features, self.symbols,self.nx,self.nf,self.nfa)
+        # fn1,fn2,fn3,fn4  = self.__codegen(
+        #         features, self.symbols,self.nx,self.nf,self.nfa)
         print 'Finished codegen'
 
 	#import pdb
@@ -280,10 +280,10 @@ class DynamicalSystem:
         # compile cuda code
         # if this is a bottleneck, we could compute subsets of features in parallel using different kernels, in addition to each row.  this would recompute the common sub-expressions, but would utilize more parallelism
         
-        self.k_features = rowwise(fn1,'features')
-        self.k_features_jacobian = rowwise(fn2,'features_jacobian')
-        self.k_features_mass = rowwise(fn3,'features_mass')
-        self.k_features_force = rowwise(fn4,'features_force')
+        # self.k_features = rowwise(fn1,'features')
+        # self.k_features_jacobian = rowwise(fn2,'features_jacobian')
+        # self.k_features_mass = rowwise(fn3,'features_mass')
+        # self.k_features_force = rowwise(fn4,'features_force')
 
         self.initialize_state()
         self.initialize_target(target_expr)
@@ -296,9 +296,14 @@ class DynamicalSystem:
             if self.name == 'pendulum':
                 sys.path.append('./pendulum/sympybotics version')
                 from pendulum_python_true_dynamics import dynamics, H
-                self.dynamics = dynamics
-                self.H = H
-            # elif self.name == 'WAM 7 DOF arm'
+            elif self.name == 'wam7dofarm':
+                sys.path.append('./wam7dofarm')
+                from wam7dofarm_python_true_dynamics import dynamics, H, true_weights
+                self.true_weights = true_weights
+
+            self.dynamics = dynamics
+            self.H = H
+
         except:
             pass
 
@@ -524,7 +529,7 @@ class DynamicalSystem:
             u = policy.u(t,x).reshape(-1)[:self.nu]
             u = np.maximum(-1.0, np.minimum(1.0,u) )
 
-            if self.name in ['pendulum']:
+            if self.name in ['pendulum', 'wam7dofarm']:
                 dx = self.dynamics(x, u)
             else:
                 dx = self.explf(to_gpu(x.reshape(1,x.size)),
@@ -546,7 +551,21 @@ class DynamicalSystem:
 
         trj = []
         while ode.successful() and ode.t + self.dt <= h:
-            ode.integrate(ode.t+self.dt) 
+            ode.integrate(ode.t+self.dt)
+            
+            if self.name == 'wam7dofarm': # clip integration due to joint limits
+                for i in range(7):
+                    if ode.y[7+i] < self.limits[i][0]:
+                        # print "---------------------- CLIPPED DYNAMICS ----------------------------"
+                        # embed()
+                        ode.y[7+i] = self.limits[i][0]
+                        ode.y[i] = 0 # zero out velocity
+                    elif ode.y[7+i] > self.limits[i][1]:
+                        # print "---------------------- CLIPPED DYNAMICS ----------------------------"
+                        # embed()
+                        ode.y[7+i] = self.limits[i][1]
+                        ode.y[i] = 0
+
             dx,u = f(ode.t,ode.y)
             trj.append((self.t+ode.t,dx,ode.y,u))
         
@@ -703,23 +722,26 @@ class DynamicalSystem:
 
         if traj is not None:
 
+            nX = self.nx
+
             # First timestep
             ddq = traj[1][0,:][0:nX/2]
             dq = traj[1][0,:][nX/2:]
             q = traj[2][0,:][nX/2:]
-            H_mat = self.H(q, dq, ddq)
-
-            import pdb
-            pdb.set_trace()
+            H_mat = m(self.H(q, dq, ddq))
 
             # Rest of the timesteps
             for i in range( 1, traj[0].shape[0] ):
                 ddq = traj[1][i,:][0:nX/2]
                 dq = traj[1][i,:][nX/2:]
                 q = traj[2][i,:][nX/2:]
-                H_mat = np.concatenate((H_mat, self.H(q, dq, ddq)), axis=0)
+                H_mat = np.concatenate((H_mat, m(self.H(q, dq, ddq))), axis=0)
 
             tao = max_control*m(traj[3]).reshape(-1)
+            tao = tao.T
+
+            # import pdb
+            # pdb.set_trace()
             
             # update psi, gamma, n_obs
             self.psi += H_mat.T*H_mat
@@ -730,10 +752,10 @@ class DynamicalSystem:
 
     def update_ls_pendulum_sympybotics(self, traj):
         # traj is t, dx, x, u, produced by self.step
-        psi, gamma, n_obs = self.update_sufficient_statistics_pendulum(traj)
+        psi, gamma, n_obs = self.update_sufficient_statistics_pendulum_sympybotics(traj)
 
         # least squares estimate    
-        w = psi.I * gamma
+        w = np.linalg.pinv(psi) * gamma
         self.weights = to_gpu(w)
 
         # Weights are in the form [1/3*ml^2, b, 1/2*mgl]
@@ -893,6 +915,74 @@ class DynamicalSystem:
         self.model_slack_bounds = 1.0/self.n_obs
         # self.model_slack_bounds = 0        
 
+
+    def update_sufficient_statistics_wam7dofarm(self, traj):
+        # traj is t, dx, x, u, produced by self.step
+
+        # Let psi = H_mat.T * H_mat
+        # Let gamma = H_mat.T * tao
+
+        max_control = 1
+
+        # Matrx function
+        m = np.matrix
+
+        try:
+            self.psi
+            self.gamma
+            self.n_obs
+        except:
+            # init psi and gamma with hard coded values for pendulum example
+            num_weights = 70
+            self.psi = 0 * m(np.eye((num_weights)))
+            self.gamma = 0 * m(np.ones((num_weights,1)))
+            self.n_obs = 0
+
+        if traj is not None:
+
+            nX = self.nx
+
+            # First timestep
+            ddq = traj[1][0,:][0:nX/2]
+            dq = traj[1][0,:][nX/2:]
+            q = traj[2][0,:][nX/2:]
+            H_mat = m(self.H(q, dq, ddq)).reshape((7,70))
+
+            # Rest of the timesteps
+            for i in range( 1, traj[0].shape[0] ):
+                ddq = traj[1][i,:][0:nX/2]
+                dq = traj[1][i,:][nX/2:]
+                q = traj[2][i,:][nX/2:]
+                H_mat = np.concatenate((H_mat, m(self.H(q, dq, ddq)).reshape((7,70))), axis=0)
+
+            tao = max_control*m(traj[3]).reshape(-1)
+            tao = tao.T
+
+            # import pdb
+            # pdb.set_trace()
+
+            # update psi, gamma, n_obs
+            self.psi += H_mat.T*H_mat
+            self.gamma += H_mat.T*tao
+            self.n_obs += tao.shape[0]
+        
+        return self.psi, self.gamma, self.n_obs
+
+    def update_ls_wam7dofarm(self, traj):
+        # traj is t, dx, x, u, produced by self.step
+        psi, gamma, n_obs = self.update_sufficient_statistics_wam7dofarm(traj)
+
+        # least squares estimate    
+        w = np.linalg.pinv(psi) * gamma
+        self.weights = to_gpu(w)
+
+        # Weights are in the form [1/3*ml^2, b, 1/2*mgl]
+        # With values specified in pendulum.py, true values are: [1/3, 0.05, 4.91]
+        # print np.linalg.norm(w - np.matrix(self.true_weights).T)
+
+        # encourages exploration, more or less empirical rate decay
+        self.model_slack_bounds = 1.0/self.n_obs
+
     def update_cca(self,traj,prior=0.0):
         # traj is t, dx, x, u, produced by self.step
         psi, n_obs = self.update_sufficient_statistics(traj)
@@ -938,9 +1028,10 @@ class DynamicalSystem:
     # update = update_cca
     # update = update_ls
     # update = update_ls_pendulum
-    update = update_ls_pendulum_sympybotics
+    # update = update_ls_pendulum_sympybotics
     # update = update_ls_doublependulum
     # update = update_ls_cartpole
+    update = update_ls_wam7dofarm
     
     def cdyn(self, include_virtual_controls = False):
         nx,nu,nf = self.nx,self.nu,self.nf
@@ -1266,6 +1357,10 @@ int target_ind[NT] = { {{ ti|join(', ') }} };
 
     def initialize_target(self, target_expr):
         """ hack """
+
+        if self.name == 'wam7dofarm':
+            self.target = np.array(target_expr)
+            return
         
         self.target = np.zeros(self.nx)
         self.c_ignore = self.target == 0

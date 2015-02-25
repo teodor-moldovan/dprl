@@ -91,9 +91,11 @@ namespace wam7dofarm {
       for(int i = NX/2; i < NX; ++i) {
         if (y(i) < state_min[i]) {
           y(i) = state_min[i];
+          y(i - NX/2) = 0; // Zero out joint velocity
         }
         else if (y(i) > state_max[i]) {
           y(i) = state_max[i];
+          y(i - NX/2) = 0; // Zero out joint velocity
         }
       }
 
