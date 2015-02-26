@@ -275,6 +275,13 @@ class DynamicalSystem:
         except:
             geom = None
 
+        # experimental
+        
+        #from IPython import embed
+        #embed()
+        # end expt
+        
+
 
         self.nx = len(self.exprs)
         self.nu = len(self.symbols) - 2*self.nx
