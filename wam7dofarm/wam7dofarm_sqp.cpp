@@ -15,7 +15,7 @@ using namespace wam7dofarm;
 
 #define INFTY 1e10
 
-#define TIMESTEPS 5
+#define TIMESTEPS 8
 const int T = TIMESTEPS;
 
 #define X_DIM 14
@@ -38,14 +38,14 @@ namespace cfg {
 double improve_ratio_threshold = .01; // .1
 const double min_approx_improve = 1e-4; // 1e-4
 const double min_trust_box_size = 1e-4; // 1e-3
-const double trust_shrink_ratio = .2; // .5
-const double trust_expand_ratio = 1.1; // 1.5
+const double trust_shrink_ratio = .25; // .5
+const double trust_expand_ratio = 1.25; // 1.5
 const double cnt_tolerance = 1e-3; // 1e-5
-const double penalty_coeff_increase_ratio = 10; // 10
-const double initial_penalty_coeff = 1; // 1
+const double penalty_coeff_increase_ratio = 5; // 10
+const double initial_penalty_coeff = .1; // 1
 double initial_trust_box_size = 10; // 10
 const int max_penalty_coeff_increases = 3; // 3
-const int max_sqp_iterations = 100; // 150
+const int max_sqp_iterations = 150; // 150
 }
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
@@ -65,9 +65,10 @@ struct bounds_t {
 };
 
 double *dynamics_weights;
+double *prev_pi;
 double prev_delta;
 double QP_count = 0;
-double goal_radius = 0.1;
+double goal_radius = 0.05;
 
 // fill in X in column major format with matrix XMat
 inline void fill_col_major(double *X, const MatrixXd& XMat) {
@@ -439,21 +440,23 @@ void fill_A_T_and_b_T(StdVectorX& X, StdVectorU& U, double& delta, double trust_
 	
 	// Update the top half of A_T, the bottom half is just -1 * (top_half)
 	A_T_temp.block<3, X_DIM>(0,0) = pos_jac;
-	A_T_temp.block<3, X_DIM>(3,0) = vel_jac;
+	// A_T_temp.block<3, X_DIM>(3,0) = vel_jac;
 	A_T_temp.block<3, X_DIM>(6,0) = -pos_jac;
-	A_T_temp.block<3, X_DIM>(9,0) = -vel_jac;
+	// A_T_temp.block<3, X_DIM>(9,0) = -vel_jac;
 
-    A_T_temp.block<6,6>(0, X_DIM+1) = minusI;        
-    A_T_temp.block<6,6>(6, X_DIM+1+6) = minusI;
+    // A_T_temp.block<6,6>(0, X_DIM+1) = minusI;        
+    // A_T_temp.block<6,6>(6, X_DIM+1+6) = minusI;
+    A_T_temp.block<3,3>(0, X_DIM+1) = -1 * Matrix<double, 3, 3>::Identity(3,3);        
+    A_T_temp.block<3,3>(6, X_DIM+1+6) = -1 * Matrix<double, 3, 3>::Identity(3,3);
 	
 	b_T_temp.block<3,1>(0,0) = bounds.pos_goal - x_T_pos_eval + pos_jac*x_T + buffer;
-	b_T_temp.block<3,1>(3,0) = bounds.vel_goal - x_T_vel_eval + vel_jac*x_T + buffer;
+	// b_T_temp.block<3,1>(3,0) = bounds.vel_goal - x_T_vel_eval + vel_jac*x_T + buffer;
 
 	b_T_temp.block<3,1>(6,0) = -bounds.pos_goal + x_T_pos_eval - pos_jac*x_T + buffer;
-	b_T_temp.block<3,1>(9,0) = -bounds.vel_goal + x_T_vel_eval - vel_jac*x_T + buffer;
+	// b_T_temp.block<3,1>(9,0) = -bounds.vel_goal + x_T_vel_eval - vel_jac*x_T + buffer;
 
-	//std::cout << "A_T_temp:\n" << A_T_temp << "\n";
-	//std::cout << "b_T_temp:\n" << b_T_temp << "\n";
+	// std::cout << "A_T_temp:\n" << A_T_temp << "\n";
+	// std::cout << "b_T_temp:\n" << b_T_temp << "\n";
 
 	// Fill them to the problem definition for FORCES
 	
@@ -505,7 +508,7 @@ double computeMerit(double& delta, StdVectorX& X, StdVectorU& U, double penalty_
 	
 
 	merit += penalty_coeff*(pos_viol).sum();
-	merit += penalty_coeff*(vel_viol).sum();
+	// merit += penalty_coeff*(vel_viol).sum();
 
 	return merit;
 }
@@ -518,7 +521,7 @@ bool minimize_merit_function(StdVectorX& X, StdVectorU& U, double& delta, bounds
 	double trust_box_size;
 	trust_box_size = cfg::initial_trust_box_size;
 	
-	cfg::initial_trust_box_size = 1;
+	//cfg::initial_trust_box_size = 0.1;
 
 
 	// Initialize these things
@@ -687,11 +690,17 @@ bool penalty_sqp(StdVectorX& X, StdVectorU& U, double& delta, bounds_t bounds,
 			}
 
 			// Initialize U variable
-			//double c = (bounds.x_goal(3) - bounds.x_start(3)); // Trying this
+			// double c = (bounds.x_goal(3) - bounds.x_start(3)); // Trying this
 			for(int t = 0; t < T-1; ++t) {
 				U[t] = MatrixXd::Zero(U_DIM+VC_DIM, 1);
 				//U[t] = c*MatrixXd::Ones(U_DIM, 1);
 			}
+
+			// for(int t = 0; t < T-1; ++t) {
+			// 	for(int i = 0; i < U_DIM; ++i) {
+			// 		U[t][i] = prev_pi[t*U_DIM + i];
+			// 	}
+			// }
 
 		}
 		else
@@ -708,9 +717,9 @@ bool penalty_sqp(StdVectorX& X, StdVectorU& U, double& delta, bounds_t bounds,
 		
 		// warm start?
 		// for(int t = 0; t < T-1; ++t) {
-		// 	X[t+1] = rk45_DP(continuous_dynamics, X[t], U[t], delta, dynamics_weights);
-		// 	// std::cout << "X:\n" << X[t+1] << "\n";
-		// 	// std::cout << "U:\n" << U[t] << "\n";
+		//  	X[t+1] = rk45_DP(continuous_dynamics, X[t], U[t], delta, dynamics_weights);
+		//  	// std::cout << "X:\n" << X[t+1] << "\n";
+		//  	// std::cout << "U:\n" << U[t] << "\n";
 		// }
 	}
 
@@ -721,6 +730,7 @@ int solve_BVP(double weights[], double pi[], double start_state[], double& delta
 
 	// Set pointer to weights
 	dynamics_weights = weights;
+	prev_pi = pi;
 
 	StdVectorX X(T);
 	StdVectorU U(T-1);
@@ -733,8 +743,8 @@ int solve_BVP(double weights[], double pi[], double start_state[], double& delta
 	// Do bounds stuff here.
 	// Note that we assume control_u_min = -1*control_u_max, and that it's only one number. This is what I found in Teodor's code
 	bounds_t bounds;
-	bounds.delta_min = 0;
-	bounds.delta_max = 1000;
+	bounds.delta_min = 0.01;
+	bounds.delta_max = 100;
 	bounds.virtual_control_max = virtual_control_max;
 	bounds.virtual_control_min = -1 * virtual_control_max;
 	for(int i = 0; i < X_DIM; ++i) {
@@ -764,7 +774,7 @@ int solve_BVP(double weights[], double pi[], double start_state[], double& delta
 
 	// Smart initialization
 	//delta = std::min((bounds.x_start - bounds.x_goal).norm()/10, .5);
-	delta = 0.1; // 0.01
+	delta = 0.05; // 0.01
 	//std::cout << "Initial delta: " << delta << "\n";
 
 	// Initialize X variable
@@ -784,6 +794,13 @@ int solve_BVP(double weights[], double pi[], double start_state[], double& delta
 		U[t] = MatrixXd::Zero(U_DIM+VC_DIM, 1);
 		//U[t] = c*MatrixXd::Ones(U_DIM, 1);
 	}
+
+	// Initialize with whatever pi is
+	// for(int t = 0; t < T-1; ++t) {
+	// 	for(int i = 0; i < U_DIM; ++i) {
+	// 		U[t][i] = prev_pi[t*U_DIM + i];
+	// 	}
+	// }
 
 	bool success = penalty_sqp(X, U, delta, bounds, problem, output, info);
 

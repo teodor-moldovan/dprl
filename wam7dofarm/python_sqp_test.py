@@ -8,9 +8,10 @@ import time
 weights = wam7dofarm_python_true_dynamics.true_weights
 # weights += .1*np.random.normal(size=70)
 
-vc_max = 5
+vc_max = 1
 
-collocation_points = 5
+collocation_points = 8
+
 nU = 7
 pi = np.zeros([collocation_points - 1, nU], dtype=float)
 

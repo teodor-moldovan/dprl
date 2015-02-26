@@ -144,20 +144,65 @@ typedef struct wam7dofarm_QP_solver_params
     /* vector of size 15 */
     wam7dofarm_QP_solver_FLOAT e4[15];
 
-    /* vector of size 27 */
-    wam7dofarm_QP_solver_FLOAT f5[27];
+    /* vector of size 64 */
+    wam7dofarm_QP_solver_FLOAT f5[64];
 
-    /* vector of size 27 */
-    wam7dofarm_QP_solver_FLOAT lb5[27];
+    /* vector of size 64 */
+    wam7dofarm_QP_solver_FLOAT lb5[64];
+
+    /* vector of size 36 */
+    wam7dofarm_QP_solver_FLOAT ub5[36];
+
+    /* matrix of size [15 x 64] (column major format) */
+    wam7dofarm_QP_solver_FLOAT C5[960];
 
     /* vector of size 15 */
-    wam7dofarm_QP_solver_FLOAT ub5[15];
+    wam7dofarm_QP_solver_FLOAT e5[15];
+
+    /* vector of size 64 */
+    wam7dofarm_QP_solver_FLOAT f6[64];
+
+    /* vector of size 64 */
+    wam7dofarm_QP_solver_FLOAT lb6[64];
+
+    /* vector of size 36 */
+    wam7dofarm_QP_solver_FLOAT ub6[36];
+
+    /* matrix of size [15 x 64] (column major format) */
+    wam7dofarm_QP_solver_FLOAT C6[960];
+
+    /* vector of size 15 */
+    wam7dofarm_QP_solver_FLOAT e6[15];
+
+    /* vector of size 64 */
+    wam7dofarm_QP_solver_FLOAT f7[64];
+
+    /* vector of size 64 */
+    wam7dofarm_QP_solver_FLOAT lb7[64];
+
+    /* vector of size 36 */
+    wam7dofarm_QP_solver_FLOAT ub7[36];
+
+    /* matrix of size [15 x 64] (column major format) */
+    wam7dofarm_QP_solver_FLOAT C7[960];
+
+    /* vector of size 15 */
+    wam7dofarm_QP_solver_FLOAT e7[15];
+
+    /* vector of size 27 */
+    wam7dofarm_QP_solver_FLOAT f8[27];
+
+    /* vector of size 27 */
+    wam7dofarm_QP_solver_FLOAT lb8[27];
+
+    /* vector of size 15 */
+    wam7dofarm_QP_solver_FLOAT ub8[15];
 
     /* matrix of size [12 x 27] (column major format) */
-    wam7dofarm_QP_solver_FLOAT A5[324];
+    wam7dofarm_QP_solver_FLOAT A8[324];
 
     /* vector of size 12 */
-    wam7dofarm_QP_solver_FLOAT b5[12];
+    wam7dofarm_QP_solver_FLOAT b8[12];
 
 } wam7dofarm_QP_solver_params;
 
@@ -178,8 +223,17 @@ typedef struct wam7dofarm_QP_solver_output
     /* vector of size 36 */
     wam7dofarm_QP_solver_FLOAT z4[36];
 
+    /* vector of size 36 */
+    wam7dofarm_QP_solver_FLOAT z5[36];
+
+    /* vector of size 36 */
+    wam7dofarm_QP_solver_FLOAT z6[36];
+
+    /* vector of size 36 */
+    wam7dofarm_QP_solver_FLOAT z7[36];
+
     /* vector of size 15 */
-    wam7dofarm_QP_solver_FLOAT z5[15];
+    wam7dofarm_QP_solver_FLOAT z8[15];
 
 } wam7dofarm_QP_solver_output;
 

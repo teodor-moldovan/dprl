@@ -40,12 +40,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 /* LINEAR ALGEBRA LIBRARY ---------------------------------------------- */
 /*
- * Initializes a vector of length 283 with a value.
+ * Initializes a vector of length 475 with a value.
  */
-void wam7dofarm_QP_solver_LA_INITIALIZEVECTOR_283(wam7dofarm_QP_solver_FLOAT* vec, wam7dofarm_QP_solver_FLOAT value)
+void wam7dofarm_QP_solver_LA_INITIALIZEVECTOR_475(wam7dofarm_QP_solver_FLOAT* vec, wam7dofarm_QP_solver_FLOAT value)
 {
 	int i;
-	for( i=0; i<283; i++ )
+	for( i=0; i<475; i++ )
 	{
 		vec[i] = value;
 	}
@@ -53,12 +53,12 @@ void wam7dofarm_QP_solver_LA_INITIALIZEVECTOR_283(wam7dofarm_QP_solver_FLOAT* ve
 
 
 /*
- * Initializes a vector of length 74 with a value.
+ * Initializes a vector of length 119 with a value.
  */
-void wam7dofarm_QP_solver_LA_INITIALIZEVECTOR_74(wam7dofarm_QP_solver_FLOAT* vec, wam7dofarm_QP_solver_FLOAT value)
+void wam7dofarm_QP_solver_LA_INITIALIZEVECTOR_119(wam7dofarm_QP_solver_FLOAT* vec, wam7dofarm_QP_solver_FLOAT value)
 {
 	int i;
-	for( i=0; i<74; i++ )
+	for( i=0; i<119; i++ )
 	{
 		vec[i] = value;
 	}
@@ -66,12 +66,12 @@ void wam7dofarm_QP_solver_LA_INITIALIZEVECTOR_74(wam7dofarm_QP_solver_FLOAT* vec
 
 
 /*
- * Initializes a vector of length 454 with a value.
+ * Initializes a vector of length 754 with a value.
  */
-void wam7dofarm_QP_solver_LA_INITIALIZEVECTOR_454(wam7dofarm_QP_solver_FLOAT* vec, wam7dofarm_QP_solver_FLOAT value)
+void wam7dofarm_QP_solver_LA_INITIALIZEVECTOR_754(wam7dofarm_QP_solver_FLOAT* vec, wam7dofarm_QP_solver_FLOAT value)
 {
 	int i;
-	for( i=0; i<454; i++ )
+	for( i=0; i<754; i++ )
 	{
 		vec[i] = value;
 	}
@@ -80,12 +80,12 @@ void wam7dofarm_QP_solver_LA_INITIALIZEVECTOR_454(wam7dofarm_QP_solver_FLOAT* ve
 
 /* 
  * Calculates a dot product and adds it to a variable: z += x'*y; 
- * This function is for vectors of length 454.
+ * This function is for vectors of length 754.
  */
-void wam7dofarm_QP_solver_LA_DOTACC_454(wam7dofarm_QP_solver_FLOAT *x, wam7dofarm_QP_solver_FLOAT *y, wam7dofarm_QP_solver_FLOAT *z)
+void wam7dofarm_QP_solver_LA_DOTACC_754(wam7dofarm_QP_solver_FLOAT *x, wam7dofarm_QP_solver_FLOAT *y, wam7dofarm_QP_solver_FLOAT *z)
 {
 	int i;
-	for( i=0; i<454; i++ ){
+	for( i=0; i<754; i++ ){
 		*z += x[i]*y[i];
 	}
 }
@@ -582,12 +582,12 @@ void wam7dofarm_QP_solver_LA_INEQ_P_12_27(wam7dofarm_QP_solver_FLOAT *A, wam7dof
 
 /*
  * Addition of three vectors  z = u + w + v
- * of length 283.
+ * of length 475.
  */
-void wam7dofarm_QP_solver_LA_VVADD3_283(wam7dofarm_QP_solver_FLOAT *u, wam7dofarm_QP_solver_FLOAT *v, wam7dofarm_QP_solver_FLOAT *w, wam7dofarm_QP_solver_FLOAT *z)
+void wam7dofarm_QP_solver_LA_VVADD3_475(wam7dofarm_QP_solver_FLOAT *u, wam7dofarm_QP_solver_FLOAT *v, wam7dofarm_QP_solver_FLOAT *w, wam7dofarm_QP_solver_FLOAT *z)
 {
 	int i;
-	for( i=0; i<283; i++ ){
+	for( i=0; i<475; i++ ){
 		z[i] = u[i] + v[i] + w[i];
 	}
 }
@@ -1638,12 +1638,12 @@ void wam7dofarm_QP_solver_LA_DENSE_BACKWARDSUB_29(wam7dofarm_QP_solver_FLOAT *L,
 
 
 /*
- * Vector subtraction z = -x - y for vectors of length 283.
+ * Vector subtraction z = -x - y for vectors of length 475.
  */
-void wam7dofarm_QP_solver_LA_VSUB2_283(wam7dofarm_QP_solver_FLOAT *x, wam7dofarm_QP_solver_FLOAT *y, wam7dofarm_QP_solver_FLOAT *z)
+void wam7dofarm_QP_solver_LA_VSUB2_475(wam7dofarm_QP_solver_FLOAT *x, wam7dofarm_QP_solver_FLOAT *y, wam7dofarm_QP_solver_FLOAT *z)
 {
 	int i;
-	for( i=0; i<283; i++){
+	for( i=0; i<475; i++){
 		z[i] = -x[i] - y[i];
 	}
 }
@@ -1873,7 +1873,7 @@ int wam7dofarm_QP_solver_LINESEARCH_BACKTRACKING_AFFINE(wam7dofarm_QP_solver_FLO
          * values might be in registers, so it should be cheaper.
          */
         mymu = 0;
-        for( i=0; i<454; i++ ){
+        for( i=0; i<754; i++ ){
             dltemp = l[i] + mya*dl[i];
             dstemp = s[i] + mya*ds[i];
             if( dltemp < 0 || dstemp < 0 ){
@@ -1888,7 +1888,7 @@ int wam7dofarm_QP_solver_LINESEARCH_BACKTRACKING_AFFINE(wam7dofarm_QP_solver_FLO
          * If no early termination of the for-loop above occurred, we
          * found the required value of a and we can quit the while loop.
          */
-        if( i == 454 ){
+        if( i == 754 ){
             break;
         } else {
             mya *= wam7dofarm_QP_solver_SET_LS_SCALE_AFF;
@@ -1900,19 +1900,19 @@ int wam7dofarm_QP_solver_LINESEARCH_BACKTRACKING_AFFINE(wam7dofarm_QP_solver_FLO
     
     /* return new values and iteration counter */
     *a = mya;
-    *mu_aff = mymu / (wam7dofarm_QP_solver_FLOAT)454;
+    *mu_aff = mymu / (wam7dofarm_QP_solver_FLOAT)754;
     return lsIt;
 }
 
 
 /*
  * Vector subtraction x = (u.*v - mu)*sigma where a is a scalar
-*  and x,u,v are vectors of length 454.
+*  and x,u,v are vectors of length 754.
  */
-void wam7dofarm_QP_solver_LA_VSUB5_454(wam7dofarm_QP_solver_FLOAT *u, wam7dofarm_QP_solver_FLOAT *v, wam7dofarm_QP_solver_FLOAT mu,  wam7dofarm_QP_solver_FLOAT sigma, wam7dofarm_QP_solver_FLOAT *x)
+void wam7dofarm_QP_solver_LA_VSUB5_754(wam7dofarm_QP_solver_FLOAT *u, wam7dofarm_QP_solver_FLOAT *v, wam7dofarm_QP_solver_FLOAT mu,  wam7dofarm_QP_solver_FLOAT sigma, wam7dofarm_QP_solver_FLOAT *x)
 {
 	int i;
-	for( i=0; i<454; i++){
+	for( i=0; i<754; i++){
 		x[i] = u[i]*v[i] - mu;
 		x[i] *= sigma;
 	}
@@ -2065,12 +2065,12 @@ void wam7dofarm_QP_solver_LA_DENSE_2MVMADD_15_64_27(wam7dofarm_QP_solver_FLOAT *
 
 
 /*
- * Vector subtraction z = x - y for vectors of length 283.
+ * Vector subtraction z = x - y for vectors of length 475.
  */
-void wam7dofarm_QP_solver_LA_VSUB_283(wam7dofarm_QP_solver_FLOAT *x, wam7dofarm_QP_solver_FLOAT *y, wam7dofarm_QP_solver_FLOAT *z)
+void wam7dofarm_QP_solver_LA_VSUB_475(wam7dofarm_QP_solver_FLOAT *x, wam7dofarm_QP_solver_FLOAT *y, wam7dofarm_QP_solver_FLOAT *z)
 {
 	int i;
-	for( i=0; i<283; i++){
+	for( i=0; i<475; i++){
 		z[i] = x[i] - y[i];
 	}
 }
@@ -2160,48 +2160,48 @@ void wam7dofarm_QP_solver_LA_DENSE_MVMSUB5_12_27(wam7dofarm_QP_solver_FLOAT *A, 
 
 
 /*
- * Computes ds = -l.\(r + s.*dl) for vectors of length 454.
+ * Computes ds = -l.\(r + s.*dl) for vectors of length 754.
  */
-void wam7dofarm_QP_solver_LA_VSUB7_454(wam7dofarm_QP_solver_FLOAT *l, wam7dofarm_QP_solver_FLOAT *r, wam7dofarm_QP_solver_FLOAT *s, wam7dofarm_QP_solver_FLOAT *dl, wam7dofarm_QP_solver_FLOAT *ds)
+void wam7dofarm_QP_solver_LA_VSUB7_754(wam7dofarm_QP_solver_FLOAT *l, wam7dofarm_QP_solver_FLOAT *r, wam7dofarm_QP_solver_FLOAT *s, wam7dofarm_QP_solver_FLOAT *dl, wam7dofarm_QP_solver_FLOAT *ds)
 {
 	int i;
-	for( i=0; i<454; i++){
+	for( i=0; i<754; i++){
 		ds[i] = -(r[i] + s[i]*dl[i])/l[i];
 	}
 }
 
 
 /*
- * Vector addition x = x + y for vectors of length 283.
+ * Vector addition x = x + y for vectors of length 475.
  */
-void wam7dofarm_QP_solver_LA_VADD_283(wam7dofarm_QP_solver_FLOAT *x, wam7dofarm_QP_solver_FLOAT *y)
+void wam7dofarm_QP_solver_LA_VADD_475(wam7dofarm_QP_solver_FLOAT *x, wam7dofarm_QP_solver_FLOAT *y)
 {
 	int i;
-	for( i=0; i<283; i++){
+	for( i=0; i<475; i++){
 		x[i] += y[i];
 	}
 }
 
 
 /*
- * Vector addition x = x + y for vectors of length 74.
+ * Vector addition x = x + y for vectors of length 119.
  */
-void wam7dofarm_QP_solver_LA_VADD_74(wam7dofarm_QP_solver_FLOAT *x, wam7dofarm_QP_solver_FLOAT *y)
+void wam7dofarm_QP_solver_LA_VADD_119(wam7dofarm_QP_solver_FLOAT *x, wam7dofarm_QP_solver_FLOAT *y)
 {
 	int i;
-	for( i=0; i<74; i++){
+	for( i=0; i<119; i++){
 		x[i] += y[i];
 	}
 }
 
 
 /*
- * Vector addition x = x + y for vectors of length 454.
+ * Vector addition x = x + y for vectors of length 754.
  */
-void wam7dofarm_QP_solver_LA_VADD_454(wam7dofarm_QP_solver_FLOAT *x, wam7dofarm_QP_solver_FLOAT *y)
+void wam7dofarm_QP_solver_LA_VADD_754(wam7dofarm_QP_solver_FLOAT *x, wam7dofarm_QP_solver_FLOAT *y)
 {
 	int i;
-	for( i=0; i<454; i++){
+	for( i=0; i<754; i++){
 		x[i] += y[i];
 	}
 }
@@ -2223,7 +2223,7 @@ int wam7dofarm_QP_solver_LINESEARCH_BACKTRACKING_COMBINED(wam7dofarm_QP_solver_F
     while( 1 ){                        
 
         /* check whether search criterion is fulfilled */
-        for( i=0; i<454; i++ ){
+        for( i=0; i<754; i++ ){
             dltemp = l[i] + (*a)*dl[i];
             dstemp = s[i] + (*a)*ds[i];
             if( dltemp < 0 || dstemp < 0 ){
@@ -2236,7 +2236,7 @@ int wam7dofarm_QP_solver_LINESEARCH_BACKTRACKING_COMBINED(wam7dofarm_QP_solver_F
          * If no early termination of the for-loop above occurred, we
          * found the required value of a and we can quit the while loop.
          */
-        if( i == 454 ){
+        if( i == 754 ){
             break;
         } else {
             *a *= wam7dofarm_QP_solver_SET_LS_SCALE;
@@ -2250,25 +2250,25 @@ int wam7dofarm_QP_solver_LINESEARCH_BACKTRACKING_COMBINED(wam7dofarm_QP_solver_F
     a_gamma = (*a)*wam7dofarm_QP_solver_SET_LS_MAXSTEP;
     
     /* primal variables */
-    for( i=0; i<283; i++ ){
+    for( i=0; i<475; i++ ){
         z[i] += a_gamma*dz[i];
     }
     
     /* equality constraint multipliers */
-    for( i=0; i<74; i++ ){
+    for( i=0; i<119; i++ ){
         v[i] += a_gamma*dv[i];
     }
     
     /* inequality constraint multipliers & slacks, also update mu */
     *mu = 0;
-    for( i=0; i<454; i++ ){
+    for( i=0; i<754; i++ ){
         dltemp = l[i] + a_gamma*dl[i]; l[i] = dltemp;
         dstemp = s[i] + a_gamma*ds[i]; s[i] = dstemp;
         *mu += dltemp*dstemp;
     }
     
     *a = a_gamma;
-    *mu /= (wam7dofarm_QP_solver_FLOAT)454;
+    *mu /= (wam7dofarm_QP_solver_FLOAT)754;
     return lsIt;
 }
 
@@ -2276,24 +2276,24 @@ int wam7dofarm_QP_solver_LINESEARCH_BACKTRACKING_COMBINED(wam7dofarm_QP_solver_F
 
 
 /* VARIABLE DEFINITIONS ------------------------------------------------ */
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_z[283];
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_v[74];
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_dz_aff[283];
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_dv_aff[74];
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_grad_cost[283];
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_grad_eq[283];
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_rd[283];
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_l[454];
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_s[454];
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_lbys[454];
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_dl_aff[454];
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_ds_aff[454];
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_dz_cc[283];
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_dv_cc[74];
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_dl_cc[454];
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_ds_cc[454];
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_ccrhs[454];
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_grad_ineq[283];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_z[475];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_v[119];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_dz_aff[475];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_dv_aff[119];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_grad_cost[475];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_grad_eq[475];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_rd[475];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_l[754];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_s[754];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_lbys[754];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_dl_aff[754];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_ds_aff[754];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_dz_cc[475];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_dv_cc[119];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_dl_cc[754];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_ds_cc[754];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_ccrhs[754];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_grad_ineq[475];
 wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_H0[64] = {0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000};
 wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_z0 = wam7dofarm_QP_solver_z + 0;
 wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dzaff0 = wam7dofarm_QP_solver_dz_aff + 0;
@@ -2547,47 +2547,179 @@ wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Phi3[64];
 wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_W3[64];
 wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Ysd3[225];
 wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Lsd3[225];
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_H4[27] = {0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000};
 wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_z4 = wam7dofarm_QP_solver_z + 256;
 wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dzaff4 = wam7dofarm_QP_solver_dz_aff + 256;
 wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dzcc4 = wam7dofarm_QP_solver_dz_cc + 256;
 wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_rd4 = wam7dofarm_QP_solver_rd + 256;
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Lbyrd4[27];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Lbyrd4[64];
 wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_grad_cost4 = wam7dofarm_QP_solver_grad_cost + 256;
 wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_grad_eq4 = wam7dofarm_QP_solver_grad_eq + 256;
 wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_grad_ineq4 = wam7dofarm_QP_solver_grad_ineq + 256;
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_ctv4[27];
-int wam7dofarm_QP_solver_lbIdx4[27] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26};
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_ctv4[64];
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_v4 = wam7dofarm_QP_solver_v + 74;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_re4[15];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_beta4[15];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_betacc4[15];
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dvaff4 = wam7dofarm_QP_solver_dv_aff + 74;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dvcc4 = wam7dofarm_QP_solver_dv_cc + 74;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_V4[960];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Yd4[120];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Ld4[120];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_yy4[15];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_bmy4[15];
+int wam7dofarm_QP_solver_lbIdx4[64] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63};
 wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_llb4 = wam7dofarm_QP_solver_l + 400;
 wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_slb4 = wam7dofarm_QP_solver_s + 400;
 wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_llbbyslb4 = wam7dofarm_QP_solver_lbys + 400;
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_rilb4[27];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_rilb4[64];
 wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dllbaff4 = wam7dofarm_QP_solver_dl_aff + 400;
 wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dslbaff4 = wam7dofarm_QP_solver_ds_aff + 400;
 wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dllbcc4 = wam7dofarm_QP_solver_dl_cc + 400;
 wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dslbcc4 = wam7dofarm_QP_solver_ds_cc + 400;
 wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_ccrhsl4 = wam7dofarm_QP_solver_ccrhs + 400;
-int wam7dofarm_QP_solver_ubIdx4[15] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14};
-wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_lub4 = wam7dofarm_QP_solver_l + 427;
-wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_sub4 = wam7dofarm_QP_solver_s + 427;
-wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_lubbysub4 = wam7dofarm_QP_solver_lbys + 427;
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_riub4[15];
-wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dlubaff4 = wam7dofarm_QP_solver_dl_aff + 427;
-wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dsubaff4 = wam7dofarm_QP_solver_ds_aff + 427;
-wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dlubcc4 = wam7dofarm_QP_solver_dl_cc + 427;
-wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dsubcc4 = wam7dofarm_QP_solver_ds_cc + 427;
-wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_ccrhsub4 = wam7dofarm_QP_solver_ccrhs + 427;
-wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_sp4 = wam7dofarm_QP_solver_s + 442;
-wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_lp4 = wam7dofarm_QP_solver_l + 442;
-wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_lpbysp4 = wam7dofarm_QP_solver_lbys + 442;
-wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dlp_aff4 = wam7dofarm_QP_solver_dl_aff + 442;
-wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dsp_aff4 = wam7dofarm_QP_solver_ds_aff + 442;
-wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dlp_cc4 = wam7dofarm_QP_solver_dl_cc + 442;
-wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dsp_cc4 = wam7dofarm_QP_solver_ds_cc + 442;
-wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_ccrhsp4 = wam7dofarm_QP_solver_ccrhs + 442;
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_rip4[12];
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Phi4[378];
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_D4[27] = {-1.0000000000000000E+000, 
+int wam7dofarm_QP_solver_ubIdx4[36] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35};
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_lub4 = wam7dofarm_QP_solver_l + 464;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_sub4 = wam7dofarm_QP_solver_s + 464;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_lubbysub4 = wam7dofarm_QP_solver_lbys + 464;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_riub4[36];
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dlubaff4 = wam7dofarm_QP_solver_dl_aff + 464;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dsubaff4 = wam7dofarm_QP_solver_ds_aff + 464;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dlubcc4 = wam7dofarm_QP_solver_dl_cc + 464;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dsubcc4 = wam7dofarm_QP_solver_ds_cc + 464;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_ccrhsub4 = wam7dofarm_QP_solver_ccrhs + 464;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Phi4[64];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_W4[64];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Ysd4[225];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Lsd4[225];
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_z5 = wam7dofarm_QP_solver_z + 320;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dzaff5 = wam7dofarm_QP_solver_dz_aff + 320;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dzcc5 = wam7dofarm_QP_solver_dz_cc + 320;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_rd5 = wam7dofarm_QP_solver_rd + 320;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Lbyrd5[64];
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_grad_cost5 = wam7dofarm_QP_solver_grad_cost + 320;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_grad_eq5 = wam7dofarm_QP_solver_grad_eq + 320;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_grad_ineq5 = wam7dofarm_QP_solver_grad_ineq + 320;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_ctv5[64];
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_v5 = wam7dofarm_QP_solver_v + 89;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_re5[15];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_beta5[15];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_betacc5[15];
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dvaff5 = wam7dofarm_QP_solver_dv_aff + 89;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dvcc5 = wam7dofarm_QP_solver_dv_cc + 89;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_V5[960];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Yd5[120];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Ld5[120];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_yy5[15];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_bmy5[15];
+int wam7dofarm_QP_solver_lbIdx5[64] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63};
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_llb5 = wam7dofarm_QP_solver_l + 500;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_slb5 = wam7dofarm_QP_solver_s + 500;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_llbbyslb5 = wam7dofarm_QP_solver_lbys + 500;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_rilb5[64];
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dllbaff5 = wam7dofarm_QP_solver_dl_aff + 500;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dslbaff5 = wam7dofarm_QP_solver_ds_aff + 500;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dllbcc5 = wam7dofarm_QP_solver_dl_cc + 500;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dslbcc5 = wam7dofarm_QP_solver_ds_cc + 500;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_ccrhsl5 = wam7dofarm_QP_solver_ccrhs + 500;
+int wam7dofarm_QP_solver_ubIdx5[36] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35};
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_lub5 = wam7dofarm_QP_solver_l + 564;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_sub5 = wam7dofarm_QP_solver_s + 564;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_lubbysub5 = wam7dofarm_QP_solver_lbys + 564;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_riub5[36];
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dlubaff5 = wam7dofarm_QP_solver_dl_aff + 564;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dsubaff5 = wam7dofarm_QP_solver_ds_aff + 564;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dlubcc5 = wam7dofarm_QP_solver_dl_cc + 564;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dsubcc5 = wam7dofarm_QP_solver_ds_cc + 564;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_ccrhsub5 = wam7dofarm_QP_solver_ccrhs + 564;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Phi5[64];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_W5[64];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Ysd5[225];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Lsd5[225];
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_z6 = wam7dofarm_QP_solver_z + 384;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dzaff6 = wam7dofarm_QP_solver_dz_aff + 384;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dzcc6 = wam7dofarm_QP_solver_dz_cc + 384;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_rd6 = wam7dofarm_QP_solver_rd + 384;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Lbyrd6[64];
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_grad_cost6 = wam7dofarm_QP_solver_grad_cost + 384;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_grad_eq6 = wam7dofarm_QP_solver_grad_eq + 384;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_grad_ineq6 = wam7dofarm_QP_solver_grad_ineq + 384;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_ctv6[64];
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_v6 = wam7dofarm_QP_solver_v + 104;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_re6[15];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_beta6[15];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_betacc6[15];
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dvaff6 = wam7dofarm_QP_solver_dv_aff + 104;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dvcc6 = wam7dofarm_QP_solver_dv_cc + 104;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_V6[960];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Yd6[120];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Ld6[120];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_yy6[15];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_bmy6[15];
+int wam7dofarm_QP_solver_lbIdx6[64] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63};
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_llb6 = wam7dofarm_QP_solver_l + 600;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_slb6 = wam7dofarm_QP_solver_s + 600;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_llbbyslb6 = wam7dofarm_QP_solver_lbys + 600;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_rilb6[64];
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dllbaff6 = wam7dofarm_QP_solver_dl_aff + 600;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dslbaff6 = wam7dofarm_QP_solver_ds_aff + 600;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dllbcc6 = wam7dofarm_QP_solver_dl_cc + 600;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dslbcc6 = wam7dofarm_QP_solver_ds_cc + 600;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_ccrhsl6 = wam7dofarm_QP_solver_ccrhs + 600;
+int wam7dofarm_QP_solver_ubIdx6[36] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35};
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_lub6 = wam7dofarm_QP_solver_l + 664;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_sub6 = wam7dofarm_QP_solver_s + 664;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_lubbysub6 = wam7dofarm_QP_solver_lbys + 664;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_riub6[36];
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dlubaff6 = wam7dofarm_QP_solver_dl_aff + 664;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dsubaff6 = wam7dofarm_QP_solver_ds_aff + 664;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dlubcc6 = wam7dofarm_QP_solver_dl_cc + 664;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dsubcc6 = wam7dofarm_QP_solver_ds_cc + 664;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_ccrhsub6 = wam7dofarm_QP_solver_ccrhs + 664;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Phi6[64];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_W6[64];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Ysd6[225];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Lsd6[225];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_H7[27] = {0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000, 0.0000000000000000E+000};
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_z7 = wam7dofarm_QP_solver_z + 448;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dzaff7 = wam7dofarm_QP_solver_dz_aff + 448;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dzcc7 = wam7dofarm_QP_solver_dz_cc + 448;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_rd7 = wam7dofarm_QP_solver_rd + 448;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Lbyrd7[27];
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_grad_cost7 = wam7dofarm_QP_solver_grad_cost + 448;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_grad_eq7 = wam7dofarm_QP_solver_grad_eq + 448;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_grad_ineq7 = wam7dofarm_QP_solver_grad_ineq + 448;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_ctv7[27];
+int wam7dofarm_QP_solver_lbIdx7[27] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26};
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_llb7 = wam7dofarm_QP_solver_l + 700;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_slb7 = wam7dofarm_QP_solver_s + 700;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_llbbyslb7 = wam7dofarm_QP_solver_lbys + 700;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_rilb7[27];
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dllbaff7 = wam7dofarm_QP_solver_dl_aff + 700;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dslbaff7 = wam7dofarm_QP_solver_ds_aff + 700;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dllbcc7 = wam7dofarm_QP_solver_dl_cc + 700;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dslbcc7 = wam7dofarm_QP_solver_ds_cc + 700;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_ccrhsl7 = wam7dofarm_QP_solver_ccrhs + 700;
+int wam7dofarm_QP_solver_ubIdx7[15] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14};
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_lub7 = wam7dofarm_QP_solver_l + 727;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_sub7 = wam7dofarm_QP_solver_s + 727;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_lubbysub7 = wam7dofarm_QP_solver_lbys + 727;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_riub7[15];
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dlubaff7 = wam7dofarm_QP_solver_dl_aff + 727;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dsubaff7 = wam7dofarm_QP_solver_ds_aff + 727;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dlubcc7 = wam7dofarm_QP_solver_dl_cc + 727;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dsubcc7 = wam7dofarm_QP_solver_ds_cc + 727;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_ccrhsub7 = wam7dofarm_QP_solver_ccrhs + 727;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_sp7 = wam7dofarm_QP_solver_s + 742;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_lp7 = wam7dofarm_QP_solver_l + 742;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_lpbysp7 = wam7dofarm_QP_solver_lbys + 742;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dlp_aff7 = wam7dofarm_QP_solver_dl_aff + 742;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dsp_aff7 = wam7dofarm_QP_solver_ds_aff + 742;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dlp_cc7 = wam7dofarm_QP_solver_dl_cc + 742;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_dsp_cc7 = wam7dofarm_QP_solver_ds_cc + 742;
+wam7dofarm_QP_solver_FLOAT* wam7dofarm_QP_solver_ccrhsp7 = wam7dofarm_QP_solver_ccrhs + 742;
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_rip7[12];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Phi7[378];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_D7[27] = {-1.0000000000000000E+000, 
 -1.0000000000000000E+000, 
 -1.0000000000000000E+000, 
 -1.0000000000000000E+000, 
@@ -2602,7 +2734,7 @@ wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_D4[27] = {-1.0000000000000000E+0
 -1.0000000000000000E+000, 
 -1.0000000000000000E+000, 
 -1.0000000000000000E+000};
-wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_W4[405];
+wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_W7[405];
 wam7dofarm_QP_solver_FLOAT musigma;
 wam7dofarm_QP_solver_FLOAT sigma_3rdroot;
 wam7dofarm_QP_solver_FLOAT wam7dofarm_QP_solver_Diag1_0[64];
@@ -2623,31 +2755,40 @@ int exitcode;
 #endif
 /* FUNCTION CALLS INTO LA LIBRARY -------------------------------------- */
 info->it = 0;
-wam7dofarm_QP_solver_LA_INITIALIZEVECTOR_283(wam7dofarm_QP_solver_z, 0);
-wam7dofarm_QP_solver_LA_INITIALIZEVECTOR_74(wam7dofarm_QP_solver_v, 1);
-wam7dofarm_QP_solver_LA_INITIALIZEVECTOR_454(wam7dofarm_QP_solver_l, 10);
-wam7dofarm_QP_solver_LA_INITIALIZEVECTOR_454(wam7dofarm_QP_solver_s, 10);
+wam7dofarm_QP_solver_LA_INITIALIZEVECTOR_475(wam7dofarm_QP_solver_z, 0);
+wam7dofarm_QP_solver_LA_INITIALIZEVECTOR_119(wam7dofarm_QP_solver_v, 1);
+wam7dofarm_QP_solver_LA_INITIALIZEVECTOR_754(wam7dofarm_QP_solver_l, 10);
+wam7dofarm_QP_solver_LA_INITIALIZEVECTOR_754(wam7dofarm_QP_solver_s, 10);
 info->mu = 0;
-wam7dofarm_QP_solver_LA_DOTACC_454(wam7dofarm_QP_solver_l, wam7dofarm_QP_solver_s, &info->mu);
-info->mu /= 454;
+wam7dofarm_QP_solver_LA_DOTACC_754(wam7dofarm_QP_solver_l, wam7dofarm_QP_solver_s, &info->mu);
+info->mu /= 754;
 while( 1 ){
 info->pobj = 0;
 wam7dofarm_QP_solver_LA_DIAG_QUADFCN_64(wam7dofarm_QP_solver_H0, params->f1, wam7dofarm_QP_solver_z0, wam7dofarm_QP_solver_grad_cost0, &info->pobj);
 wam7dofarm_QP_solver_LA_DIAG_QUADFCN_64(wam7dofarm_QP_solver_H0, params->f2, wam7dofarm_QP_solver_z1, wam7dofarm_QP_solver_grad_cost1, &info->pobj);
 wam7dofarm_QP_solver_LA_DIAG_QUADFCN_64(wam7dofarm_QP_solver_H0, params->f3, wam7dofarm_QP_solver_z2, wam7dofarm_QP_solver_grad_cost2, &info->pobj);
 wam7dofarm_QP_solver_LA_DIAG_QUADFCN_64(wam7dofarm_QP_solver_H0, params->f4, wam7dofarm_QP_solver_z3, wam7dofarm_QP_solver_grad_cost3, &info->pobj);
-wam7dofarm_QP_solver_LA_DIAG_QUADFCN_27(wam7dofarm_QP_solver_H4, params->f5, wam7dofarm_QP_solver_z4, wam7dofarm_QP_solver_grad_cost4, &info->pobj);
+wam7dofarm_QP_solver_LA_DIAG_QUADFCN_64(wam7dofarm_QP_solver_H0, params->f5, wam7dofarm_QP_solver_z4, wam7dofarm_QP_solver_grad_cost4, &info->pobj);
+wam7dofarm_QP_solver_LA_DIAG_QUADFCN_64(wam7dofarm_QP_solver_H0, params->f6, wam7dofarm_QP_solver_z5, wam7dofarm_QP_solver_grad_cost5, &info->pobj);
+wam7dofarm_QP_solver_LA_DIAG_QUADFCN_64(wam7dofarm_QP_solver_H0, params->f7, wam7dofarm_QP_solver_z6, wam7dofarm_QP_solver_grad_cost6, &info->pobj);
+wam7dofarm_QP_solver_LA_DIAG_QUADFCN_27(wam7dofarm_QP_solver_H7, params->f8, wam7dofarm_QP_solver_z7, wam7dofarm_QP_solver_grad_cost7, &info->pobj);
 info->res_eq = 0;
 info->dgap = 0;
 wam7dofarm_QP_solver_LA_DENSE_MVMSUB3_29_64_64(params->C1, wam7dofarm_QP_solver_z0, wam7dofarm_QP_solver_D1, wam7dofarm_QP_solver_z1, params->e1, wam7dofarm_QP_solver_v0, wam7dofarm_QP_solver_re0, &info->dgap, &info->res_eq);
 wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MVMSUB3_15_64_64(params->C2, wam7dofarm_QP_solver_z1, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_z2, params->e2, wam7dofarm_QP_solver_v1, wam7dofarm_QP_solver_re1, &info->dgap, &info->res_eq);
 wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MVMSUB3_15_64_64(params->C3, wam7dofarm_QP_solver_z2, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_z3, params->e3, wam7dofarm_QP_solver_v2, wam7dofarm_QP_solver_re2, &info->dgap, &info->res_eq);
-wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MVMSUB3_15_64_27(params->C4, wam7dofarm_QP_solver_z3, wam7dofarm_QP_solver_D4, wam7dofarm_QP_solver_z4, params->e4, wam7dofarm_QP_solver_v3, wam7dofarm_QP_solver_re3, &info->dgap, &info->res_eq);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MVMSUB3_15_64_64(params->C4, wam7dofarm_QP_solver_z3, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_z4, params->e4, wam7dofarm_QP_solver_v3, wam7dofarm_QP_solver_re3, &info->dgap, &info->res_eq);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MVMSUB3_15_64_64(params->C5, wam7dofarm_QP_solver_z4, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_z5, params->e5, wam7dofarm_QP_solver_v4, wam7dofarm_QP_solver_re4, &info->dgap, &info->res_eq);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MVMSUB3_15_64_64(params->C6, wam7dofarm_QP_solver_z5, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_z6, params->e6, wam7dofarm_QP_solver_v5, wam7dofarm_QP_solver_re5, &info->dgap, &info->res_eq);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MVMSUB3_15_64_27(params->C7, wam7dofarm_QP_solver_z6, wam7dofarm_QP_solver_D7, wam7dofarm_QP_solver_z7, params->e7, wam7dofarm_QP_solver_v6, wam7dofarm_QP_solver_re6, &info->dgap, &info->res_eq);
 wam7dofarm_QP_solver_LA_DENSE_MTVM_29_64(params->C1, wam7dofarm_QP_solver_v0, wam7dofarm_QP_solver_grad_eq0);
 wam7dofarm_QP_solver_LA_DENSE_MTVM2_15_64_29(params->C2, wam7dofarm_QP_solver_v1, wam7dofarm_QP_solver_D1, wam7dofarm_QP_solver_v0, wam7dofarm_QP_solver_grad_eq1);
 wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MTVM2_15_64_15(params->C3, wam7dofarm_QP_solver_v2, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_v1, wam7dofarm_QP_solver_grad_eq2);
 wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MTVM2_15_64_15(params->C4, wam7dofarm_QP_solver_v3, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_v2, wam7dofarm_QP_solver_grad_eq3);
-wam7dofarm_QP_solver_LA_DIAGZERO_MTVM_15_27(wam7dofarm_QP_solver_D4, wam7dofarm_QP_solver_v3, wam7dofarm_QP_solver_grad_eq4);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MTVM2_15_64_15(params->C5, wam7dofarm_QP_solver_v4, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_v3, wam7dofarm_QP_solver_grad_eq4);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MTVM2_15_64_15(params->C6, wam7dofarm_QP_solver_v5, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_v4, wam7dofarm_QP_solver_grad_eq5);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MTVM2_15_64_15(params->C7, wam7dofarm_QP_solver_v6, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_v5, wam7dofarm_QP_solver_grad_eq6);
+wam7dofarm_QP_solver_LA_DIAGZERO_MTVM_15_27(wam7dofarm_QP_solver_D7, wam7dofarm_QP_solver_v6, wam7dofarm_QP_solver_grad_eq7);
 info->res_ineq = 0;
 wam7dofarm_QP_solver_LA_VSUBADD3_64(params->lb1, wam7dofarm_QP_solver_z0, wam7dofarm_QP_solver_lbIdx0, wam7dofarm_QP_solver_llb0, wam7dofarm_QP_solver_slb0, wam7dofarm_QP_solver_rilb0, &info->dgap, &info->res_ineq);
 wam7dofarm_QP_solver_LA_VSUBADD2_36(wam7dofarm_QP_solver_z0, wam7dofarm_QP_solver_ubIdx0, params->ub1, wam7dofarm_QP_solver_lub0, wam7dofarm_QP_solver_sub0, wam7dofarm_QP_solver_riub0, &info->dgap, &info->res_ineq);
@@ -2657,15 +2798,24 @@ wam7dofarm_QP_solver_LA_VSUBADD3_64(params->lb3, wam7dofarm_QP_solver_z2, wam7do
 wam7dofarm_QP_solver_LA_VSUBADD2_36(wam7dofarm_QP_solver_z2, wam7dofarm_QP_solver_ubIdx2, params->ub3, wam7dofarm_QP_solver_lub2, wam7dofarm_QP_solver_sub2, wam7dofarm_QP_solver_riub2, &info->dgap, &info->res_ineq);
 wam7dofarm_QP_solver_LA_VSUBADD3_64(params->lb4, wam7dofarm_QP_solver_z3, wam7dofarm_QP_solver_lbIdx3, wam7dofarm_QP_solver_llb3, wam7dofarm_QP_solver_slb3, wam7dofarm_QP_solver_rilb3, &info->dgap, &info->res_ineq);
 wam7dofarm_QP_solver_LA_VSUBADD2_36(wam7dofarm_QP_solver_z3, wam7dofarm_QP_solver_ubIdx3, params->ub4, wam7dofarm_QP_solver_lub3, wam7dofarm_QP_solver_sub3, wam7dofarm_QP_solver_riub3, &info->dgap, &info->res_ineq);
-wam7dofarm_QP_solver_LA_VSUBADD3_27(params->lb5, wam7dofarm_QP_solver_z4, wam7dofarm_QP_solver_lbIdx4, wam7dofarm_QP_solver_llb4, wam7dofarm_QP_solver_slb4, wam7dofarm_QP_solver_rilb4, &info->dgap, &info->res_ineq);
-wam7dofarm_QP_solver_LA_VSUBADD2_15(wam7dofarm_QP_solver_z4, wam7dofarm_QP_solver_ubIdx4, params->ub5, wam7dofarm_QP_solver_lub4, wam7dofarm_QP_solver_sub4, wam7dofarm_QP_solver_riub4, &info->dgap, &info->res_ineq);
-wam7dofarm_QP_solver_LA_MVSUBADD_12_27(params->A5, wam7dofarm_QP_solver_z4, params->b5, wam7dofarm_QP_solver_sp4, wam7dofarm_QP_solver_lp4, wam7dofarm_QP_solver_rip4, &info->dgap, &info->res_ineq);
+wam7dofarm_QP_solver_LA_VSUBADD3_64(params->lb5, wam7dofarm_QP_solver_z4, wam7dofarm_QP_solver_lbIdx4, wam7dofarm_QP_solver_llb4, wam7dofarm_QP_solver_slb4, wam7dofarm_QP_solver_rilb4, &info->dgap, &info->res_ineq);
+wam7dofarm_QP_solver_LA_VSUBADD2_36(wam7dofarm_QP_solver_z4, wam7dofarm_QP_solver_ubIdx4, params->ub5, wam7dofarm_QP_solver_lub4, wam7dofarm_QP_solver_sub4, wam7dofarm_QP_solver_riub4, &info->dgap, &info->res_ineq);
+wam7dofarm_QP_solver_LA_VSUBADD3_64(params->lb6, wam7dofarm_QP_solver_z5, wam7dofarm_QP_solver_lbIdx5, wam7dofarm_QP_solver_llb5, wam7dofarm_QP_solver_slb5, wam7dofarm_QP_solver_rilb5, &info->dgap, &info->res_ineq);
+wam7dofarm_QP_solver_LA_VSUBADD2_36(wam7dofarm_QP_solver_z5, wam7dofarm_QP_solver_ubIdx5, params->ub6, wam7dofarm_QP_solver_lub5, wam7dofarm_QP_solver_sub5, wam7dofarm_QP_solver_riub5, &info->dgap, &info->res_ineq);
+wam7dofarm_QP_solver_LA_VSUBADD3_64(params->lb7, wam7dofarm_QP_solver_z6, wam7dofarm_QP_solver_lbIdx6, wam7dofarm_QP_solver_llb6, wam7dofarm_QP_solver_slb6, wam7dofarm_QP_solver_rilb6, &info->dgap, &info->res_ineq);
+wam7dofarm_QP_solver_LA_VSUBADD2_36(wam7dofarm_QP_solver_z6, wam7dofarm_QP_solver_ubIdx6, params->ub7, wam7dofarm_QP_solver_lub6, wam7dofarm_QP_solver_sub6, wam7dofarm_QP_solver_riub6, &info->dgap, &info->res_ineq);
+wam7dofarm_QP_solver_LA_VSUBADD3_27(params->lb8, wam7dofarm_QP_solver_z7, wam7dofarm_QP_solver_lbIdx7, wam7dofarm_QP_solver_llb7, wam7dofarm_QP_solver_slb7, wam7dofarm_QP_solver_rilb7, &info->dgap, &info->res_ineq);
+wam7dofarm_QP_solver_LA_VSUBADD2_15(wam7dofarm_QP_solver_z7, wam7dofarm_QP_solver_ubIdx7, params->ub8, wam7dofarm_QP_solver_lub7, wam7dofarm_QP_solver_sub7, wam7dofarm_QP_solver_riub7, &info->dgap, &info->res_ineq);
+wam7dofarm_QP_solver_LA_MVSUBADD_12_27(params->A8, wam7dofarm_QP_solver_z7, params->b8, wam7dofarm_QP_solver_sp7, wam7dofarm_QP_solver_lp7, wam7dofarm_QP_solver_rip7, &info->dgap, &info->res_ineq);
 wam7dofarm_QP_solver_LA_INEQ_B_GRAD_64_64_36(wam7dofarm_QP_solver_lub0, wam7dofarm_QP_solver_sub0, wam7dofarm_QP_solver_riub0, wam7dofarm_QP_solver_llb0, wam7dofarm_QP_solver_slb0, wam7dofarm_QP_solver_rilb0, wam7dofarm_QP_solver_lbIdx0, wam7dofarm_QP_solver_ubIdx0, wam7dofarm_QP_solver_grad_ineq0, wam7dofarm_QP_solver_lubbysub0, wam7dofarm_QP_solver_llbbyslb0);
 wam7dofarm_QP_solver_LA_INEQ_B_GRAD_64_64_36(wam7dofarm_QP_solver_lub1, wam7dofarm_QP_solver_sub1, wam7dofarm_QP_solver_riub1, wam7dofarm_QP_solver_llb1, wam7dofarm_QP_solver_slb1, wam7dofarm_QP_solver_rilb1, wam7dofarm_QP_solver_lbIdx1, wam7dofarm_QP_solver_ubIdx1, wam7dofarm_QP_solver_grad_ineq1, wam7dofarm_QP_solver_lubbysub1, wam7dofarm_QP_solver_llbbyslb1);
 wam7dofarm_QP_solver_LA_INEQ_B_GRAD_64_64_36(wam7dofarm_QP_solver_lub2, wam7dofarm_QP_solver_sub2, wam7dofarm_QP_solver_riub2, wam7dofarm_QP_solver_llb2, wam7dofarm_QP_solver_slb2, wam7dofarm_QP_solver_rilb2, wam7dofarm_QP_solver_lbIdx2, wam7dofarm_QP_solver_ubIdx2, wam7dofarm_QP_solver_grad_ineq2, wam7dofarm_QP_solver_lubbysub2, wam7dofarm_QP_solver_llbbyslb2);
 wam7dofarm_QP_solver_LA_INEQ_B_GRAD_64_64_36(wam7dofarm_QP_solver_lub3, wam7dofarm_QP_solver_sub3, wam7dofarm_QP_solver_riub3, wam7dofarm_QP_solver_llb3, wam7dofarm_QP_solver_slb3, wam7dofarm_QP_solver_rilb3, wam7dofarm_QP_solver_lbIdx3, wam7dofarm_QP_solver_ubIdx3, wam7dofarm_QP_solver_grad_ineq3, wam7dofarm_QP_solver_lubbysub3, wam7dofarm_QP_solver_llbbyslb3);
-wam7dofarm_QP_solver_LA_INEQ_B_GRAD_27_27_15(wam7dofarm_QP_solver_lub4, wam7dofarm_QP_solver_sub4, wam7dofarm_QP_solver_riub4, wam7dofarm_QP_solver_llb4, wam7dofarm_QP_solver_slb4, wam7dofarm_QP_solver_rilb4, wam7dofarm_QP_solver_lbIdx4, wam7dofarm_QP_solver_ubIdx4, wam7dofarm_QP_solver_grad_ineq4, wam7dofarm_QP_solver_lubbysub4, wam7dofarm_QP_solver_llbbyslb4);
-wam7dofarm_QP_solver_LA_INEQ_P_12_27(params->A5, wam7dofarm_QP_solver_lp4, wam7dofarm_QP_solver_sp4, wam7dofarm_QP_solver_rip4, wam7dofarm_QP_solver_grad_ineq4, wam7dofarm_QP_solver_lpbysp4);
+wam7dofarm_QP_solver_LA_INEQ_B_GRAD_64_64_36(wam7dofarm_QP_solver_lub4, wam7dofarm_QP_solver_sub4, wam7dofarm_QP_solver_riub4, wam7dofarm_QP_solver_llb4, wam7dofarm_QP_solver_slb4, wam7dofarm_QP_solver_rilb4, wam7dofarm_QP_solver_lbIdx4, wam7dofarm_QP_solver_ubIdx4, wam7dofarm_QP_solver_grad_ineq4, wam7dofarm_QP_solver_lubbysub4, wam7dofarm_QP_solver_llbbyslb4);
+wam7dofarm_QP_solver_LA_INEQ_B_GRAD_64_64_36(wam7dofarm_QP_solver_lub5, wam7dofarm_QP_solver_sub5, wam7dofarm_QP_solver_riub5, wam7dofarm_QP_solver_llb5, wam7dofarm_QP_solver_slb5, wam7dofarm_QP_solver_rilb5, wam7dofarm_QP_solver_lbIdx5, wam7dofarm_QP_solver_ubIdx5, wam7dofarm_QP_solver_grad_ineq5, wam7dofarm_QP_solver_lubbysub5, wam7dofarm_QP_solver_llbbyslb5);
+wam7dofarm_QP_solver_LA_INEQ_B_GRAD_64_64_36(wam7dofarm_QP_solver_lub6, wam7dofarm_QP_solver_sub6, wam7dofarm_QP_solver_riub6, wam7dofarm_QP_solver_llb6, wam7dofarm_QP_solver_slb6, wam7dofarm_QP_solver_rilb6, wam7dofarm_QP_solver_lbIdx6, wam7dofarm_QP_solver_ubIdx6, wam7dofarm_QP_solver_grad_ineq6, wam7dofarm_QP_solver_lubbysub6, wam7dofarm_QP_solver_llbbyslb6);
+wam7dofarm_QP_solver_LA_INEQ_B_GRAD_27_27_15(wam7dofarm_QP_solver_lub7, wam7dofarm_QP_solver_sub7, wam7dofarm_QP_solver_riub7, wam7dofarm_QP_solver_llb7, wam7dofarm_QP_solver_slb7, wam7dofarm_QP_solver_rilb7, wam7dofarm_QP_solver_lbIdx7, wam7dofarm_QP_solver_ubIdx7, wam7dofarm_QP_solver_grad_ineq7, wam7dofarm_QP_solver_lubbysub7, wam7dofarm_QP_solver_llbbyslb7);
+wam7dofarm_QP_solver_LA_INEQ_P_12_27(params->A8, wam7dofarm_QP_solver_lp7, wam7dofarm_QP_solver_sp7, wam7dofarm_QP_solver_rip7, wam7dofarm_QP_solver_grad_ineq7, wam7dofarm_QP_solver_lpbysp7);
 info->dobj = info->pobj - info->dgap;
 info->rdgap = info->pobj ? info->dgap / info->pobj : 1e6;
 if( info->rdgap < 0 ) info->rdgap = -info->rdgap;
@@ -2676,7 +2826,7 @@ if( info->mu < wam7dofarm_QP_solver_SET_ACC_KKTCOMPL
 exitcode = wam7dofarm_QP_solver_OPTIMAL; break; }
 if( info->it == wam7dofarm_QP_solver_SET_MAXIT ){
 exitcode = wam7dofarm_QP_solver_MAXITREACHED; break; }
-wam7dofarm_QP_solver_LA_VVADD3_283(wam7dofarm_QP_solver_grad_cost, wam7dofarm_QP_solver_grad_eq, wam7dofarm_QP_solver_grad_ineq, wam7dofarm_QP_solver_rd);
+wam7dofarm_QP_solver_LA_VVADD3_475(wam7dofarm_QP_solver_grad_cost, wam7dofarm_QP_solver_grad_eq, wam7dofarm_QP_solver_grad_ineq, wam7dofarm_QP_solver_rd);
 wam7dofarm_QP_solver_LA_DIAG_CHOL_LBUB_64_64_36(wam7dofarm_QP_solver_H0, wam7dofarm_QP_solver_llbbyslb0, wam7dofarm_QP_solver_lbIdx0, wam7dofarm_QP_solver_lubbysub0, wam7dofarm_QP_solver_ubIdx0, wam7dofarm_QP_solver_Phi0);
 wam7dofarm_QP_solver_LA_DIAG_MATRIXFORWARDSUB_29_64(wam7dofarm_QP_solver_Phi0, params->C1, wam7dofarm_QP_solver_V0);
 wam7dofarm_QP_solver_LA_DIAG_FORWARDSUB_64(wam7dofarm_QP_solver_Phi0, wam7dofarm_QP_solver_rd0, wam7dofarm_QP_solver_Lbyrd0);
@@ -2695,19 +2845,40 @@ wam7dofarm_QP_solver_LA_DIAG_MATRIXFORWARDSUB_15_64(wam7dofarm_QP_solver_Phi3, p
 wam7dofarm_QP_solver_LA_DIAG_DIAGZERO_MATRIXTFORWARDSUB_15_64(wam7dofarm_QP_solver_Phi3, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_W3);
 wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MMTM_15_64_15(wam7dofarm_QP_solver_W3, wam7dofarm_QP_solver_V3, wam7dofarm_QP_solver_Ysd3);
 wam7dofarm_QP_solver_LA_DIAG_FORWARDSUB_64(wam7dofarm_QP_solver_Phi3, wam7dofarm_QP_solver_rd3, wam7dofarm_QP_solver_Lbyrd3);
-wam7dofarm_QP_solver_LA_INEQ_DENSE_DIAG_HESS_27_27_15(wam7dofarm_QP_solver_H4, wam7dofarm_QP_solver_llbbyslb4, wam7dofarm_QP_solver_lbIdx4, wam7dofarm_QP_solver_lubbysub4, wam7dofarm_QP_solver_ubIdx4, wam7dofarm_QP_solver_Phi4);
-wam7dofarm_QP_solver_LA_DENSE_ADDMTDM_12_27(params->A5, wam7dofarm_QP_solver_lpbysp4, wam7dofarm_QP_solver_Phi4);
-wam7dofarm_QP_solver_LA_DENSE_CHOL2_27(wam7dofarm_QP_solver_Phi4);
-wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MATRIXFORWARDSUB_15_27(wam7dofarm_QP_solver_Phi4, wam7dofarm_QP_solver_D4, wam7dofarm_QP_solver_W4);
-wam7dofarm_QP_solver_LA_DENSE_FORWARDSUB_27(wam7dofarm_QP_solver_Phi4, wam7dofarm_QP_solver_rd4, wam7dofarm_QP_solver_Lbyrd4);
+wam7dofarm_QP_solver_LA_DIAG_CHOL_LBUB_64_64_36(wam7dofarm_QP_solver_H0, wam7dofarm_QP_solver_llbbyslb4, wam7dofarm_QP_solver_lbIdx4, wam7dofarm_QP_solver_lubbysub4, wam7dofarm_QP_solver_ubIdx4, wam7dofarm_QP_solver_Phi4);
+wam7dofarm_QP_solver_LA_DIAG_MATRIXFORWARDSUB_15_64(wam7dofarm_QP_solver_Phi4, params->C5, wam7dofarm_QP_solver_V4);
+wam7dofarm_QP_solver_LA_DIAG_DIAGZERO_MATRIXTFORWARDSUB_15_64(wam7dofarm_QP_solver_Phi4, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_W4);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MMTM_15_64_15(wam7dofarm_QP_solver_W4, wam7dofarm_QP_solver_V4, wam7dofarm_QP_solver_Ysd4);
+wam7dofarm_QP_solver_LA_DIAG_FORWARDSUB_64(wam7dofarm_QP_solver_Phi4, wam7dofarm_QP_solver_rd4, wam7dofarm_QP_solver_Lbyrd4);
+wam7dofarm_QP_solver_LA_DIAG_CHOL_LBUB_64_64_36(wam7dofarm_QP_solver_H0, wam7dofarm_QP_solver_llbbyslb5, wam7dofarm_QP_solver_lbIdx5, wam7dofarm_QP_solver_lubbysub5, wam7dofarm_QP_solver_ubIdx5, wam7dofarm_QP_solver_Phi5);
+wam7dofarm_QP_solver_LA_DIAG_MATRIXFORWARDSUB_15_64(wam7dofarm_QP_solver_Phi5, params->C6, wam7dofarm_QP_solver_V5);
+wam7dofarm_QP_solver_LA_DIAG_DIAGZERO_MATRIXTFORWARDSUB_15_64(wam7dofarm_QP_solver_Phi5, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_W5);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MMTM_15_64_15(wam7dofarm_QP_solver_W5, wam7dofarm_QP_solver_V5, wam7dofarm_QP_solver_Ysd5);
+wam7dofarm_QP_solver_LA_DIAG_FORWARDSUB_64(wam7dofarm_QP_solver_Phi5, wam7dofarm_QP_solver_rd5, wam7dofarm_QP_solver_Lbyrd5);
+wam7dofarm_QP_solver_LA_DIAG_CHOL_LBUB_64_64_36(wam7dofarm_QP_solver_H0, wam7dofarm_QP_solver_llbbyslb6, wam7dofarm_QP_solver_lbIdx6, wam7dofarm_QP_solver_lubbysub6, wam7dofarm_QP_solver_ubIdx6, wam7dofarm_QP_solver_Phi6);
+wam7dofarm_QP_solver_LA_DIAG_MATRIXFORWARDSUB_15_64(wam7dofarm_QP_solver_Phi6, params->C7, wam7dofarm_QP_solver_V6);
+wam7dofarm_QP_solver_LA_DIAG_DIAGZERO_MATRIXTFORWARDSUB_15_64(wam7dofarm_QP_solver_Phi6, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_W6);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MMTM_15_64_15(wam7dofarm_QP_solver_W6, wam7dofarm_QP_solver_V6, wam7dofarm_QP_solver_Ysd6);
+wam7dofarm_QP_solver_LA_DIAG_FORWARDSUB_64(wam7dofarm_QP_solver_Phi6, wam7dofarm_QP_solver_rd6, wam7dofarm_QP_solver_Lbyrd6);
+wam7dofarm_QP_solver_LA_INEQ_DENSE_DIAG_HESS_27_27_15(wam7dofarm_QP_solver_H7, wam7dofarm_QP_solver_llbbyslb7, wam7dofarm_QP_solver_lbIdx7, wam7dofarm_QP_solver_lubbysub7, wam7dofarm_QP_solver_ubIdx7, wam7dofarm_QP_solver_Phi7);
+wam7dofarm_QP_solver_LA_DENSE_ADDMTDM_12_27(params->A8, wam7dofarm_QP_solver_lpbysp7, wam7dofarm_QP_solver_Phi7);
+wam7dofarm_QP_solver_LA_DENSE_CHOL2_27(wam7dofarm_QP_solver_Phi7);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MATRIXFORWARDSUB_15_27(wam7dofarm_QP_solver_Phi7, wam7dofarm_QP_solver_D7, wam7dofarm_QP_solver_W7);
+wam7dofarm_QP_solver_LA_DENSE_FORWARDSUB_27(wam7dofarm_QP_solver_Phi7, wam7dofarm_QP_solver_rd7, wam7dofarm_QP_solver_Lbyrd7);
 wam7dofarm_QP_solver_LA_DENSE_MMT2_29_64_64(wam7dofarm_QP_solver_V0, wam7dofarm_QP_solver_W1, wam7dofarm_QP_solver_Yd0);
 wam7dofarm_QP_solver_LA_DENSE_MVMSUB2_29_64_64(wam7dofarm_QP_solver_V0, wam7dofarm_QP_solver_Lbyrd0, wam7dofarm_QP_solver_W1, wam7dofarm_QP_solver_Lbyrd1, wam7dofarm_QP_solver_re0, wam7dofarm_QP_solver_beta0);
 wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MMT2_15_64_64(wam7dofarm_QP_solver_V1, wam7dofarm_QP_solver_W2, wam7dofarm_QP_solver_Yd1);
 wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_2MVMSUB2_15_64_64(wam7dofarm_QP_solver_V1, wam7dofarm_QP_solver_Lbyrd1, wam7dofarm_QP_solver_W2, wam7dofarm_QP_solver_Lbyrd2, wam7dofarm_QP_solver_re1, wam7dofarm_QP_solver_beta1);
 wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MMT2_15_64_64(wam7dofarm_QP_solver_V2, wam7dofarm_QP_solver_W3, wam7dofarm_QP_solver_Yd2);
 wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_2MVMSUB2_15_64_64(wam7dofarm_QP_solver_V2, wam7dofarm_QP_solver_Lbyrd2, wam7dofarm_QP_solver_W3, wam7dofarm_QP_solver_Lbyrd3, wam7dofarm_QP_solver_re2, wam7dofarm_QP_solver_beta2);
-wam7dofarm_QP_solver_LA_DENSE_MMT2_15_64_27(wam7dofarm_QP_solver_V3, wam7dofarm_QP_solver_W4, wam7dofarm_QP_solver_Yd3);
-wam7dofarm_QP_solver_LA_DENSE_MVMSUB2_15_64_27(wam7dofarm_QP_solver_V3, wam7dofarm_QP_solver_Lbyrd3, wam7dofarm_QP_solver_W4, wam7dofarm_QP_solver_Lbyrd4, wam7dofarm_QP_solver_re3, wam7dofarm_QP_solver_beta3);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MMT2_15_64_64(wam7dofarm_QP_solver_V3, wam7dofarm_QP_solver_W4, wam7dofarm_QP_solver_Yd3);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_2MVMSUB2_15_64_64(wam7dofarm_QP_solver_V3, wam7dofarm_QP_solver_Lbyrd3, wam7dofarm_QP_solver_W4, wam7dofarm_QP_solver_Lbyrd4, wam7dofarm_QP_solver_re3, wam7dofarm_QP_solver_beta3);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MMT2_15_64_64(wam7dofarm_QP_solver_V4, wam7dofarm_QP_solver_W5, wam7dofarm_QP_solver_Yd4);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_2MVMSUB2_15_64_64(wam7dofarm_QP_solver_V4, wam7dofarm_QP_solver_Lbyrd4, wam7dofarm_QP_solver_W5, wam7dofarm_QP_solver_Lbyrd5, wam7dofarm_QP_solver_re4, wam7dofarm_QP_solver_beta4);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MMT2_15_64_64(wam7dofarm_QP_solver_V5, wam7dofarm_QP_solver_W6, wam7dofarm_QP_solver_Yd5);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_2MVMSUB2_15_64_64(wam7dofarm_QP_solver_V5, wam7dofarm_QP_solver_Lbyrd5, wam7dofarm_QP_solver_W6, wam7dofarm_QP_solver_Lbyrd6, wam7dofarm_QP_solver_re5, wam7dofarm_QP_solver_beta5);
+wam7dofarm_QP_solver_LA_DENSE_MMT2_15_64_27(wam7dofarm_QP_solver_V6, wam7dofarm_QP_solver_W7, wam7dofarm_QP_solver_Yd6);
+wam7dofarm_QP_solver_LA_DENSE_MVMSUB2_15_64_27(wam7dofarm_QP_solver_V6, wam7dofarm_QP_solver_Lbyrd6, wam7dofarm_QP_solver_W7, wam7dofarm_QP_solver_Lbyrd7, wam7dofarm_QP_solver_re6, wam7dofarm_QP_solver_beta6);
 wam7dofarm_QP_solver_LA_DENSE_CHOL_29(wam7dofarm_QP_solver_Yd0, wam7dofarm_QP_solver_Ld0);
 wam7dofarm_QP_solver_LA_DENSE_FORWARDSUB_29(wam7dofarm_QP_solver_Ld0, wam7dofarm_QP_solver_beta0, wam7dofarm_QP_solver_yy0);
 wam7dofarm_QP_solver_LA_DENSE_MATRIXTFORWARDSUB_15_29(wam7dofarm_QP_solver_Ld0, wam7dofarm_QP_solver_Ysd1, wam7dofarm_QP_solver_Lsd1);
@@ -2725,7 +2896,28 @@ wam7dofarm_QP_solver_LA_DENSE_MMTSUB_15_15(wam7dofarm_QP_solver_Lsd3, wam7dofarm
 wam7dofarm_QP_solver_LA_DENSE_CHOL_15(wam7dofarm_QP_solver_Yd3, wam7dofarm_QP_solver_Ld3);
 wam7dofarm_QP_solver_LA_DENSE_MVMSUB1_15_15(wam7dofarm_QP_solver_Lsd3, wam7dofarm_QP_solver_yy2, wam7dofarm_QP_solver_beta3, wam7dofarm_QP_solver_bmy3);
 wam7dofarm_QP_solver_LA_DENSE_FORWARDSUB_15(wam7dofarm_QP_solver_Ld3, wam7dofarm_QP_solver_bmy3, wam7dofarm_QP_solver_yy3);
-wam7dofarm_QP_solver_LA_DENSE_BACKWARDSUB_15(wam7dofarm_QP_solver_Ld3, wam7dofarm_QP_solver_yy3, wam7dofarm_QP_solver_dvaff3);
+wam7dofarm_QP_solver_LA_DENSE_MATRIXTFORWARDSUB_15_15(wam7dofarm_QP_solver_Ld3, wam7dofarm_QP_solver_Ysd4, wam7dofarm_QP_solver_Lsd4);
+wam7dofarm_QP_solver_LA_DENSE_MMTSUB_15_15(wam7dofarm_QP_solver_Lsd4, wam7dofarm_QP_solver_Yd4);
+wam7dofarm_QP_solver_LA_DENSE_CHOL_15(wam7dofarm_QP_solver_Yd4, wam7dofarm_QP_solver_Ld4);
+wam7dofarm_QP_solver_LA_DENSE_MVMSUB1_15_15(wam7dofarm_QP_solver_Lsd4, wam7dofarm_QP_solver_yy3, wam7dofarm_QP_solver_beta4, wam7dofarm_QP_solver_bmy4);
+wam7dofarm_QP_solver_LA_DENSE_FORWARDSUB_15(wam7dofarm_QP_solver_Ld4, wam7dofarm_QP_solver_bmy4, wam7dofarm_QP_solver_yy4);
+wam7dofarm_QP_solver_LA_DENSE_MATRIXTFORWARDSUB_15_15(wam7dofarm_QP_solver_Ld4, wam7dofarm_QP_solver_Ysd5, wam7dofarm_QP_solver_Lsd5);
+wam7dofarm_QP_solver_LA_DENSE_MMTSUB_15_15(wam7dofarm_QP_solver_Lsd5, wam7dofarm_QP_solver_Yd5);
+wam7dofarm_QP_solver_LA_DENSE_CHOL_15(wam7dofarm_QP_solver_Yd5, wam7dofarm_QP_solver_Ld5);
+wam7dofarm_QP_solver_LA_DENSE_MVMSUB1_15_15(wam7dofarm_QP_solver_Lsd5, wam7dofarm_QP_solver_yy4, wam7dofarm_QP_solver_beta5, wam7dofarm_QP_solver_bmy5);
+wam7dofarm_QP_solver_LA_DENSE_FORWARDSUB_15(wam7dofarm_QP_solver_Ld5, wam7dofarm_QP_solver_bmy5, wam7dofarm_QP_solver_yy5);
+wam7dofarm_QP_solver_LA_DENSE_MATRIXTFORWARDSUB_15_15(wam7dofarm_QP_solver_Ld5, wam7dofarm_QP_solver_Ysd6, wam7dofarm_QP_solver_Lsd6);
+wam7dofarm_QP_solver_LA_DENSE_MMTSUB_15_15(wam7dofarm_QP_solver_Lsd6, wam7dofarm_QP_solver_Yd6);
+wam7dofarm_QP_solver_LA_DENSE_CHOL_15(wam7dofarm_QP_solver_Yd6, wam7dofarm_QP_solver_Ld6);
+wam7dofarm_QP_solver_LA_DENSE_MVMSUB1_15_15(wam7dofarm_QP_solver_Lsd6, wam7dofarm_QP_solver_yy5, wam7dofarm_QP_solver_beta6, wam7dofarm_QP_solver_bmy6);
+wam7dofarm_QP_solver_LA_DENSE_FORWARDSUB_15(wam7dofarm_QP_solver_Ld6, wam7dofarm_QP_solver_bmy6, wam7dofarm_QP_solver_yy6);
+wam7dofarm_QP_solver_LA_DENSE_BACKWARDSUB_15(wam7dofarm_QP_solver_Ld6, wam7dofarm_QP_solver_yy6, wam7dofarm_QP_solver_dvaff6);
+wam7dofarm_QP_solver_LA_DENSE_MTVMSUB_15_15(wam7dofarm_QP_solver_Lsd6, wam7dofarm_QP_solver_dvaff6, wam7dofarm_QP_solver_yy5, wam7dofarm_QP_solver_bmy5);
+wam7dofarm_QP_solver_LA_DENSE_BACKWARDSUB_15(wam7dofarm_QP_solver_Ld5, wam7dofarm_QP_solver_bmy5, wam7dofarm_QP_solver_dvaff5);
+wam7dofarm_QP_solver_LA_DENSE_MTVMSUB_15_15(wam7dofarm_QP_solver_Lsd5, wam7dofarm_QP_solver_dvaff5, wam7dofarm_QP_solver_yy4, wam7dofarm_QP_solver_bmy4);
+wam7dofarm_QP_solver_LA_DENSE_BACKWARDSUB_15(wam7dofarm_QP_solver_Ld4, wam7dofarm_QP_solver_bmy4, wam7dofarm_QP_solver_dvaff4);
+wam7dofarm_QP_solver_LA_DENSE_MTVMSUB_15_15(wam7dofarm_QP_solver_Lsd4, wam7dofarm_QP_solver_dvaff4, wam7dofarm_QP_solver_yy3, wam7dofarm_QP_solver_bmy3);
+wam7dofarm_QP_solver_LA_DENSE_BACKWARDSUB_15(wam7dofarm_QP_solver_Ld3, wam7dofarm_QP_solver_bmy3, wam7dofarm_QP_solver_dvaff3);
 wam7dofarm_QP_solver_LA_DENSE_MTVMSUB_15_15(wam7dofarm_QP_solver_Lsd3, wam7dofarm_QP_solver_dvaff3, wam7dofarm_QP_solver_yy2, wam7dofarm_QP_solver_bmy2);
 wam7dofarm_QP_solver_LA_DENSE_BACKWARDSUB_15(wam7dofarm_QP_solver_Ld2, wam7dofarm_QP_solver_bmy2, wam7dofarm_QP_solver_dvaff2);
 wam7dofarm_QP_solver_LA_DENSE_MTVMSUB_15_15(wam7dofarm_QP_solver_Lsd2, wam7dofarm_QP_solver_dvaff2, wam7dofarm_QP_solver_yy1, wam7dofarm_QP_solver_bmy1);
@@ -2736,13 +2928,19 @@ wam7dofarm_QP_solver_LA_DENSE_MTVM_29_64(params->C1, wam7dofarm_QP_solver_dvaff0
 wam7dofarm_QP_solver_LA_DENSE_MTVM2_15_64_29(params->C2, wam7dofarm_QP_solver_dvaff1, wam7dofarm_QP_solver_D1, wam7dofarm_QP_solver_dvaff0, wam7dofarm_QP_solver_grad_eq1);
 wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MTVM2_15_64_15(params->C3, wam7dofarm_QP_solver_dvaff2, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_dvaff1, wam7dofarm_QP_solver_grad_eq2);
 wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MTVM2_15_64_15(params->C4, wam7dofarm_QP_solver_dvaff3, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_dvaff2, wam7dofarm_QP_solver_grad_eq3);
-wam7dofarm_QP_solver_LA_DIAGZERO_MTVM_15_27(wam7dofarm_QP_solver_D4, wam7dofarm_QP_solver_dvaff3, wam7dofarm_QP_solver_grad_eq4);
-wam7dofarm_QP_solver_LA_VSUB2_283(wam7dofarm_QP_solver_rd, wam7dofarm_QP_solver_grad_eq, wam7dofarm_QP_solver_rd);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MTVM2_15_64_15(params->C5, wam7dofarm_QP_solver_dvaff4, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_dvaff3, wam7dofarm_QP_solver_grad_eq4);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MTVM2_15_64_15(params->C6, wam7dofarm_QP_solver_dvaff5, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_dvaff4, wam7dofarm_QP_solver_grad_eq5);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MTVM2_15_64_15(params->C7, wam7dofarm_QP_solver_dvaff6, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_dvaff5, wam7dofarm_QP_solver_grad_eq6);
+wam7dofarm_QP_solver_LA_DIAGZERO_MTVM_15_27(wam7dofarm_QP_solver_D7, wam7dofarm_QP_solver_dvaff6, wam7dofarm_QP_solver_grad_eq7);
+wam7dofarm_QP_solver_LA_VSUB2_475(wam7dofarm_QP_solver_rd, wam7dofarm_QP_solver_grad_eq, wam7dofarm_QP_solver_rd);
 wam7dofarm_QP_solver_LA_DIAG_FORWARDBACKWARDSUB_64(wam7dofarm_QP_solver_Phi0, wam7dofarm_QP_solver_rd0, wam7dofarm_QP_solver_dzaff0);
 wam7dofarm_QP_solver_LA_DIAG_FORWARDBACKWARDSUB_64(wam7dofarm_QP_solver_Phi1, wam7dofarm_QP_solver_rd1, wam7dofarm_QP_solver_dzaff1);
 wam7dofarm_QP_solver_LA_DIAG_FORWARDBACKWARDSUB_64(wam7dofarm_QP_solver_Phi2, wam7dofarm_QP_solver_rd2, wam7dofarm_QP_solver_dzaff2);
 wam7dofarm_QP_solver_LA_DIAG_FORWARDBACKWARDSUB_64(wam7dofarm_QP_solver_Phi3, wam7dofarm_QP_solver_rd3, wam7dofarm_QP_solver_dzaff3);
-wam7dofarm_QP_solver_LA_DENSE_FORWARDBACKWARDSUB_27(wam7dofarm_QP_solver_Phi4, wam7dofarm_QP_solver_rd4, wam7dofarm_QP_solver_dzaff4);
+wam7dofarm_QP_solver_LA_DIAG_FORWARDBACKWARDSUB_64(wam7dofarm_QP_solver_Phi4, wam7dofarm_QP_solver_rd4, wam7dofarm_QP_solver_dzaff4);
+wam7dofarm_QP_solver_LA_DIAG_FORWARDBACKWARDSUB_64(wam7dofarm_QP_solver_Phi5, wam7dofarm_QP_solver_rd5, wam7dofarm_QP_solver_dzaff5);
+wam7dofarm_QP_solver_LA_DIAG_FORWARDBACKWARDSUB_64(wam7dofarm_QP_solver_Phi6, wam7dofarm_QP_solver_rd6, wam7dofarm_QP_solver_dzaff6);
+wam7dofarm_QP_solver_LA_DENSE_FORWARDBACKWARDSUB_27(wam7dofarm_QP_solver_Phi7, wam7dofarm_QP_solver_rd7, wam7dofarm_QP_solver_dzaff7);
 wam7dofarm_QP_solver_LA_VSUB_INDEXED_64(wam7dofarm_QP_solver_dzaff0, wam7dofarm_QP_solver_lbIdx0, wam7dofarm_QP_solver_rilb0, wam7dofarm_QP_solver_dslbaff0);
 wam7dofarm_QP_solver_LA_VSUB3_64(wam7dofarm_QP_solver_llbbyslb0, wam7dofarm_QP_solver_dslbaff0, wam7dofarm_QP_solver_llb0, wam7dofarm_QP_solver_dllbaff0);
 wam7dofarm_QP_solver_LA_VSUB2_INDEXED_36(wam7dofarm_QP_solver_riub0, wam7dofarm_QP_solver_dzaff0, wam7dofarm_QP_solver_ubIdx0, wam7dofarm_QP_solver_dsubaff0);
@@ -2759,12 +2957,24 @@ wam7dofarm_QP_solver_LA_VSUB_INDEXED_64(wam7dofarm_QP_solver_dzaff3, wam7dofarm_
 wam7dofarm_QP_solver_LA_VSUB3_64(wam7dofarm_QP_solver_llbbyslb3, wam7dofarm_QP_solver_dslbaff3, wam7dofarm_QP_solver_llb3, wam7dofarm_QP_solver_dllbaff3);
 wam7dofarm_QP_solver_LA_VSUB2_INDEXED_36(wam7dofarm_QP_solver_riub3, wam7dofarm_QP_solver_dzaff3, wam7dofarm_QP_solver_ubIdx3, wam7dofarm_QP_solver_dsubaff3);
 wam7dofarm_QP_solver_LA_VSUB3_36(wam7dofarm_QP_solver_lubbysub3, wam7dofarm_QP_solver_dsubaff3, wam7dofarm_QP_solver_lub3, wam7dofarm_QP_solver_dlubaff3);
-wam7dofarm_QP_solver_LA_VSUB_INDEXED_27(wam7dofarm_QP_solver_dzaff4, wam7dofarm_QP_solver_lbIdx4, wam7dofarm_QP_solver_rilb4, wam7dofarm_QP_solver_dslbaff4);
-wam7dofarm_QP_solver_LA_VSUB3_27(wam7dofarm_QP_solver_llbbyslb4, wam7dofarm_QP_solver_dslbaff4, wam7dofarm_QP_solver_llb4, wam7dofarm_QP_solver_dllbaff4);
-wam7dofarm_QP_solver_LA_VSUB2_INDEXED_15(wam7dofarm_QP_solver_riub4, wam7dofarm_QP_solver_dzaff4, wam7dofarm_QP_solver_ubIdx4, wam7dofarm_QP_solver_dsubaff4);
-wam7dofarm_QP_solver_LA_VSUB3_15(wam7dofarm_QP_solver_lubbysub4, wam7dofarm_QP_solver_dsubaff4, wam7dofarm_QP_solver_lub4, wam7dofarm_QP_solver_dlubaff4);
-wam7dofarm_QP_solver_LA_DENSE_MVMSUB4_12_27(params->A5, wam7dofarm_QP_solver_dzaff4, wam7dofarm_QP_solver_rip4, wam7dofarm_QP_solver_dsp_aff4);
-wam7dofarm_QP_solver_LA_VSUB3_12(wam7dofarm_QP_solver_lpbysp4, wam7dofarm_QP_solver_dsp_aff4, wam7dofarm_QP_solver_lp4, wam7dofarm_QP_solver_dlp_aff4);
+wam7dofarm_QP_solver_LA_VSUB_INDEXED_64(wam7dofarm_QP_solver_dzaff4, wam7dofarm_QP_solver_lbIdx4, wam7dofarm_QP_solver_rilb4, wam7dofarm_QP_solver_dslbaff4);
+wam7dofarm_QP_solver_LA_VSUB3_64(wam7dofarm_QP_solver_llbbyslb4, wam7dofarm_QP_solver_dslbaff4, wam7dofarm_QP_solver_llb4, wam7dofarm_QP_solver_dllbaff4);
+wam7dofarm_QP_solver_LA_VSUB2_INDEXED_36(wam7dofarm_QP_solver_riub4, wam7dofarm_QP_solver_dzaff4, wam7dofarm_QP_solver_ubIdx4, wam7dofarm_QP_solver_dsubaff4);
+wam7dofarm_QP_solver_LA_VSUB3_36(wam7dofarm_QP_solver_lubbysub4, wam7dofarm_QP_solver_dsubaff4, wam7dofarm_QP_solver_lub4, wam7dofarm_QP_solver_dlubaff4);
+wam7dofarm_QP_solver_LA_VSUB_INDEXED_64(wam7dofarm_QP_solver_dzaff5, wam7dofarm_QP_solver_lbIdx5, wam7dofarm_QP_solver_rilb5, wam7dofarm_QP_solver_dslbaff5);
+wam7dofarm_QP_solver_LA_VSUB3_64(wam7dofarm_QP_solver_llbbyslb5, wam7dofarm_QP_solver_dslbaff5, wam7dofarm_QP_solver_llb5, wam7dofarm_QP_solver_dllbaff5);
+wam7dofarm_QP_solver_LA_VSUB2_INDEXED_36(wam7dofarm_QP_solver_riub5, wam7dofarm_QP_solver_dzaff5, wam7dofarm_QP_solver_ubIdx5, wam7dofarm_QP_solver_dsubaff5);
+wam7dofarm_QP_solver_LA_VSUB3_36(wam7dofarm_QP_solver_lubbysub5, wam7dofarm_QP_solver_dsubaff5, wam7dofarm_QP_solver_lub5, wam7dofarm_QP_solver_dlubaff5);
+wam7dofarm_QP_solver_LA_VSUB_INDEXED_64(wam7dofarm_QP_solver_dzaff6, wam7dofarm_QP_solver_lbIdx6, wam7dofarm_QP_solver_rilb6, wam7dofarm_QP_solver_dslbaff6);
+wam7dofarm_QP_solver_LA_VSUB3_64(wam7dofarm_QP_solver_llbbyslb6, wam7dofarm_QP_solver_dslbaff6, wam7dofarm_QP_solver_llb6, wam7dofarm_QP_solver_dllbaff6);
+wam7dofarm_QP_solver_LA_VSUB2_INDEXED_36(wam7dofarm_QP_solver_riub6, wam7dofarm_QP_solver_dzaff6, wam7dofarm_QP_solver_ubIdx6, wam7dofarm_QP_solver_dsubaff6);
+wam7dofarm_QP_solver_LA_VSUB3_36(wam7dofarm_QP_solver_lubbysub6, wam7dofarm_QP_solver_dsubaff6, wam7dofarm_QP_solver_lub6, wam7dofarm_QP_solver_dlubaff6);
+wam7dofarm_QP_solver_LA_VSUB_INDEXED_27(wam7dofarm_QP_solver_dzaff7, wam7dofarm_QP_solver_lbIdx7, wam7dofarm_QP_solver_rilb7, wam7dofarm_QP_solver_dslbaff7);
+wam7dofarm_QP_solver_LA_VSUB3_27(wam7dofarm_QP_solver_llbbyslb7, wam7dofarm_QP_solver_dslbaff7, wam7dofarm_QP_solver_llb7, wam7dofarm_QP_solver_dllbaff7);
+wam7dofarm_QP_solver_LA_VSUB2_INDEXED_15(wam7dofarm_QP_solver_riub7, wam7dofarm_QP_solver_dzaff7, wam7dofarm_QP_solver_ubIdx7, wam7dofarm_QP_solver_dsubaff7);
+wam7dofarm_QP_solver_LA_VSUB3_15(wam7dofarm_QP_solver_lubbysub7, wam7dofarm_QP_solver_dsubaff7, wam7dofarm_QP_solver_lub7, wam7dofarm_QP_solver_dlubaff7);
+wam7dofarm_QP_solver_LA_DENSE_MVMSUB4_12_27(params->A8, wam7dofarm_QP_solver_dzaff7, wam7dofarm_QP_solver_rip7, wam7dofarm_QP_solver_dsp_aff7);
+wam7dofarm_QP_solver_LA_VSUB3_12(wam7dofarm_QP_solver_lpbysp7, wam7dofarm_QP_solver_dsp_aff7, wam7dofarm_QP_solver_lp7, wam7dofarm_QP_solver_dlp_aff7);
 info->lsit_aff = wam7dofarm_QP_solver_LINESEARCH_BACKTRACKING_AFFINE(wam7dofarm_QP_solver_l, wam7dofarm_QP_solver_s, wam7dofarm_QP_solver_dl_aff, wam7dofarm_QP_solver_ds_aff, &info->step_aff, &info->mu_aff);
 if( info->lsit_aff == wam7dofarm_QP_solver_NOPROGRESS ){
 exitcode = wam7dofarm_QP_solver_NOPROGRESS; break;
@@ -2772,7 +2982,7 @@ exitcode = wam7dofarm_QP_solver_NOPROGRESS; break;
 sigma_3rdroot = info->mu_aff / info->mu;
 info->sigma = sigma_3rdroot*sigma_3rdroot*sigma_3rdroot;
 musigma = info->mu * info->sigma;
-wam7dofarm_QP_solver_LA_VSUB5_454(wam7dofarm_QP_solver_ds_aff, wam7dofarm_QP_solver_dl_aff, info->mu, info->sigma, wam7dofarm_QP_solver_ccrhs);
+wam7dofarm_QP_solver_LA_VSUB5_754(wam7dofarm_QP_solver_ds_aff, wam7dofarm_QP_solver_dl_aff, info->mu, info->sigma, wam7dofarm_QP_solver_ccrhs);
 wam7dofarm_QP_solver_LA_VSUB6_INDEXED_64_36_64(wam7dofarm_QP_solver_ccrhsub0, wam7dofarm_QP_solver_sub0, wam7dofarm_QP_solver_ubIdx0, wam7dofarm_QP_solver_ccrhsl0, wam7dofarm_QP_solver_slb0, wam7dofarm_QP_solver_lbIdx0, wam7dofarm_QP_solver_rd0);
 wam7dofarm_QP_solver_LA_VSUB6_INDEXED_64_36_64(wam7dofarm_QP_solver_ccrhsub1, wam7dofarm_QP_solver_sub1, wam7dofarm_QP_solver_ubIdx1, wam7dofarm_QP_solver_ccrhsl1, wam7dofarm_QP_solver_slb1, wam7dofarm_QP_solver_lbIdx1, wam7dofarm_QP_solver_rd1);
 wam7dofarm_QP_solver_LA_DIAG_FORWARDSUB_64(wam7dofarm_QP_solver_Phi0, wam7dofarm_QP_solver_rd0, wam7dofarm_QP_solver_Lbyrd0);
@@ -2789,13 +2999,34 @@ wam7dofarm_QP_solver_LA_DIAG_FORWARDSUB_64(wam7dofarm_QP_solver_Phi3, wam7dofarm
 wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_2MVMADD_15_64_64(wam7dofarm_QP_solver_V2, wam7dofarm_QP_solver_Lbyrd2, wam7dofarm_QP_solver_W3, wam7dofarm_QP_solver_Lbyrd3, wam7dofarm_QP_solver_beta2);
 wam7dofarm_QP_solver_LA_DENSE_MVMSUB1_15_15(wam7dofarm_QP_solver_Lsd2, wam7dofarm_QP_solver_yy1, wam7dofarm_QP_solver_beta2, wam7dofarm_QP_solver_bmy2);
 wam7dofarm_QP_solver_LA_DENSE_FORWARDSUB_15(wam7dofarm_QP_solver_Ld2, wam7dofarm_QP_solver_bmy2, wam7dofarm_QP_solver_yy2);
-wam7dofarm_QP_solver_LA_VSUB6_INDEXED_27_15_27(wam7dofarm_QP_solver_ccrhsub4, wam7dofarm_QP_solver_sub4, wam7dofarm_QP_solver_ubIdx4, wam7dofarm_QP_solver_ccrhsl4, wam7dofarm_QP_solver_slb4, wam7dofarm_QP_solver_lbIdx4, wam7dofarm_QP_solver_rd4);
-wam7dofarm_QP_solver_LA_DENSE_MTVMADD2_12_27(params->A5, wam7dofarm_QP_solver_ccrhsp4, wam7dofarm_QP_solver_sp4, wam7dofarm_QP_solver_rd4);
-wam7dofarm_QP_solver_LA_DENSE_FORWARDSUB_27(wam7dofarm_QP_solver_Phi4, wam7dofarm_QP_solver_rd4, wam7dofarm_QP_solver_Lbyrd4);
-wam7dofarm_QP_solver_LA_DENSE_2MVMADD_15_64_27(wam7dofarm_QP_solver_V3, wam7dofarm_QP_solver_Lbyrd3, wam7dofarm_QP_solver_W4, wam7dofarm_QP_solver_Lbyrd4, wam7dofarm_QP_solver_beta3);
+wam7dofarm_QP_solver_LA_VSUB6_INDEXED_64_36_64(wam7dofarm_QP_solver_ccrhsub4, wam7dofarm_QP_solver_sub4, wam7dofarm_QP_solver_ubIdx4, wam7dofarm_QP_solver_ccrhsl4, wam7dofarm_QP_solver_slb4, wam7dofarm_QP_solver_lbIdx4, wam7dofarm_QP_solver_rd4);
+wam7dofarm_QP_solver_LA_DIAG_FORWARDSUB_64(wam7dofarm_QP_solver_Phi4, wam7dofarm_QP_solver_rd4, wam7dofarm_QP_solver_Lbyrd4);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_2MVMADD_15_64_64(wam7dofarm_QP_solver_V3, wam7dofarm_QP_solver_Lbyrd3, wam7dofarm_QP_solver_W4, wam7dofarm_QP_solver_Lbyrd4, wam7dofarm_QP_solver_beta3);
 wam7dofarm_QP_solver_LA_DENSE_MVMSUB1_15_15(wam7dofarm_QP_solver_Lsd3, wam7dofarm_QP_solver_yy2, wam7dofarm_QP_solver_beta3, wam7dofarm_QP_solver_bmy3);
 wam7dofarm_QP_solver_LA_DENSE_FORWARDSUB_15(wam7dofarm_QP_solver_Ld3, wam7dofarm_QP_solver_bmy3, wam7dofarm_QP_solver_yy3);
-wam7dofarm_QP_solver_LA_DENSE_BACKWARDSUB_15(wam7dofarm_QP_solver_Ld3, wam7dofarm_QP_solver_yy3, wam7dofarm_QP_solver_dvcc3);
+wam7dofarm_QP_solver_LA_VSUB6_INDEXED_64_36_64(wam7dofarm_QP_solver_ccrhsub5, wam7dofarm_QP_solver_sub5, wam7dofarm_QP_solver_ubIdx5, wam7dofarm_QP_solver_ccrhsl5, wam7dofarm_QP_solver_slb5, wam7dofarm_QP_solver_lbIdx5, wam7dofarm_QP_solver_rd5);
+wam7dofarm_QP_solver_LA_DIAG_FORWARDSUB_64(wam7dofarm_QP_solver_Phi5, wam7dofarm_QP_solver_rd5, wam7dofarm_QP_solver_Lbyrd5);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_2MVMADD_15_64_64(wam7dofarm_QP_solver_V4, wam7dofarm_QP_solver_Lbyrd4, wam7dofarm_QP_solver_W5, wam7dofarm_QP_solver_Lbyrd5, wam7dofarm_QP_solver_beta4);
+wam7dofarm_QP_solver_LA_DENSE_MVMSUB1_15_15(wam7dofarm_QP_solver_Lsd4, wam7dofarm_QP_solver_yy3, wam7dofarm_QP_solver_beta4, wam7dofarm_QP_solver_bmy4);
+wam7dofarm_QP_solver_LA_DENSE_FORWARDSUB_15(wam7dofarm_QP_solver_Ld4, wam7dofarm_QP_solver_bmy4, wam7dofarm_QP_solver_yy4);
+wam7dofarm_QP_solver_LA_VSUB6_INDEXED_64_36_64(wam7dofarm_QP_solver_ccrhsub6, wam7dofarm_QP_solver_sub6, wam7dofarm_QP_solver_ubIdx6, wam7dofarm_QP_solver_ccrhsl6, wam7dofarm_QP_solver_slb6, wam7dofarm_QP_solver_lbIdx6, wam7dofarm_QP_solver_rd6);
+wam7dofarm_QP_solver_LA_DIAG_FORWARDSUB_64(wam7dofarm_QP_solver_Phi6, wam7dofarm_QP_solver_rd6, wam7dofarm_QP_solver_Lbyrd6);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_2MVMADD_15_64_64(wam7dofarm_QP_solver_V5, wam7dofarm_QP_solver_Lbyrd5, wam7dofarm_QP_solver_W6, wam7dofarm_QP_solver_Lbyrd6, wam7dofarm_QP_solver_beta5);
+wam7dofarm_QP_solver_LA_DENSE_MVMSUB1_15_15(wam7dofarm_QP_solver_Lsd5, wam7dofarm_QP_solver_yy4, wam7dofarm_QP_solver_beta5, wam7dofarm_QP_solver_bmy5);
+wam7dofarm_QP_solver_LA_DENSE_FORWARDSUB_15(wam7dofarm_QP_solver_Ld5, wam7dofarm_QP_solver_bmy5, wam7dofarm_QP_solver_yy5);
+wam7dofarm_QP_solver_LA_VSUB6_INDEXED_27_15_27(wam7dofarm_QP_solver_ccrhsub7, wam7dofarm_QP_solver_sub7, wam7dofarm_QP_solver_ubIdx7, wam7dofarm_QP_solver_ccrhsl7, wam7dofarm_QP_solver_slb7, wam7dofarm_QP_solver_lbIdx7, wam7dofarm_QP_solver_rd7);
+wam7dofarm_QP_solver_LA_DENSE_MTVMADD2_12_27(params->A8, wam7dofarm_QP_solver_ccrhsp7, wam7dofarm_QP_solver_sp7, wam7dofarm_QP_solver_rd7);
+wam7dofarm_QP_solver_LA_DENSE_FORWARDSUB_27(wam7dofarm_QP_solver_Phi7, wam7dofarm_QP_solver_rd7, wam7dofarm_QP_solver_Lbyrd7);
+wam7dofarm_QP_solver_LA_DENSE_2MVMADD_15_64_27(wam7dofarm_QP_solver_V6, wam7dofarm_QP_solver_Lbyrd6, wam7dofarm_QP_solver_W7, wam7dofarm_QP_solver_Lbyrd7, wam7dofarm_QP_solver_beta6);
+wam7dofarm_QP_solver_LA_DENSE_MVMSUB1_15_15(wam7dofarm_QP_solver_Lsd6, wam7dofarm_QP_solver_yy5, wam7dofarm_QP_solver_beta6, wam7dofarm_QP_solver_bmy6);
+wam7dofarm_QP_solver_LA_DENSE_FORWARDSUB_15(wam7dofarm_QP_solver_Ld6, wam7dofarm_QP_solver_bmy6, wam7dofarm_QP_solver_yy6);
+wam7dofarm_QP_solver_LA_DENSE_BACKWARDSUB_15(wam7dofarm_QP_solver_Ld6, wam7dofarm_QP_solver_yy6, wam7dofarm_QP_solver_dvcc6);
+wam7dofarm_QP_solver_LA_DENSE_MTVMSUB_15_15(wam7dofarm_QP_solver_Lsd6, wam7dofarm_QP_solver_dvcc6, wam7dofarm_QP_solver_yy5, wam7dofarm_QP_solver_bmy5);
+wam7dofarm_QP_solver_LA_DENSE_BACKWARDSUB_15(wam7dofarm_QP_solver_Ld5, wam7dofarm_QP_solver_bmy5, wam7dofarm_QP_solver_dvcc5);
+wam7dofarm_QP_solver_LA_DENSE_MTVMSUB_15_15(wam7dofarm_QP_solver_Lsd5, wam7dofarm_QP_solver_dvcc5, wam7dofarm_QP_solver_yy4, wam7dofarm_QP_solver_bmy4);
+wam7dofarm_QP_solver_LA_DENSE_BACKWARDSUB_15(wam7dofarm_QP_solver_Ld4, wam7dofarm_QP_solver_bmy4, wam7dofarm_QP_solver_dvcc4);
+wam7dofarm_QP_solver_LA_DENSE_MTVMSUB_15_15(wam7dofarm_QP_solver_Lsd4, wam7dofarm_QP_solver_dvcc4, wam7dofarm_QP_solver_yy3, wam7dofarm_QP_solver_bmy3);
+wam7dofarm_QP_solver_LA_DENSE_BACKWARDSUB_15(wam7dofarm_QP_solver_Ld3, wam7dofarm_QP_solver_bmy3, wam7dofarm_QP_solver_dvcc3);
 wam7dofarm_QP_solver_LA_DENSE_MTVMSUB_15_15(wam7dofarm_QP_solver_Lsd3, wam7dofarm_QP_solver_dvcc3, wam7dofarm_QP_solver_yy2, wam7dofarm_QP_solver_bmy2);
 wam7dofarm_QP_solver_LA_DENSE_BACKWARDSUB_15(wam7dofarm_QP_solver_Ld2, wam7dofarm_QP_solver_bmy2, wam7dofarm_QP_solver_dvcc2);
 wam7dofarm_QP_solver_LA_DENSE_MTVMSUB_15_15(wam7dofarm_QP_solver_Lsd2, wam7dofarm_QP_solver_dvcc2, wam7dofarm_QP_solver_yy1, wam7dofarm_QP_solver_bmy1);
@@ -2806,13 +3037,19 @@ wam7dofarm_QP_solver_LA_DENSE_MTVM_29_64(params->C1, wam7dofarm_QP_solver_dvcc0,
 wam7dofarm_QP_solver_LA_DENSE_MTVM2_15_64_29(params->C2, wam7dofarm_QP_solver_dvcc1, wam7dofarm_QP_solver_D1, wam7dofarm_QP_solver_dvcc0, wam7dofarm_QP_solver_grad_eq1);
 wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MTVM2_15_64_15(params->C3, wam7dofarm_QP_solver_dvcc2, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_dvcc1, wam7dofarm_QP_solver_grad_eq2);
 wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MTVM2_15_64_15(params->C4, wam7dofarm_QP_solver_dvcc3, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_dvcc2, wam7dofarm_QP_solver_grad_eq3);
-wam7dofarm_QP_solver_LA_DIAGZERO_MTVM_15_27(wam7dofarm_QP_solver_D4, wam7dofarm_QP_solver_dvcc3, wam7dofarm_QP_solver_grad_eq4);
-wam7dofarm_QP_solver_LA_VSUB_283(wam7dofarm_QP_solver_rd, wam7dofarm_QP_solver_grad_eq, wam7dofarm_QP_solver_rd);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MTVM2_15_64_15(params->C5, wam7dofarm_QP_solver_dvcc4, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_dvcc3, wam7dofarm_QP_solver_grad_eq4);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MTVM2_15_64_15(params->C6, wam7dofarm_QP_solver_dvcc5, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_dvcc4, wam7dofarm_QP_solver_grad_eq5);
+wam7dofarm_QP_solver_LA_DENSE_DIAGZERO_MTVM2_15_64_15(params->C7, wam7dofarm_QP_solver_dvcc6, wam7dofarm_QP_solver_D2, wam7dofarm_QP_solver_dvcc5, wam7dofarm_QP_solver_grad_eq6);
+wam7dofarm_QP_solver_LA_DIAGZERO_MTVM_15_27(wam7dofarm_QP_solver_D7, wam7dofarm_QP_solver_dvcc6, wam7dofarm_QP_solver_grad_eq7);
+wam7dofarm_QP_solver_LA_VSUB_475(wam7dofarm_QP_solver_rd, wam7dofarm_QP_solver_grad_eq, wam7dofarm_QP_solver_rd);
 wam7dofarm_QP_solver_LA_DIAG_FORWARDBACKWARDSUB_64(wam7dofarm_QP_solver_Phi0, wam7dofarm_QP_solver_rd0, wam7dofarm_QP_solver_dzcc0);
 wam7dofarm_QP_solver_LA_DIAG_FORWARDBACKWARDSUB_64(wam7dofarm_QP_solver_Phi1, wam7dofarm_QP_solver_rd1, wam7dofarm_QP_solver_dzcc1);
 wam7dofarm_QP_solver_LA_DIAG_FORWARDBACKWARDSUB_64(wam7dofarm_QP_solver_Phi2, wam7dofarm_QP_solver_rd2, wam7dofarm_QP_solver_dzcc2);
 wam7dofarm_QP_solver_LA_DIAG_FORWARDBACKWARDSUB_64(wam7dofarm_QP_solver_Phi3, wam7dofarm_QP_solver_rd3, wam7dofarm_QP_solver_dzcc3);
-wam7dofarm_QP_solver_LA_DENSE_FORWARDBACKWARDSUB_27(wam7dofarm_QP_solver_Phi4, wam7dofarm_QP_solver_rd4, wam7dofarm_QP_solver_dzcc4);
+wam7dofarm_QP_solver_LA_DIAG_FORWARDBACKWARDSUB_64(wam7dofarm_QP_solver_Phi4, wam7dofarm_QP_solver_rd4, wam7dofarm_QP_solver_dzcc4);
+wam7dofarm_QP_solver_LA_DIAG_FORWARDBACKWARDSUB_64(wam7dofarm_QP_solver_Phi5, wam7dofarm_QP_solver_rd5, wam7dofarm_QP_solver_dzcc5);
+wam7dofarm_QP_solver_LA_DIAG_FORWARDBACKWARDSUB_64(wam7dofarm_QP_solver_Phi6, wam7dofarm_QP_solver_rd6, wam7dofarm_QP_solver_dzcc6);
+wam7dofarm_QP_solver_LA_DENSE_FORWARDBACKWARDSUB_27(wam7dofarm_QP_solver_Phi7, wam7dofarm_QP_solver_rd7, wam7dofarm_QP_solver_dzcc7);
 wam7dofarm_QP_solver_LA_VEC_DIVSUB_MULTSUB_INDEXED_64(wam7dofarm_QP_solver_ccrhsl0, wam7dofarm_QP_solver_slb0, wam7dofarm_QP_solver_llbbyslb0, wam7dofarm_QP_solver_dzcc0, wam7dofarm_QP_solver_lbIdx0, wam7dofarm_QP_solver_dllbcc0);
 wam7dofarm_QP_solver_LA_VEC_DIVSUB_MULTADD_INDEXED_36(wam7dofarm_QP_solver_ccrhsub0, wam7dofarm_QP_solver_sub0, wam7dofarm_QP_solver_lubbysub0, wam7dofarm_QP_solver_dzcc0, wam7dofarm_QP_solver_ubIdx0, wam7dofarm_QP_solver_dlubcc0);
 wam7dofarm_QP_solver_LA_VEC_DIVSUB_MULTSUB_INDEXED_64(wam7dofarm_QP_solver_ccrhsl1, wam7dofarm_QP_solver_slb1, wam7dofarm_QP_solver_llbbyslb1, wam7dofarm_QP_solver_dzcc1, wam7dofarm_QP_solver_lbIdx1, wam7dofarm_QP_solver_dllbcc1);
@@ -2821,14 +3058,20 @@ wam7dofarm_QP_solver_LA_VEC_DIVSUB_MULTSUB_INDEXED_64(wam7dofarm_QP_solver_ccrhs
 wam7dofarm_QP_solver_LA_VEC_DIVSUB_MULTADD_INDEXED_36(wam7dofarm_QP_solver_ccrhsub2, wam7dofarm_QP_solver_sub2, wam7dofarm_QP_solver_lubbysub2, wam7dofarm_QP_solver_dzcc2, wam7dofarm_QP_solver_ubIdx2, wam7dofarm_QP_solver_dlubcc2);
 wam7dofarm_QP_solver_LA_VEC_DIVSUB_MULTSUB_INDEXED_64(wam7dofarm_QP_solver_ccrhsl3, wam7dofarm_QP_solver_slb3, wam7dofarm_QP_solver_llbbyslb3, wam7dofarm_QP_solver_dzcc3, wam7dofarm_QP_solver_lbIdx3, wam7dofarm_QP_solver_dllbcc3);
 wam7dofarm_QP_solver_LA_VEC_DIVSUB_MULTADD_INDEXED_36(wam7dofarm_QP_solver_ccrhsub3, wam7dofarm_QP_solver_sub3, wam7dofarm_QP_solver_lubbysub3, wam7dofarm_QP_solver_dzcc3, wam7dofarm_QP_solver_ubIdx3, wam7dofarm_QP_solver_dlubcc3);
-wam7dofarm_QP_solver_LA_VEC_DIVSUB_MULTSUB_INDEXED_27(wam7dofarm_QP_solver_ccrhsl4, wam7dofarm_QP_solver_slb4, wam7dofarm_QP_solver_llbbyslb4, wam7dofarm_QP_solver_dzcc4, wam7dofarm_QP_solver_lbIdx4, wam7dofarm_QP_solver_dllbcc4);
-wam7dofarm_QP_solver_LA_VEC_DIVSUB_MULTADD_INDEXED_15(wam7dofarm_QP_solver_ccrhsub4, wam7dofarm_QP_solver_sub4, wam7dofarm_QP_solver_lubbysub4, wam7dofarm_QP_solver_dzcc4, wam7dofarm_QP_solver_ubIdx4, wam7dofarm_QP_solver_dlubcc4);
-wam7dofarm_QP_solver_LA_DENSE_MVMSUB5_12_27(params->A5, wam7dofarm_QP_solver_dzcc4, wam7dofarm_QP_solver_ccrhsp4, wam7dofarm_QP_solver_sp4, wam7dofarm_QP_solver_lp4, wam7dofarm_QP_solver_dlp_cc4);
-wam7dofarm_QP_solver_LA_VSUB7_454(wam7dofarm_QP_solver_l, wam7dofarm_QP_solver_ccrhs, wam7dofarm_QP_solver_s, wam7dofarm_QP_solver_dl_cc, wam7dofarm_QP_solver_ds_cc);
-wam7dofarm_QP_solver_LA_VADD_283(wam7dofarm_QP_solver_dz_cc, wam7dofarm_QP_solver_dz_aff);
-wam7dofarm_QP_solver_LA_VADD_74(wam7dofarm_QP_solver_dv_cc, wam7dofarm_QP_solver_dv_aff);
-wam7dofarm_QP_solver_LA_VADD_454(wam7dofarm_QP_solver_dl_cc, wam7dofarm_QP_solver_dl_aff);
-wam7dofarm_QP_solver_LA_VADD_454(wam7dofarm_QP_solver_ds_cc, wam7dofarm_QP_solver_ds_aff);
+wam7dofarm_QP_solver_LA_VEC_DIVSUB_MULTSUB_INDEXED_64(wam7dofarm_QP_solver_ccrhsl4, wam7dofarm_QP_solver_slb4, wam7dofarm_QP_solver_llbbyslb4, wam7dofarm_QP_solver_dzcc4, wam7dofarm_QP_solver_lbIdx4, wam7dofarm_QP_solver_dllbcc4);
+wam7dofarm_QP_solver_LA_VEC_DIVSUB_MULTADD_INDEXED_36(wam7dofarm_QP_solver_ccrhsub4, wam7dofarm_QP_solver_sub4, wam7dofarm_QP_solver_lubbysub4, wam7dofarm_QP_solver_dzcc4, wam7dofarm_QP_solver_ubIdx4, wam7dofarm_QP_solver_dlubcc4);
+wam7dofarm_QP_solver_LA_VEC_DIVSUB_MULTSUB_INDEXED_64(wam7dofarm_QP_solver_ccrhsl5, wam7dofarm_QP_solver_slb5, wam7dofarm_QP_solver_llbbyslb5, wam7dofarm_QP_solver_dzcc5, wam7dofarm_QP_solver_lbIdx5, wam7dofarm_QP_solver_dllbcc5);
+wam7dofarm_QP_solver_LA_VEC_DIVSUB_MULTADD_INDEXED_36(wam7dofarm_QP_solver_ccrhsub5, wam7dofarm_QP_solver_sub5, wam7dofarm_QP_solver_lubbysub5, wam7dofarm_QP_solver_dzcc5, wam7dofarm_QP_solver_ubIdx5, wam7dofarm_QP_solver_dlubcc5);
+wam7dofarm_QP_solver_LA_VEC_DIVSUB_MULTSUB_INDEXED_64(wam7dofarm_QP_solver_ccrhsl6, wam7dofarm_QP_solver_slb6, wam7dofarm_QP_solver_llbbyslb6, wam7dofarm_QP_solver_dzcc6, wam7dofarm_QP_solver_lbIdx6, wam7dofarm_QP_solver_dllbcc6);
+wam7dofarm_QP_solver_LA_VEC_DIVSUB_MULTADD_INDEXED_36(wam7dofarm_QP_solver_ccrhsub6, wam7dofarm_QP_solver_sub6, wam7dofarm_QP_solver_lubbysub6, wam7dofarm_QP_solver_dzcc6, wam7dofarm_QP_solver_ubIdx6, wam7dofarm_QP_solver_dlubcc6);
+wam7dofarm_QP_solver_LA_VEC_DIVSUB_MULTSUB_INDEXED_27(wam7dofarm_QP_solver_ccrhsl7, wam7dofarm_QP_solver_slb7, wam7dofarm_QP_solver_llbbyslb7, wam7dofarm_QP_solver_dzcc7, wam7dofarm_QP_solver_lbIdx7, wam7dofarm_QP_solver_dllbcc7);
+wam7dofarm_QP_solver_LA_VEC_DIVSUB_MULTADD_INDEXED_15(wam7dofarm_QP_solver_ccrhsub7, wam7dofarm_QP_solver_sub7, wam7dofarm_QP_solver_lubbysub7, wam7dofarm_QP_solver_dzcc7, wam7dofarm_QP_solver_ubIdx7, wam7dofarm_QP_solver_dlubcc7);
+wam7dofarm_QP_solver_LA_DENSE_MVMSUB5_12_27(params->A8, wam7dofarm_QP_solver_dzcc7, wam7dofarm_QP_solver_ccrhsp7, wam7dofarm_QP_solver_sp7, wam7dofarm_QP_solver_lp7, wam7dofarm_QP_solver_dlp_cc7);
+wam7dofarm_QP_solver_LA_VSUB7_754(wam7dofarm_QP_solver_l, wam7dofarm_QP_solver_ccrhs, wam7dofarm_QP_solver_s, wam7dofarm_QP_solver_dl_cc, wam7dofarm_QP_solver_ds_cc);
+wam7dofarm_QP_solver_LA_VADD_475(wam7dofarm_QP_solver_dz_cc, wam7dofarm_QP_solver_dz_aff);
+wam7dofarm_QP_solver_LA_VADD_119(wam7dofarm_QP_solver_dv_cc, wam7dofarm_QP_solver_dv_aff);
+wam7dofarm_QP_solver_LA_VADD_754(wam7dofarm_QP_solver_dl_cc, wam7dofarm_QP_solver_dl_aff);
+wam7dofarm_QP_solver_LA_VADD_754(wam7dofarm_QP_solver_ds_cc, wam7dofarm_QP_solver_ds_aff);
 info->lsit_cc = wam7dofarm_QP_solver_LINESEARCH_BACKTRACKING_COMBINED(wam7dofarm_QP_solver_z, wam7dofarm_QP_solver_v, wam7dofarm_QP_solver_l, wam7dofarm_QP_solver_s, wam7dofarm_QP_solver_dz_cc, wam7dofarm_QP_solver_dv_cc, wam7dofarm_QP_solver_dl_cc, wam7dofarm_QP_solver_ds_cc, &info->step_cc, &info->mu);
 if( info->lsit_cc == wam7dofarm_QP_solver_NOPROGRESS ){
 exitcode = wam7dofarm_QP_solver_NOPROGRESS; break;
@@ -2994,6 +3237,114 @@ output->z5[11] = wam7dofarm_QP_solver_z4[11];
 output->z5[12] = wam7dofarm_QP_solver_z4[12];
 output->z5[13] = wam7dofarm_QP_solver_z4[13];
 output->z5[14] = wam7dofarm_QP_solver_z4[14];
+output->z5[15] = wam7dofarm_QP_solver_z4[15];
+output->z5[16] = wam7dofarm_QP_solver_z4[16];
+output->z5[17] = wam7dofarm_QP_solver_z4[17];
+output->z5[18] = wam7dofarm_QP_solver_z4[18];
+output->z5[19] = wam7dofarm_QP_solver_z4[19];
+output->z5[20] = wam7dofarm_QP_solver_z4[20];
+output->z5[21] = wam7dofarm_QP_solver_z4[21];
+output->z5[22] = wam7dofarm_QP_solver_z4[22];
+output->z5[23] = wam7dofarm_QP_solver_z4[23];
+output->z5[24] = wam7dofarm_QP_solver_z4[24];
+output->z5[25] = wam7dofarm_QP_solver_z4[25];
+output->z5[26] = wam7dofarm_QP_solver_z4[26];
+output->z5[27] = wam7dofarm_QP_solver_z4[27];
+output->z5[28] = wam7dofarm_QP_solver_z4[28];
+output->z5[29] = wam7dofarm_QP_solver_z4[29];
+output->z5[30] = wam7dofarm_QP_solver_z4[30];
+output->z5[31] = wam7dofarm_QP_solver_z4[31];
+output->z5[32] = wam7dofarm_QP_solver_z4[32];
+output->z5[33] = wam7dofarm_QP_solver_z4[33];
+output->z5[34] = wam7dofarm_QP_solver_z4[34];
+output->z5[35] = wam7dofarm_QP_solver_z4[35];
+output->z6[0] = wam7dofarm_QP_solver_z5[0];
+output->z6[1] = wam7dofarm_QP_solver_z5[1];
+output->z6[2] = wam7dofarm_QP_solver_z5[2];
+output->z6[3] = wam7dofarm_QP_solver_z5[3];
+output->z6[4] = wam7dofarm_QP_solver_z5[4];
+output->z6[5] = wam7dofarm_QP_solver_z5[5];
+output->z6[6] = wam7dofarm_QP_solver_z5[6];
+output->z6[7] = wam7dofarm_QP_solver_z5[7];
+output->z6[8] = wam7dofarm_QP_solver_z5[8];
+output->z6[9] = wam7dofarm_QP_solver_z5[9];
+output->z6[10] = wam7dofarm_QP_solver_z5[10];
+output->z6[11] = wam7dofarm_QP_solver_z5[11];
+output->z6[12] = wam7dofarm_QP_solver_z5[12];
+output->z6[13] = wam7dofarm_QP_solver_z5[13];
+output->z6[14] = wam7dofarm_QP_solver_z5[14];
+output->z6[15] = wam7dofarm_QP_solver_z5[15];
+output->z6[16] = wam7dofarm_QP_solver_z5[16];
+output->z6[17] = wam7dofarm_QP_solver_z5[17];
+output->z6[18] = wam7dofarm_QP_solver_z5[18];
+output->z6[19] = wam7dofarm_QP_solver_z5[19];
+output->z6[20] = wam7dofarm_QP_solver_z5[20];
+output->z6[21] = wam7dofarm_QP_solver_z5[21];
+output->z6[22] = wam7dofarm_QP_solver_z5[22];
+output->z6[23] = wam7dofarm_QP_solver_z5[23];
+output->z6[24] = wam7dofarm_QP_solver_z5[24];
+output->z6[25] = wam7dofarm_QP_solver_z5[25];
+output->z6[26] = wam7dofarm_QP_solver_z5[26];
+output->z6[27] = wam7dofarm_QP_solver_z5[27];
+output->z6[28] = wam7dofarm_QP_solver_z5[28];
+output->z6[29] = wam7dofarm_QP_solver_z5[29];
+output->z6[30] = wam7dofarm_QP_solver_z5[30];
+output->z6[31] = wam7dofarm_QP_solver_z5[31];
+output->z6[32] = wam7dofarm_QP_solver_z5[32];
+output->z6[33] = wam7dofarm_QP_solver_z5[33];
+output->z6[34] = wam7dofarm_QP_solver_z5[34];
+output->z6[35] = wam7dofarm_QP_solver_z5[35];
+output->z7[0] = wam7dofarm_QP_solver_z6[0];
+output->z7[1] = wam7dofarm_QP_solver_z6[1];
+output->z7[2] = wam7dofarm_QP_solver_z6[2];
+output->z7[3] = wam7dofarm_QP_solver_z6[3];
+output->z7[4] = wam7dofarm_QP_solver_z6[4];
+output->z7[5] = wam7dofarm_QP_solver_z6[5];
+output->z7[6] = wam7dofarm_QP_solver_z6[6];
+output->z7[7] = wam7dofarm_QP_solver_z6[7];
+output->z7[8] = wam7dofarm_QP_solver_z6[8];
+output->z7[9] = wam7dofarm_QP_solver_z6[9];
+output->z7[10] = wam7dofarm_QP_solver_z6[10];
+output->z7[11] = wam7dofarm_QP_solver_z6[11];
+output->z7[12] = wam7dofarm_QP_solver_z6[12];
+output->z7[13] = wam7dofarm_QP_solver_z6[13];
+output->z7[14] = wam7dofarm_QP_solver_z6[14];
+output->z7[15] = wam7dofarm_QP_solver_z6[15];
+output->z7[16] = wam7dofarm_QP_solver_z6[16];
+output->z7[17] = wam7dofarm_QP_solver_z6[17];
+output->z7[18] = wam7dofarm_QP_solver_z6[18];
+output->z7[19] = wam7dofarm_QP_solver_z6[19];
+output->z7[20] = wam7dofarm_QP_solver_z6[20];
+output->z7[21] = wam7dofarm_QP_solver_z6[21];
+output->z7[22] = wam7dofarm_QP_solver_z6[22];
+output->z7[23] = wam7dofarm_QP_solver_z6[23];
+output->z7[24] = wam7dofarm_QP_solver_z6[24];
+output->z7[25] = wam7dofarm_QP_solver_z6[25];
+output->z7[26] = wam7dofarm_QP_solver_z6[26];
+output->z7[27] = wam7dofarm_QP_solver_z6[27];
+output->z7[28] = wam7dofarm_QP_solver_z6[28];
+output->z7[29] = wam7dofarm_QP_solver_z6[29];
+output->z7[30] = wam7dofarm_QP_solver_z6[30];
+output->z7[31] = wam7dofarm_QP_solver_z6[31];
+output->z7[32] = wam7dofarm_QP_solver_z6[32];
+output->z7[33] = wam7dofarm_QP_solver_z6[33];
+output->z7[34] = wam7dofarm_QP_solver_z6[34];
+output->z7[35] = wam7dofarm_QP_solver_z6[35];
+output->z8[0] = wam7dofarm_QP_solver_z7[0];
+output->z8[1] = wam7dofarm_QP_solver_z7[1];
+output->z8[2] = wam7dofarm_QP_solver_z7[2];
+output->z8[3] = wam7dofarm_QP_solver_z7[3];
+output->z8[4] = wam7dofarm_QP_solver_z7[4];
+output->z8[5] = wam7dofarm_QP_solver_z7[5];
+output->z8[6] = wam7dofarm_QP_solver_z7[6];
+output->z8[7] = wam7dofarm_QP_solver_z7[7];
+output->z8[8] = wam7dofarm_QP_solver_z7[8];
+output->z8[9] = wam7dofarm_QP_solver_z7[9];
+output->z8[10] = wam7dofarm_QP_solver_z7[10];
+output->z8[11] = wam7dofarm_QP_solver_z7[11];
+output->z8[12] = wam7dofarm_QP_solver_z7[12];
+output->z8[13] = wam7dofarm_QP_solver_z7[13];
+output->z8[14] = wam7dofarm_QP_solver_z7[14];
 
 #if wam7dofarm_QP_solver_SET_TIMING == 1
 info->solvetime = wam7dofarm_QP_solver_toc(&solvertimer);
