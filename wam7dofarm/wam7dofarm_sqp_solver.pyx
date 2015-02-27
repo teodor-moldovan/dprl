@@ -1,5 +1,6 @@
 import cython
 cimport numpy as np
+import time
 
 cdef extern from "wam7dofarm_sqp.cpp": 
     int solve_BVP(double weights[], double pi[], double start_state[], double &delta, double virtual_control_max)
@@ -13,6 +14,9 @@ def solve(np.ndarray[double, ndim=1, mode="c"] weights not None,
     
     cdef double delta;
 
+    start = time.time()
     success = solve_BVP(&weights[0], &pi[0,0], &start_state[0], delta, virtual_control_max)
+    end = time.time()
+    print "Solvetime: ", end-start, "s"
 
     return success, delta # Minimum time only

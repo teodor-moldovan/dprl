@@ -19,8 +19,8 @@ double control_max[NU] = {  77.3,  160.6,  95.6,  29.4,  11.6,  11.6,  2.7 };
 #define EPS 1e-5
 
 // Constraint values
-double target_pos[3] = { 0.21060238, 0.7969267, -0.2106024 };
-double target_vel[3] = { 0.0, 0.0, 0.0 };
+double target_pos[3] = { -2.67059718e-02, -9.34824138e-05,  8.18595702e-01};
+double target_vel[3] = { 3.15322, 0.0, 1.82051 }; // Want positive x and z velocity, 0 y velocity
 
 double state_min[NX] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -150, -113, -157, -50, -275, -90, -172}; // In degrees
 double state_max[NX] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  150,  113,  157, 180,   75,  90,  172};
@@ -88,16 +88,18 @@ namespace wam7dofarm {
       // std::cout << "Error: " << epsilon << ", Delta: " << delta << "\n";
 
       // Clip dynamics here: joint angles only
-      for(int i = NX/2; i < NX; ++i) {
-        if (y(i) < state_min[i]) {
-          y(i) = state_min[i];
-          y(i - NX/2) = 0; // Zero out joint velocity
-        }
-        else if (y(i) > state_max[i]) {
-          y(i) = state_max[i];
-          y(i - NX/2) = 0; // Zero out joint velocity
-        }
-      }
+      // for(int i = NX/2; i < NX; ++i) {
+      //   if (y(i) < state_min[i]*M_PI/180.0) {
+      //     y(i) = state_min[i]*M_PI/180.0;
+      //     y(i - NX/2) = 0; // Zero out joint velocity
+      //     std::cout << "------------------------ CLIPPED DYNAMICS -------------------------------\n";
+      //   }
+      //   else if (y(i) > state_max[i]*M_PI/180.0) {
+      //     y(i) = state_max[i]*M_PI/180.0;
+      //     y(i - NX/2) = 0; // Zero out joint velocity
+      //     std::cout << "------------------------ CLIPPED DYNAMICS -------------------------------\n";
+      //   }
+      // }
 
       return y;
 

@@ -22,18 +22,36 @@
 %       PARAMS.ub4 - column vector of length 36
 %       PARAMS.C4 - matrix of size [15 x 64]
 %       PARAMS.e4 - column vector of length 15
-%       PARAMS.f5 - column vector of length 27
-%       PARAMS.lb5 - column vector of length 27
-%       PARAMS.ub5 - column vector of length 15
-%       PARAMS.A5 - matrix of size [12 x 27]
-%       PARAMS.b5 - column vector of length 12
+%       PARAMS.f5 - column vector of length 64
+%       PARAMS.lb5 - column vector of length 64
+%       PARAMS.ub5 - column vector of length 36
+%       PARAMS.C5 - matrix of size [15 x 64]
+%       PARAMS.e5 - column vector of length 15
+%       PARAMS.f6 - column vector of length 64
+%       PARAMS.lb6 - column vector of length 64
+%       PARAMS.ub6 - column vector of length 36
+%       PARAMS.C6 - matrix of size [15 x 64]
+%       PARAMS.e6 - column vector of length 15
+%       PARAMS.f7 - column vector of length 64
+%       PARAMS.lb7 - column vector of length 64
+%       PARAMS.ub7 - column vector of length 36
+%       PARAMS.C7 - matrix of size [15 x 64]
+%       PARAMS.e7 - column vector of length 15
+%       PARAMS.f8 - column vector of length 27
+%       PARAMS.lb8 - column vector of length 27
+%       PARAMS.ub8 - column vector of length 15
+%       PARAMS.A8 - matrix of size [12 x 27]
+%       PARAMS.b8 - column vector of length 12
 %
 %   OUTPUT returns the values of the last iteration of the solver where
 %       OUTPUT.z1 - column vector of size 36
 %       OUTPUT.z2 - column vector of size 36
 %       OUTPUT.z3 - column vector of size 36
 %       OUTPUT.z4 - column vector of size 36
-%       OUTPUT.z5 - column vector of size 15
+%       OUTPUT.z5 - column vector of size 36
+%       OUTPUT.z6 - column vector of size 36
+%       OUTPUT.z7 - column vector of size 36
+%       OUTPUT.z8 - column vector of size 15
 %
 %   [OUTPUT, EXITFLAG] = wam7dofarm_QP_solver(PARAMS) returns additionally
 %   the integer EXITFLAG indicating the state of the solution with 

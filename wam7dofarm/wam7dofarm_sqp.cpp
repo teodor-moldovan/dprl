@@ -37,9 +37,9 @@ typedef std::vector<VectorU> StdVectorU;
 namespace cfg {
 double improve_ratio_threshold = .01; // .1
 const double min_approx_improve = 1e-4; // 1e-4
-const double min_trust_box_size = 1e-4; // 1e-3
-const double trust_shrink_ratio = .25; // .5
-const double trust_expand_ratio = 1.25; // 1.5
+const double min_trust_box_size = 1e-5; // 1e-3
+const double trust_shrink_ratio = .4; // .4
+const double trust_expand_ratio = 1.4; // 1.3
 const double cnt_tolerance = 1e-3; // 1e-5
 const double penalty_coeff_increase_ratio = 5; // 10
 const double initial_penalty_coeff = .1; // 1
@@ -276,8 +276,8 @@ void fill_lb_and_ub(StdVectorX& X, StdVectorU& U, double& delta, double trust_bo
 			}
 			else if (i > X_DIM && i < X_DIM+U_DIM+VC_DIM+1) {
 				if (i < X_DIM + 1 + U_DIM) { // For normal controls
-					lb_temp(i) = MAX(bounds.u_min(i-X_DIM-1), ut[i-X_DIM-1] - trust_box_size);
-					ub_temp(i) = MIN(bounds.u_max(i-X_DIM-1), ut[i-X_DIM-1] + trust_box_size);
+					lb_temp(i) = MAX(bounds.u_min(i-X_DIM-1), ut[i-X_DIM-1] - trust_box_size*control_max[i-X_DIM-1]); // scale of torques is crazy. Try accounting for them
+					ub_temp(i) = MIN(bounds.u_max(i-X_DIM-1), ut[i-X_DIM-1] + trust_box_size*control_max[i-X_DIM-1]);
 				} else { // For virtual controls
 					//lb_temp(i) = bounds.virtual_control_min;
 					//ub_temp(i) = bounds.virtual_control_max;
@@ -440,20 +440,20 @@ void fill_A_T_and_b_T(StdVectorX& X, StdVectorU& U, double& delta, double trust_
 	
 	// Update the top half of A_T, the bottom half is just -1 * (top_half)
 	A_T_temp.block<3, X_DIM>(0,0) = pos_jac;
-	// A_T_temp.block<3, X_DIM>(3,0) = vel_jac;
+	A_T_temp.block<3, X_DIM>(3,0) = vel_jac;
 	A_T_temp.block<3, X_DIM>(6,0) = -pos_jac;
-	// A_T_temp.block<3, X_DIM>(9,0) = -vel_jac;
+	A_T_temp.block<3, X_DIM>(9,0) = -vel_jac;
 
-    // A_T_temp.block<6,6>(0, X_DIM+1) = minusI;        
-    // A_T_temp.block<6,6>(6, X_DIM+1+6) = minusI;
-    A_T_temp.block<3,3>(0, X_DIM+1) = -1 * Matrix<double, 3, 3>::Identity(3,3);        
-    A_T_temp.block<3,3>(6, X_DIM+1+6) = -1 * Matrix<double, 3, 3>::Identity(3,3);
+    A_T_temp.block<6,6>(0, X_DIM+1) = minusI;        
+    A_T_temp.block<6,6>(6, X_DIM+1+6) = minusI;
+    // A_T_temp.block<3,3>(0, X_DIM+1) = -1 * Matrix<double, 3, 3>::Identity(3,3);        
+    // A_T_temp.block<3,3>(6, X_DIM+1+6) = -1 * Matrix<double, 3, 3>::Identity(3,3);
 	
 	b_T_temp.block<3,1>(0,0) = bounds.pos_goal - x_T_pos_eval + pos_jac*x_T + buffer;
-	// b_T_temp.block<3,1>(3,0) = bounds.vel_goal - x_T_vel_eval + vel_jac*x_T + buffer;
+	b_T_temp.block<3,1>(3,0) = bounds.vel_goal - x_T_vel_eval + vel_jac*x_T + buffer;
 
 	b_T_temp.block<3,1>(6,0) = -bounds.pos_goal + x_T_pos_eval - pos_jac*x_T + buffer;
-	// b_T_temp.block<3,1>(9,0) = -bounds.vel_goal + x_T_vel_eval - vel_jac*x_T + buffer;
+	b_T_temp.block<3,1>(9,0) = -bounds.vel_goal + x_T_vel_eval - vel_jac*x_T + buffer;
 
 	// std::cout << "A_T_temp:\n" << A_T_temp << "\n";
 	// std::cout << "b_T_temp:\n" << b_T_temp << "\n";
@@ -508,7 +508,7 @@ double computeMerit(double& delta, StdVectorX& X, StdVectorU& U, double penalty_
 	
 
 	merit += penalty_coeff*(pos_viol).sum();
-	// merit += penalty_coeff*(vel_viol).sum();
+	merit += penalty_coeff*(vel_viol).sum();
 
 	return merit;
 }
@@ -543,7 +543,7 @@ bool minimize_merit_function(StdVectorX& X, StdVectorU& U, double& delta, bounds
 	fill_f(penalty_coeff);
 	int sqp_iter;
 	for(sqp_iter=0; sqp_iter < cfg::max_sqp_iterations; ++sqp_iter) {
-		// LOG_INFO("  sqp iter: %d",sqp_iter);
+		LOG_INFO("  sqp iter: %d",sqp_iter);
 
 		merit = computeMerit(delta, X, U, penalty_coeff, bounds);
 
@@ -551,9 +551,9 @@ bool minimize_merit_function(StdVectorX& X, StdVectorU& U, double& delta, bounds
 		fill_in_C_and_e(X, U, delta, trust_box_size, bounds);
 		fill_A_T_and_b_T(X, U, delta, trust_box_size, bounds);
 
-		if (sqp_iter % 20 == 0) {
-			LOG_INFO("		sqp_iter: %d", sqp_iter);
-		}
+		// if (sqp_iter % 20 == 0) {
+		// 	LOG_INFO("		sqp_iter: %d", sqp_iter);
+		// }
 
 		for(int trust_iter=0; true; ++trust_iter) {
 			LOG_INFO("       trust region size: %f",trust_box_size);
@@ -667,7 +667,7 @@ bool penalty_sqp(StdVectorX& X, StdVectorU& U, double& delta, bounds_t bounds,
 
 		if (constraint_violation <= cfg::cnt_tolerance) {
 			break;
-		} else if (constraint_violation > 2 && penalty_increases == 0) {
+		} else if (constraint_violation > 5 && penalty_increases == 0) {
 
 			if (delta > bounds.delta_max) {
 				LOG_ERROR("Delta exceeds maximum allowed.\n");
@@ -722,6 +722,9 @@ bool penalty_sqp(StdVectorX& X, StdVectorU& U, double& delta, bounds_t bounds,
 		//  	// std::cout << "U:\n" << U[t] << "\n";
 		// }
 	}
+		
+	double constraint_violation = (computeMerit(delta, X, U, penalty_coeff, bounds) - computeObjective(delta, X, U))/penalty_coeff;
+	LOG_FATAL("Final constraint violation: %.5f", constraint_violation);
 
 	return success;
 }
@@ -817,7 +820,26 @@ int solve_BVP(double weights[], double pi[], double start_state[], double& delta
 
 	// std::cout << "Number of QP solves: " << QP_count << "\n";
 
+	// print virtual controls
+	// std::cout << "Virtual controls:\n";
+	// for(int t = 0; t < T-1; ++t) {
+	// 	for(int i = 0; i < VC_DIM; ++i) {
+	// 		std::cout << U[t][i+U_DIM] << ", ";
+	// 	}
+	// 	std::cout << "\n";
+	// }
+
 	if (success) {
+		std::cout << "States found by SQP:\n";
+		std::cout << "[";
+		for(int t = 0; t < T; ++t){
+			std::cout << "[";
+			for(int i = 7; i < X_DIM-1; ++i) {
+				std::cout << X[t][i] << ", ";
+			}
+			std::cout << X[t][X_DIM-1] << "],\n";
+		}
+		std::cout << "]\n";
 		// std::cout << "Final state:\n" << X[T-1] << "\n";
 		//printf("Delta: %.5f\n", delta);
 		return 1;

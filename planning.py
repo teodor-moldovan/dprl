@@ -527,11 +527,11 @@ class DynamicalSystem:
         def f(t,x):
             """ explicit dynamics"""
             u = policy.u(t,x).reshape(-1)[:self.nu]
-            u = np.maximum(-1.0, np.minimum(1.0,u) )
 
             if self.name in ['pendulum', 'wam7dofarm']:
                 dx = self.dynamics(x, u)
             else:
+                u = np.maximum(-1.0, np.minimum(1.0,u) ) # For 7DOF arm, don't need this
                 dx = self.explf(to_gpu(x.reshape(1,x.size)),
                             to_gpu(u.reshape(1,u.size))).get()
                 dx = dx.reshape(-1)

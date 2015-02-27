@@ -612,7 +612,13 @@ class TestsDynamicalSystem(unittest.TestCase):
                 sys.path.append('./{0}/sympybotics version'.format(env.name))
             elif env.name == 'wam7dofarm':
                 sys.path.append('./{0}'.format(env.name))
-                import forward_kin                
+                import forward_kin       
+                import wam7dofarm_python_true_dynamics         
+                import openravepy as rave
+                renv = rave.Environment()
+                renv.SetViewer('qtcoin')
+                renv.Load('robots/wam7.kinbody.xml')
+                robot = renv.GetBodies()[0]
             else:
                 sys.path.append('./{0}'.format(env.name))
             SQP = __import__("{0}_sqp_solver".format(env.name))
@@ -620,6 +626,7 @@ class TestsDynamicalSystem(unittest.TestCase):
             pp = SlpNlp(GPMcompact(ds,ds.collocation_points))
 
         counter = 0
+
 
         while True:
             # loop over learning episodes
@@ -632,6 +639,11 @@ class TestsDynamicalSystem(unittest.TestCase):
             env.initialize_state()
             env.t = 0
 
+            try:
+                nz = env.noise[0]
+            except TypeError:
+                nz = env.noise
+
             # start with a sequence of random controls
             # need more random steps if system has more features
             if env.name == 'wam7dofarm':
@@ -639,6 +651,8 @@ class TestsDynamicalSystem(unittest.TestCase):
             else:
                 trj = env.step(RandomPolicy(env.nu,umax=.1),2*ds.nx) 
             #trj = env.step(RandomPolicy(env.nu,umax=.1),20) 
+            ds.state = env.state.copy() + nz*np.random.normal(size=env.nx)
+
             cnt = 0
 
             num_iters = 0
@@ -651,9 +665,9 @@ class TestsDynamicalSystem(unittest.TestCase):
             #embed()
 
             # Initialize pi to a random policy. Hopefully this will be overwritten in the first time step.
-            pi = RandomPolicy(env.nu,umax=.1)
+            pi = PiecewiseConstantPolicy(np.zeros([ds.collocation_points-1, env.nu], dtype=float), 2*ds.nx)
 
-            while True:
+            while True: # Plan, execute, check
                 # loop over time steps
 
                 tmm = time.time()
@@ -663,13 +677,7 @@ class TestsDynamicalSystem(unittest.TestCase):
                 env.reset_if_need_be()
                 #env.print_state()
                 env.print_time()
-                
-                try:
-                    nz = env.noise[0]
-                except TypeError:
-                    nz = env.noise
-
-                ds.state = env.state.copy() + nz*np.random.normal(size=env.nx)
+            
 
                 # Mod any angles that need to be modded by 2pi
                 try:
@@ -693,6 +701,7 @@ class TestsDynamicalSystem(unittest.TestCase):
                     weights = ds.weights.get().reshape(-1)
                     # Instantiate control matrix (the -1 is because there are always T states with T-1 controls)
                     controls = np.zeros([ds.collocation_points-1, env.nu], dtype=float)
+                    # controls = pi.us
                     # Get current state
                     curr_state = ds.state
                     # Get slack bounds on model dynamics
@@ -700,13 +709,24 @@ class TestsDynamicalSystem(unittest.TestCase):
                     # Solve BVP
                     #import pdb
                     #pdb.set_trace()
-                    success, delta = SQP.solve(weights, controls, curr_state, vc_max)
-                    if not success:
+
+                    if env.name == 'wam7dofarm':
+                        robot.SetDOFValues(ds.state[7:])
+                        weights = wam7dofarm_python_true_dynamics.true_weights
                         success, delta = SQP.solve(weights, controls, curr_state, vc_max+env.vc_slack_add)
+                        print "Pi: ", repr(controls)
+                        print "Delta: ", delta, ", Horizon:", delta*(ds.collocation_points-1)
+                        # if success:
+                        #     env.vc_slack_add -= 0.01
+                        #     env.vc_slack_add = max(env.vc_slack_add, 0)
+                    else:
+                        success, delta = SQP.solve(weights, controls, curr_state, vc_max)
+                        if not success:
+                            success, delta = SQP.solve(weights, controls, curr_state, vc_max+env.vc_slack_add)
 
                     # Create PiecewisePolicy object
+                    pi = PiecewiseConstantPolicy(controls, delta*(ds.collocation_points-1))
                     if success:
-                        pi = PiecewiseConstantPolicy(controls, delta*(ds.collocation_points-1))
                         total_SQP_successes += 1
                     else:
                         print "FAILED..."
@@ -720,41 +740,69 @@ class TestsDynamicalSystem(unittest.TestCase):
                     print "Success rate: {0}".format(total_SQP_successes/float(total_SQP_calls))
                 # num_iters += 1
 
+                # if use_FORCES and success:# and num_iters % 10 == 0:
+                #     embed()
+
+                # Execute whole trajectory if close enough (hack for 7DOF arm)
+                # Maybe put an if env.name == 'wam7dofarm':
+                # also, maybe we wanna take advantage of violation constraint. it doesn't quite work unless violation constraint is small enough
+                if pi.max_h < .13:
+                    trj = env.step(pi, pi.max_h/0.01)
+                else:
+                    if use_FORCES and not success:
+                        timesteps = 5
+                        if pi.max_h > .01:
+                            trj = env.step(pi, timesteps) # Just use what you have
+                        else:
+                            trj = env.step(RandomPolicy(env.nu,umax=.1), timesteps) # tends not to work..
+                    else:
+                        # trj = env.step(pi, 0.5*delta/0.01) # Play with this parameter
+                        trj = env.step(pi, 5) # Play with this parameter
+
+                ds.state = env.state.copy() + nz*np.random.normal(size=env.nx)
+
+                # print "Count: {0}".format(cnt)
+
+
                 # stopping criteria
                 if env.name == 'wam7dofarm':
                     pos = forward_kin.end_effector_pos(ds.state)
                     vel = forward_kin.end_effector_lin_vel(ds.state)
-                    current_end_effector_pos_vel = np.array([pos, vel])
-                    dst = np.nansum((current_end_effector_pos_vel - ds.target)**2)
-                    print "Distance to goal: ", dst
+
+                    # Position and linear velocity
+                    current_end_effector_pos_vel = np.concatenate((pos, vel))
+                    displacements = current_end_effector_pos_vel - np.matrix(ds.target).T
+
+                    # Just position, don't care about velocity
+                    pos_goal = np.matrix(ds.target[0:3]).T
+                    # displacements = pos - pos_goal
+
+                    # Calculate L_inf distance to goal
+                    max_displacement = max(abs(displacements))[0,0]
+                    print "Joint state:\n", repr(ds.state)
+                    print "End effector state:\n", current_end_effector_pos_vel.T[0]
+                    print "Slack is: ", env.vc_slack_add
+                    print "Max displacement to goal: ", max_displacement, "\n" # last ting per time step I think
+
+                    if max_displacement < env.goal_radius:
+                        break
+
                 else:
                     dst = np.nansum( 
                         ((ds.state - ds.target)**2)[np.logical_not(ds.c_ignore)])
-                # if (pi.max_h < .1 and success) or dst < 1e-4: # 1e-4
-                if dst < 1e-3:
-                    # embed()
-                    # cnt += 1
-                    break
-                # if cnt>20:
-                #     break
+                    # if (pi.max_h < .1 and success) or dst < 1e-4: # 1e-4
+                    # for wam 7 dof arm, get into cube goal radius                   
+                    if dst < 1e-2: # 1e-3
+                        # embed()
+                        # cnt += 1
+                        break
+                    # if cnt>20:
+                    #     break
                 if env.t >= ds.episode_max_h:
                     break
 
-                # if use_FORCES and success:# and num_iters % 10 == 0:
-                #     embed()
 
-                if use_FORCES and not success:
-                    timesteps = 3
-                    # if pi.max_h > timesteps*.1:
-                    #     trj = env.step(pi, timesteps) # Just use what you have
-                    # else:
-                    trj = env.step(RandomPolicy(env.nu,umax=.1), timesteps) # tends not to work..
-                else:
-                    # trj = env.step(pi, 0.5*delta/0.01) # Play with this parameter
-                    trj = env.step(pi, 5) # Play with this parameter
-
-                # print "Count: {0}".format(cnt)
-
+                print "-------------------------------------------------------------------------"
 
 
 

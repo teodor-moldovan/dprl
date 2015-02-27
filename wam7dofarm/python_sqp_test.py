@@ -8,7 +8,7 @@ import time
 weights = wam7dofarm_python_true_dynamics.true_weights
 # weights += .1*np.random.normal(size=70)
 
-vc_max = 1
+vc_max = 5
 
 collocation_points = 8
 
@@ -17,17 +17,17 @@ pi = np.zeros([collocation_points - 1, nU], dtype=float)
 
 start_state = np.zeros(14)
 
-start_state += .1*np.random.normal(size = 14)
+start_state[7:] += .1*np.random.normal(size = 7)
 
-# start_state = np.array([0.00, 0.0, 0.000, 0.0000])
+start_state = np.array([0,0,0,0,0,0,0, 0.00000000e+00,   1.71630008e+00,
+        -1.51095253e-16,  -5.37585182e-08,  -4.44089210e-16,
+        -5.37585181e-08,   0.00000000e+00])
 
-# start_state += np.random.uniform(-1,1,size=4)
+start_state += .1*np.random.normal(size=14)
 
 #start_state = np.array([ 0.84842527, -0.41865087])
 
-start = time.time()
 success, delta = wam7dofarm_sqp_solver.solve(weights, pi, start_state, vc_max)
-end = time.time()
 
 if success:
 	print "Success!"
@@ -36,5 +36,12 @@ if success:
 else:
 	print "Failure..."
 
-print "Pi: ", pi
-print "Solvetime: ", end-start, "s"
+import forward_kin
+
+pos = forward_kin.end_effector_pos(start_state)
+vel = forward_kin.end_effector_lin_vel(start_state)
+current_end_effector_pos_vel = np.concatenate((pos, vel))
+
+print "Pi: ", repr(pi)
+print "End effector start state:\n", current_end_effector_pos_vel.T[0]
+print "Joint angle start state:\n", repr(start_state)
