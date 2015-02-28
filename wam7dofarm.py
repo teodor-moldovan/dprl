@@ -52,7 +52,9 @@ class WAM7DOFarmBase:
 
 
 class WAM7DOFarm(WAM7DOFarmBase,DynamicalSystem):
-    pass
+    def update(self, traj):
+        return self.update_ls_wam7dofarm(traj)
+
 class TestsWAM7DOFarm(TestsDynamicalSystem):
     DSKnown   = WAM7DOFarm
     DSLearned = WAM7DOFarm

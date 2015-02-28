@@ -608,6 +608,8 @@ class TestsDynamicalSystem(unittest.TestCase):
             import sys
             total_SQP_calls = 0
             total_SQP_successes = 0
+            times_for_SQP_solve = []
+            wallclock_times_for_episode = []
             if env.name == 'pendulum':
                 sys.path.append('./{0}/sympybotics version'.format(env.name))
             elif env.name == 'wam7dofarm':
@@ -633,6 +635,11 @@ class TestsDynamicalSystem(unittest.TestCase):
 
             if counter >= 15:
                 break
+
+            if counter > 0:
+                wallclock_times_for_episode.append(time.time() - episode_start_time)
+
+            episode_start_time = time.time()
 
             ds.clear()
 
@@ -723,8 +730,11 @@ class TestsDynamicalSystem(unittest.TestCase):
                     #import pdb
                     #pdb.set_trace()
 
+                    tmm = time.time()
                     if env.name == 'wam7dofarm':
+
                         success, delta = SQP.solve(weights, controls, curr_state, vc_max+env.vc_slack_add)
+                        times_for_SQP_solve.append(time.time() - tmm)
                         print "Pi: ", repr(controls)
                         print "Delta: ", delta, ", Horizon:", delta*(ds.collocation_points-1)
 
@@ -733,8 +743,13 @@ class TestsDynamicalSystem(unittest.TestCase):
 
                     else:
                         success, delta = SQP.solve(weights, controls, curr_state, vc_max)
+                        times_for_SQP_solve.append(time.time() - tmm)
+                        added_slack = False
                         if not success:
+                            tmm = time.time()
                             success, delta = SQP.solve(weights, controls, curr_state, vc_max+env.vc_slack_add)
+                            added_slack = True
+                            times_for_SQP_solve.append(time.time() - tmm)
 
                     # Create PiecewisePolicy object
                     pi = PiecewiseConstantPolicy(controls, delta*(ds.collocation_points-1))
@@ -760,16 +775,18 @@ class TestsDynamicalSystem(unittest.TestCase):
                 # also, maybe we wanna take advantage of violation constraint. it doesn't quite work unless violation constraint is small enough
                 if env.name == 'wam7dofarm' and pi.max_h < .13:
                     trj = env.step(pi, pi.max_h/0.01)
+                elif env.name == 'cartpole' and pi.max_h < .2 and success and not added_slack:
+                    trj = env.step(pi, pi.max_h/0.01)
                 else:
                     if use_FORCES and not success:
-                        timesteps = 5
+                        timesteps = 3
                         if pi.max_h > .01:
                             trj = env.step(pi, timesteps) # Just use what you have
                         else:
                             trj = env.step(RandomPolicy(env.nu,umax=.1), 3) # tends not to work..
                     else:
                         # trj = env.step(pi, 0.5*delta/0.01) # Play with this parameter
-                        trj = env.step(pi, 5) # Play with this parameter
+                        trj = env.step(pi, 3) # Play with this parameter
 
                 ds.state = env.state.copy()
                 # print "Count: {0}".format(cnt)
@@ -802,11 +819,15 @@ class TestsDynamicalSystem(unittest.TestCase):
                         break
 
                 else:
-                    dst = np.nansum( 
-                        ((ds.state - ds.target)**2)[np.logical_not(ds.c_ignore)])
-                    # if (pi.max_h < .1 and success) or dst < 1e-4: # 1e-4
-                    # for wam 7 dof arm, get into cube goal radius                   
-                    if dst < 1e-2: # 1e-3
+                    # dst = np.nansum( 
+                    #     ((ds.state - ds.target)**2)[np.logical_not(ds.c_ignore)])
+                    dst = np.linalg.norm(ds.state - ds.target)
+                    # if (pi.max_h < .1 and success) or dst < 1e-4: # 1e-4, using squared norm. 1e-2 if using norm
+                    # for wam 7 dof arm, get into cube goal radius        
+                    print "State:\n", repr(ds.state)
+                    print "Horizon: ", pi.max_h
+                    print "Distance to goal: ", dst, "\n" # last ting per time step I think           
+                    if (success and pi.max_h < .1) or dst < .1: # This changes per system
                         # embed()
                         # cnt += 1
                         break
@@ -821,6 +842,23 @@ class TestsDynamicalSystem(unittest.TestCase):
 
 
             counter += 1
+
+        # End for loop
+
+        # Print out some stats for episode solves
+        wallclock_times_for_episode = np.array(wallclock_times_for_episode)
+        mean_time_for_episode = np.mean(wallclock_times_for_episode)
+        print "Mean time for episode solves: ", mean_time_for_episode
+        stddev_time_for_episode = np.std(wallclock_times_for_episode)
+        print "Standard Devation for episodes solves: ", stddev_time_for_episode
+
+        # Print out some stats for SQP solves
+        times_for_SQP_solve = np.array(times_for_SQP_solve)
+        mean_time_for_SQP = np.mean(times_for_SQP_solve)
+        print "Mean time for SQP solves: ", mean_time_for_SQP
+        stddev_time_for_SQP = np.std(times_for_SQP_solve)
+        print "Standard Devation for SQP solves: ", stddev_time_for_SQP
+
 
     def test_pp(self):
         """ tests whether we can plan in the known system. valuable for sanity check for planning.  used as a baseline experiment"""

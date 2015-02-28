@@ -3,13 +3,13 @@ import unittest
 from test import TestsDynamicalSystem
 
 class PendulumBase:
-    noise = np.array([0.01])
+    noise = np.array([0.05])
     # angles_to_mod = np.array([False, True])
     add_before_mod = 0
     vc_slack_add = 0.1
+    name = "pendulum"
     def initial_state(self):
         state = 1.0*np.random.normal(size = self.nx)
-        self.name = "pendulum"
         return state 
 
         
@@ -38,7 +38,8 @@ class PendulumBase:
         return locals()
 
 class Pendulum(PendulumBase,DynamicalSystem):
-    pass
+    def update(self, traj):
+        return self.update_ls_pendulum_sympybotics(traj)
 
 class TestsPendulum(TestsDynamicalSystem):
     DSKnown   = Pendulum

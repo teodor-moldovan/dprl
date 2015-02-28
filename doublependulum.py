@@ -7,11 +7,11 @@ class DoublePendulumBase:
     angles_to_mod = np.array([False, False, True, True])
     add_before_mod = np.pi # Should be 2pi in length
     vc_slack_add = 6
+    name = "doublependulum"
     def initial_state(self):
         state = np.zeros(self.nx)
         state[2:] = np.pi
         state[self.nx/2:] += .25*np.random.normal(size = self.nx/2)
-        self.name = "doublependulum"
         return state 
         
     def symbolics(self):
@@ -51,7 +51,9 @@ class DoublePendulumBase:
 
 
 class DoublePendulum(DoublePendulumBase,DynamicalSystem):
-    pass
+    def update(self, traj):
+        return self.update_ls_doublependulum(traj)
+
 class TestsDoublePendulum(TestsDynamicalSystem):
     DSKnown   = DoublePendulum
     DSLearned = DoublePendulum

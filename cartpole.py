@@ -6,11 +6,11 @@ class CartPoleBase:
     noise = np.array([0.05])
     angles_to_mod = np.array([False, False, True, False])
     add_before_mod = 0
-    vc_slack_add = 4
+    vc_slack_add = 3
+    name = "cartpole"
     def initial_state(self):
         state = np.zeros(self.nx)
         state[self.nx/2:] = .25*np.random.normal(size = self.nx/2)
-        self.name = "cartpole"
         return state 
 
     def symbolics(self):
@@ -48,7 +48,9 @@ class CartPoleBase:
         return locals()
 
 class Cartpole(CartPoleBase,DynamicalSystem):
-    pass
+    def update(self, traj):
+        return self.update_ls_cartpole(traj)
+    
 class TestsCartpole(TestsDynamicalSystem):
     DSLearned = Cartpole
     DSKnown   = Cartpole

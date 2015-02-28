@@ -259,31 +259,29 @@ class DynamicalSystem:
             f = codegen_cse(geom, self.symbols[self.nx:-self.nu])
             self.k_geometry = rowwise(f,'geometry')
 
-        print 'Starting feature extraction'
+        if self.name not in ['wam7dofarm', 'pendulum']: # Since these things have their dynamics spit out from sympybotics
+            print 'Starting feature extraction'
 
-        # features, weights, self.nfa, self.nf = self.__extract_features(
-        #         implf_sym,self.symbols,self.nx)
-        # self._features = features
+            features, weights, self.nfa, self.nf = self.__extract_features(
+                    implf_sym,self.symbols,self.nx)
+            self._features = features
 
-        #embed()
+            #embed()
 
-        # self.weights = to_gpu(weights)
+            self.weights = to_gpu(weights)
 
-        print 'Starting codegen'
-        # fn1,fn2,fn3,fn4  = self.__codegen(
-        #         features, self.symbols,self.nx,self.nf,self.nfa)
-        print 'Finished codegen'
+            print 'Starting codegen'
+            fn1,fn2,fn3,fn4  = self.__codegen(
+                    features, self.symbols,self.nx,self.nf,self.nfa)
+            print 'Finished codegen'
 
-	#import pdb
-	#pdb.set_trace()
-
-        # compile cuda code
-        # if this is a bottleneck, we could compute subsets of features in parallel using different kernels, in addition to each row.  this would recompute the common sub-expressions, but would utilize more parallelism
-        
-        # self.k_features = rowwise(fn1,'features')
-        # self.k_features_jacobian = rowwise(fn2,'features_jacobian')
-        # self.k_features_mass = rowwise(fn3,'features_mass')
-        # self.k_features_force = rowwise(fn4,'features_force')
+            # compile cuda code
+            # if this is a bottleneck, we could compute subsets of features in parallel using different kernels, in addition to each row.  this would recompute the common sub-expressions, but would utilize more parallelism
+            
+            self.k_features = rowwise(fn1,'features')
+            self.k_features_jacobian = rowwise(fn2,'features_jacobian')
+            self.k_features_mass = rowwise(fn3,'features_mass')
+            self.k_features_force = rowwise(fn4,'features_force')
 
         self.initialize_state()
         self.initialize_target(target_expr)
@@ -1031,7 +1029,7 @@ class DynamicalSystem:
     # update = update_ls_pendulum_sympybotics
     # update = update_ls_doublependulum
     # update = update_ls_cartpole
-    update = update_ls_wam7dofarm
+    # update = update_ls_wam7dofarm
     
     def cdyn(self, include_virtual_controls = False):
         nx,nu,nf = self.nx,self.nu,self.nf
