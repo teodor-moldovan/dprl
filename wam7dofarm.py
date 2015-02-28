@@ -4,7 +4,7 @@ import unittest
 from test import TestsDynamicalSystem
 
 class WAM7DOFarmBase:
-    noise = np.array([0.0])
+    noise = np.array([0.01])
     vc_slack_add = 0
     collocation_points = 8 # Make sure this is set right
     goal_radius = 0.1

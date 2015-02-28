@@ -651,7 +651,7 @@ class TestsDynamicalSystem(unittest.TestCase):
             else:
                 trj = env.step(RandomPolicy(env.nu,umax=.1),2*ds.nx) 
             #trj = env.step(RandomPolicy(env.nu,umax=.1),20) 
-            ds.state = env.state.copy() + nz*np.random.normal(size=env.nx)
+            ds.state = env.state.copy()
 
             cnt = 0
 
@@ -678,6 +678,19 @@ class TestsDynamicalSystem(unittest.TestCase):
                 #env.print_state()
                 env.print_time()
             
+                ds.state += nz*np.random.normal(size=env.nx)
+
+                # Clip dynamics when adding noise
+                if env.name == 'wam7dofarm':
+                    for i in range(7):
+                        if ds.state[7+i] < env.limits[i][0]:
+                            # print "---------------------- CLIPPED DYNAMICS ----------------------------"
+                            # embed()
+                            ds.state[7+i] = env.limits[i][0]
+                        elif ds.state[7+i] > env.limits[i][1]:
+                            # print "---------------------- CLIPPED DYNAMICS ----------------------------"
+                            # embed()
+                            ds.state[7+i] = env.limits[i][1]
 
                 # Mod any angles that need to be modded by 2pi
                 try:
@@ -711,14 +724,13 @@ class TestsDynamicalSystem(unittest.TestCase):
                     #pdb.set_trace()
 
                     if env.name == 'wam7dofarm':
-                        robot.SetDOFValues(ds.state[7:])
-                        weights = wam7dofarm_python_true_dynamics.true_weights
                         success, delta = SQP.solve(weights, controls, curr_state, vc_max+env.vc_slack_add)
                         print "Pi: ", repr(controls)
                         print "Delta: ", delta, ", Horizon:", delta*(ds.collocation_points-1)
-                        # if success:
-                        #     env.vc_slack_add -= 0.01
-                        #     env.vc_slack_add = max(env.vc_slack_add, 0)
+
+                        true_weights = wam7dofarm_python_true_dynamics.true_weights
+                        print "Distance from true_weights: ", np.linalg.norm(true_weights - weights)
+
                     else:
                         success, delta = SQP.solve(weights, controls, curr_state, vc_max)
                         if not success:
@@ -746,7 +758,7 @@ class TestsDynamicalSystem(unittest.TestCase):
                 # Execute whole trajectory if close enough (hack for 7DOF arm)
                 # Maybe put an if env.name == 'wam7dofarm':
                 # also, maybe we wanna take advantage of violation constraint. it doesn't quite work unless violation constraint is small enough
-                if pi.max_h < .13:
+                if env.name == 'wam7dofarm' and pi.max_h < .13:
                     trj = env.step(pi, pi.max_h/0.01)
                 else:
                     if use_FORCES and not success:
@@ -754,18 +766,20 @@ class TestsDynamicalSystem(unittest.TestCase):
                         if pi.max_h > .01:
                             trj = env.step(pi, timesteps) # Just use what you have
                         else:
-                            trj = env.step(RandomPolicy(env.nu,umax=.1), timesteps) # tends not to work..
+                            trj = env.step(RandomPolicy(env.nu,umax=.1), 3) # tends not to work..
                     else:
                         # trj = env.step(pi, 0.5*delta/0.01) # Play with this parameter
                         trj = env.step(pi, 5) # Play with this parameter
 
-                ds.state = env.state.copy() + nz*np.random.normal(size=env.nx)
-
+                ds.state = env.state.copy()
                 # print "Count: {0}".format(cnt)
 
 
                 # stopping criteria
                 if env.name == 'wam7dofarm':
+
+                    robot.SetDOFValues(ds.state[7:])
+
                     pos = forward_kin.end_effector_pos(ds.state)
                     vel = forward_kin.end_effector_lin_vel(ds.state)
 
