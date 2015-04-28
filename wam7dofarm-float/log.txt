@@ -1,0 +1,178 @@
+[INFO] Initial constraint violation: 46.65837[0m
+[INFO] delta: 0.050000[0m
+[INFO] penalty coeff: 1.000000[0m
+[INFO] Trust region size: 1.00000[0m
+[INFO]   sqp iter: 0[0m
+[INFO]        trust region size: 1.000000[0m
+[INFO]        approx improve: 42.880. exact improve: -31.200. ratio: -0.728. constraint_violation: 77.899.[0m
+[INFO]        trust region size: 0.900000[0m
+[INFO]        approx improve: 42.317. exact improve: -12.405. ratio: -0.293. constraint_violation: 59.103.[0m
+[INFO]        trust region size: 0.810000[0m
+[INFO]        approx improve: 41.725. exact improve: -13.805. ratio: -0.331. constraint_violation: 60.503.[0m
+[INFO]        trust region size: 0.729000[0m
+[INFO]        approx improve: 41.149. exact improve: -12.038. ratio: -0.293. constraint_violation: 58.737.[0m
+[INFO]        trust region size: 0.656100[0m
+[INFO]        approx improve: 40.627. exact improve: -6.725. ratio: -0.166. constraint_violation: 53.423.[0m
+[INFO]        trust region size: 0.590490[0m
+[INFO]        approx improve: 40.157. exact improve: -2.877. ratio: -0.072. constraint_violation: 49.575.[0m
+[INFO]        trust region size: 0.531441[0m
+[INFO]        approx improve: 39.734. exact improve: 1.209. ratio: 0.030. constraint_violation: 45.489.[0m
+[INFO]        trust region size: 0.478297[0m
+[INFO]        approx improve: 39.306. exact improve: 5.336. ratio: 0.136. constraint_violation: 41.363.[0m
+[INFO]   sqp iter: 1[0m
+[INFO]        trust region size: 0.526127[0m
+[INFO]        approx improve: 34.180. exact improve: -584.899. ratio: -17.112. constraint_violation: 626.231.[0m
+[INFO]        trust region size: 0.473514[0m
+[INFO]        approx improve: 33.914. exact improve: -462.842. ratio: -13.647. constraint_violation: 504.178.[0m
+[INFO]        trust region size: 0.426163[0m
+[INFO]        approx improve: 33.665. exact improve: -342.406. ratio: -10.171. constraint_violation: 383.746.[0m
+[INFO]        trust region size: 0.383546[0m
+[INFO]        approx improve: 33.431. exact improve: -211.873. ratio: -6.338. constraint_violation: 253.216.[0m
+[INFO]        trust region size: 0.345192[0m
+[INFO]        approx improve: 33.151. exact improve: -172.755. ratio: -5.211. constraint_violation: 214.099.[0m
+[INFO]        trust region size: 0.310672[0m
+[INFO]        approx improve: 32.796. exact improve: -112.930. ratio: -3.443. constraint_violation: 154.278.[0m
+[INFO]        trust region size: 0.279605[0m
+[INFO]        approx improve: 32.427. exact improve: -92.396. ratio: -2.849. constraint_violation: 133.745.[0m
+[INFO]        trust region size: 0.251645[0m
+[INFO]        approx improve: 32.081. exact improve: -125.872. ratio: -3.924. constraint_violation: 167.216.[0m
+[INFO]        trust region size: 0.226480[0m
+[INFO]        approx improve: 31.765. exact improve: -167.152. ratio: -5.262. constraint_violation: 208.493.[0m
+[INFO]        trust region size: 0.203832[0m
+[INFO]        approx improve: 31.477. exact improve: -210.277. ratio: -6.680. constraint_violation: 251.615.[0m
+[INFO]        trust region size: 0.183449[0m
+[INFO]        approx improve: 31.217. exact improve: -248.971. ratio: -7.976. constraint_violation: 290.305.[0m
+[INFO]        trust region size: 0.165104[0m
+[INFO]        approx improve: 30.967. exact improve: -205.268. ratio: -6.628. constraint_violation: 246.605.[0m
+[INFO]        trust region size: 0.148594[0m
+[INFO]        approx improve: 30.707. exact improve: -168.529. ratio: -5.488. constraint_violation: 209.867.[0m
+[INFO]        trust region size: 0.133734[0m
+[INFO]        approx improve: 30.422. exact improve: -119.598. ratio: -3.931. constraint_violation: 160.940.[0m
+[INFO]        trust region size: 0.120361[0m
+[INFO]        approx improve: 30.065. exact improve: -87.791. ratio: -2.920. constraint_violation: 129.135.[0m
+[INFO]        trust region size: 0.108325[0m
+[INFO]        approx improve: 29.722. exact improve: -77.074. ratio: -2.593. constraint_violation: 118.418.[0m
+[INFO]        trust region size: 0.097492[0m
+[INFO]        approx improve: 29.343. exact improve: -82.062. ratio: -2.797. constraint_violation: 123.406.[0m
+[INFO]        trust region size: 0.087743[0m
+[INFO]        approx improve: 28.941. exact improve: -63.954. ratio: -2.210. constraint_violation: 105.299.[0m
+[INFO]        trust region size: 0.078969[0m
+[INFO]        approx improve: 28.546. exact improve: -46.872. ratio: -1.642. constraint_violation: 88.220.[0m
+[INFO]        trust region size: 0.071072[0m
+[INFO]        approx improve: 28.088. exact improve: -32.595. ratio: -1.160. constraint_violation: 73.944.[0m
+[INFO]        trust region size: 0.063965[0m
+[INFO]        approx improve: 27.620. exact improve: -17.742. ratio: -0.642. constraint_violation: 59.094.[0m
+[INFO]        trust region size: 0.057568[0m
+[INFO]        approx improve: 27.157. exact improve: -6.245. ratio: -0.230. constraint_violation: 47.599.[0m
+[INFO]        trust region size: 0.051811[0m
+[INFO]        approx improve: 26.731. exact improve: 2.385. ratio: 0.089. constraint_violation: 38.970.[0m
+[INFO]   sqp iter: 2[0m
+[INFO]        trust region size: 0.056993[0m
+[INFO]        approx improve: 28.003. exact improve: -18.374. ratio: -0.656. constraint_violation: 57.327.[0m
+[INFO]        trust region size: 0.051293[0m
+[INFO]        approx improve: 27.765. exact improve: -10.044. ratio: -0.362. constraint_violation: 49.000.[0m
+[INFO]        trust region size: 0.046164[0m
+[INFO]        approx improve: 27.521. exact improve: -3.178. ratio: -0.115. constraint_violation: 42.136.[0m
+[INFO]        trust region size: 0.041548[0m
+[INFO]        approx improve: 27.287. exact improve: 2.855. ratio: 0.105. constraint_violation: 36.105.[0m
+[INFO]   sqp iter: 3[0m
+[INFO]        trust region size: 0.045702[0m
+[INFO]        approx improve: 26.507. exact improve: 17.344. ratio: 0.654. constraint_violation: 18.753.[0m
+[INFO]   sqp iter: 4[0m
+[INFO]        trust region size: 0.050273[0m
+[INFO]        approx improve: 10.746. exact improve: 7.827. ratio: 0.728. constraint_violation: 10.922.[0m
+[INFO]   sqp iter: 5[0m
+[INFO]        trust region size: 0.055300[0m
+[INFO]        approx improve: 3.616. exact improve: 1.285. ratio: 0.355. constraint_violation: 9.632.[0m
+[INFO]   sqp iter: 6[0m
+[INFO]        trust region size: 0.060830[0m
+[INFO]        approx improve: 2.714. exact improve: -0.537. ratio: -0.198. constraint_violation: 10.161.[0m
+[INFO]        trust region size: 0.054747[0m
+[INFO]        approx improve: 2.677. exact improve: 0.126. ratio: 0.047. constraint_violation: 9.498.[0m
+[INFO]        trust region size: 0.049272[0m
+[INFO]        approx improve: 2.644. exact improve: 0.664. ratio: 0.251. constraint_violation: 8.962.[0m
+[INFO]   sqp iter: 7[0m
+[INFO]        trust region size: 0.054199[0m
+[INFO]        approx improve: 2.358. exact improve: -0.042. ratio: -0.018. constraint_violation: 8.996.[0m
+[INFO]        trust region size: 0.048779[0m
+[INFO]        approx improve: 2.322. exact improve: 0.343. ratio: 0.148. constraint_violation: 8.612.[0m
+[INFO]   sqp iter: 8[0m
+[INFO]        trust region size: 0.053657[0m
+[INFO]        approx improve: 2.386. exact improve: -1.243. ratio: -0.521. constraint_violation: 9.846.[0m
+[INFO]        trust region size: 0.048292[0m
+[INFO]        approx improve: 2.346. exact improve: -0.531. ratio: -0.227. constraint_violation: 9.135.[0m
+[INFO]        trust region size: 0.043462[0m
+[INFO]        approx improve: 2.310. exact improve: 0.093. ratio: 0.040. constraint_violation: 8.512.[0m
+[INFO]        trust region size: 0.039116[0m
+[INFO]        approx improve: 2.278. exact improve: 0.554. ratio: 0.243. constraint_violation: 8.051.[0m
+[INFO]   sqp iter: 9[0m
+[INFO]        trust region size: 0.043028[0m
+[INFO]        approx improve: 1.987. exact improve: -1.126. ratio: -0.567. constraint_violation: 9.170.[0m
+[INFO]        trust region size: 0.038725[0m
+[INFO]        approx improve: 1.966. exact improve: -0.490. ratio: -0.249. constraint_violation: 8.534.[0m
+[INFO]        trust region size: 0.034853[0m
+[INFO]        approx improve: 1.948. exact improve: 0.019. ratio: 0.010. constraint_violation: 8.026.[0m
+[INFO]        trust region size: 0.031367[0m
+[INFO]        approx improve: 1.932. exact improve: 0.417. ratio: 0.216. constraint_violation: 7.628.[0m
+[INFO] Max number of SQP iterations reached[0m
+[INFO] Old constraint violation: 46.65837[0m
+[INFO] Current constraint violation: 7.62790[0m
+[INFO] Delta value: 0.07089
+[0m
+[31m[ERROR] Number of penalty coefficient increases exceeded maximum allowed.
+[0m
+[31m[FATAL] Final constraint violation: 7.62790[0m
+[INFO] Initial constraint violation: 7.62790[0m
+[INFO] delta: 0.070888[0m
+[INFO] penalty coeff: 1.000000[0m
+[INFO] Trust region size: 1.00000[0m
+[INFO]   sqp iter: 0[0m
+[INFO]        trust region size: 1.000000[0m
+[INFO]        approx improve: 3.910. exact improve: -154.921. ratio: -39.617. constraint_violation: 162.590.[0m
+[INFO]        trust region size: 0.250000[0m
+[INFO]        approx improve: 2.642. exact improve: -65.440. ratio: -24.769. constraint_violation: 73.039.[0m
+[INFO]        trust region size: 0.062500[0m
+[INFO]        approx improve: 1.828. exact improve: -4.429. ratio: -2.423. constraint_violation: 12.046.[0m
+[INFO]        trust region size: 0.015625[0m
+[INFO]        approx improve: 1.596. exact improve: 1.250. ratio: 0.783. constraint_violation: 6.375.[0m
+[INFO]   sqp iter: 1[0m
+[INFO]        trust region size: 0.019531[0m
+[INFO]        approx improve: 0.448. exact improve: -0.240. ratio: -0.537. constraint_violation: 6.612.[0m
+[INFO] Converged x tolerance
+[0m
+[INFO] Old constraint violation: 7.62790[0m
+[INFO] Current constraint violation: 6.37535[0m
+[INFO] Delta value: 0.07379
+[0m
+[31m[ERROR] Number of penalty coefficient increases exceeded maximum allowed.
+[0m
+[31m[FATAL] Final constraint violation: 6.37535[0m
+Solvetime:  0.35808300972 s
+Failure...
+Pi:  array([[  1.23458351e+01,  -1.57921846e+01,   2.88495576e-01,
+         -2.25703163e+00,  -3.63741478e-02,  -5.96003617e-02,
+         -4.20276641e-05],
+       [ -6.24569602e+00,  -4.34619704e+01,   3.22453399e-01,
+         -8.60893899e+00,  -7.60797092e-02,  -1.15167143e-01,
+          9.28533358e-05],
+       [ -1.36294448e+00,  -4.62315530e+01,   1.31746910e+00,
+         -8.66040460e+00,  -1.26649507e-01,  -4.73962784e-02,
+         -3.58048162e-04],
+       [ -1.01085156e+01,  -2.03185434e+01,  -9.06540659e-01,
+         -5.05527523e+00,  -2.66966488e-02,   8.63431325e-02,
+          6.19383694e-04],
+       [ -6.47679861e+00,  -9.75204277e-01,  -1.16280364e+00,
+         -2.12043654e-01,   3.92619252e-02,  -3.81186252e-03,
+         -1.05478039e-03],
+       [ -3.62127403e+00,  -2.66127989e+01,  -9.18939553e-01,
+         -5.37505431e+00,   2.32024817e-02,   1.04808574e-01,
+         -3.75190492e-04],
+       [ -2.20082303e+01,  -5.28007723e+01,  -3.77006391e+00,
+         -9.57313843e+00,   2.43438659e-01,   2.13231841e-01,
+         -1.06300733e-03]])
+End effector start state:
+[[ 0.89970043  0.01001907 -0.11933325  0.02835101 -0.09939236  0.14651313]]
+Joint angle start state:
+array([-0.10123552, -0.21801457,  0.22888096,  0.12268119,  0.07604409,
+        0.09358945, -0.12565282,  0.00939582,  1.72494267, -0.06545121,
+       -0.03782056, -0.03552923, -0.11239434, -0.05626706])

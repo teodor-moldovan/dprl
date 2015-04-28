@@ -232,7 +232,8 @@ def plot_log(name, inds=None, labels=None, eps_stop = 0, succ_thrs = 20.0,
     # pdb.set_trace()
 
     ts  = np.array([l[-1,0] for l in plts])
-    tss = ts[ts<succ_thrs] 
+    # tss = ts[ts<succ_thrs] 
+    tss = ts
 
     print name
     if len(tss)>0:

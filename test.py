@@ -596,6 +596,44 @@ class TestsDynamicalSystem(unittest.TestCase):
         trj = env.step(ZeroPolicy(env.nu),5)
 
 
+    def test_ddp(self):
+        # constants
+        seed = 1
+        
+        # get dynamical system
+        # no squashing
+        #env = self.DS(cost_type = 'quad_cost', squashing_function=None)
+        
+        # example with squashing
+        env = self.DSKnown()
+        T = 25
+        
+        # sample initial state
+        np.random.seed(seed)
+        env.initialize_state()
+
+        x0 = env.state
+        #x0 = 2*np.pi*2*(np.random.random(env.nx)-0.5)
+        
+        # create DDP planner
+        ddp = DDPPlanner(env,x0,T)
+        
+        # run DDP planner
+        policy,x,u = ddp.direct_plan(500)
+        #policy,x,u = ddp.incremental_plan(50,500,1,4)
+        #policy,x,u = ddp.continuation_plan(10,500)
+        
+        # execute
+        env.state = x0
+        env.t = 0
+        x,u = env.discrete_time_rollout(policy,env.state,T)
+
+        # Print states, controls
+        print "x:\n", x
+        print "u:\n", u
+
+
+
     def test_learning(self):
         """ not a test, top level for experiments."""
 
@@ -616,11 +654,11 @@ class TestsDynamicalSystem(unittest.TestCase):
                 sys.path.append('./{0}'.format(env.name))
                 import forward_kin       
                 import wam7dofarm_python_true_dynamics         
-                import openravepy as rave
-                renv = rave.Environment()
-                renv.SetViewer('qtcoin')
-                renv.Load('robots/wam7.kinbody.xml')
-                robot = renv.GetBodies()[0]
+                # import openravepy as rave
+                # renv = rave.Environment()
+                # renv.SetViewer('qtcoin')
+                # renv.Load('robots/wam7.kinbody.xml')
+                # robot = renv.GetBodies()[0]
             else:
                 sys.path.append('./{0}'.format(env.name))
             SQP = __import__("{0}_sqp_solver".format(env.name))
@@ -733,6 +771,10 @@ class TestsDynamicalSystem(unittest.TestCase):
                     tmm = time.time()
                     if env.name == 'wam7dofarm':
 
+                        # 7th link inertial parameters are unknown
+                        # true_weights = wam7dofarm_python_true_dynamics.true_weights
+                        # weights[0:60] = true_weights[0:60]
+
                         success, delta = SQP.solve(weights, controls, curr_state, vc_max+env.vc_slack_add)
                         times_for_SQP_solve.append(time.time() - tmm)
                         print "Pi: ", repr(controls)
@@ -779,14 +821,14 @@ class TestsDynamicalSystem(unittest.TestCase):
                     trj = env.step(pi, pi.max_h/0.01)
                 else:
                     if use_FORCES and not success:
-                        timesteps = 3
+                        timesteps = 4
                         if pi.max_h > .01:
                             trj = env.step(pi, timesteps) # Just use what you have
                         else:
                             trj = env.step(RandomPolicy(env.nu,umax=.1), 3) # tends not to work..
                     else:
                         # trj = env.step(pi, 0.5*delta/0.01) # Play with this parameter
-                        trj = env.step(pi, 3) # Play with this parameter
+                        trj = env.step(pi, 5) # Play with this parameter
 
                 ds.state = env.state.copy()
                 # print "Count: {0}".format(cnt)
@@ -795,7 +837,7 @@ class TestsDynamicalSystem(unittest.TestCase):
                 # stopping criteria
                 if env.name == 'wam7dofarm':
 
-                    robot.SetDOFValues(ds.state[7:])
+                    # robot.SetDOFValues(ds.state[7:])
 
                     pos = forward_kin.end_effector_pos(ds.state)
                     vel = forward_kin.end_effector_lin_vel(ds.state)
@@ -833,8 +875,8 @@ class TestsDynamicalSystem(unittest.TestCase):
                         break
                     # if cnt>20:
                     #     break
-                if env.t >= ds.episode_max_h:
-                    break
+                #if env.t >= ds.episode_max_h:
+                #    break
 
 
                 print "-------------------------------------------------------------------------"

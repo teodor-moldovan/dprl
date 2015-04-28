@@ -4,15 +4,15 @@ import unittest
 from test import TestsDynamicalSystem
 
 class WAM7DOFarmBase:
-    noise = np.array([0.01])
+    noise = np.array([0.025])
     vc_slack_add = 0
     collocation_points = 8 # Make sure this is set right
     goal_radius = 0.1
+    name = "wam7dofarm"
     def initial_state(self):
         self.nx = 14
         state = np.zeros(self.nx)
         # state[1] = deg2rad(-89)
-        self.name = "wam7dofarm"
         return state 
 
     def symbolics(self):
