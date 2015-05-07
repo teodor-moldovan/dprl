@@ -110,6 +110,8 @@ namespace doublependulum {
         // State is: [w1, w2, t1, t2]
         VectorXd xdot(NX);      
 
+        double max_control = 1.0;
+
         // Hand coded dynamics for doublependulum using weights
         Matrix<double, 2, 2> A;
         Matrix<double, 2, 1> b;
@@ -118,13 +120,13 @@ namespace doublependulum {
         A << weights[0], weights[1] * cos(x(2)-x(3)),
              weights[5] * cos(x(2)-x(3)), weights[6];
 
-        b << 2*u(0) - weights[2]*pow(x(1),2)*sin(x(2)-x(3)) - weights[3]*sin(x(2)) - weights[4]*x(0)+ u(NU+0),
-             2*u(1) - weights[7]*pow(x(0),2)*sin(x(2)-x(3)) - weights[8]*sin(x(3)) - weights[9]*x(1)+ u(NU+1);
+        b << max_control*u(0) - weights[2]*pow(x(1),2)*sin(x(2)-x(3)) - weights[3]*sin(x(2)) - weights[4]*x(0),
+             max_control*u(1) - weights[7]*pow(x(0),2)*sin(x(2)-x(3)) - weights[8]*sin(x(3)) - weights[9]*x(1);
 
         Vector2d temp = A.inverse() * b;
         
-        xdot(0) = temp(0) ;
-        xdot(1) = temp(1) ;
+        xdot(0) = temp(0) + u(NU+0);
+        xdot(1) = temp(1) + u(NU+1);
         xdot(2) = x(0) + u(NU+2);
         xdot(3) = x(1) + u(NU+3);
 

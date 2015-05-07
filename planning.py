@@ -10,6 +10,7 @@ import sympy
 from IPython import embed
 import os.path
 import sys
+from scipy.special import expit
 
 try:
     import mosek
@@ -555,6 +556,9 @@ class DynamicalSystem:
 
         return dx
 
+    def squash_control(self, u):
+        return (expit(u) - 0.5) * 2 * self.max_control
+
     def get_cost(self,x,u):
        
         # The objective function is:
@@ -566,12 +570,13 @@ class DynamicalSystem:
         NUV = self.nu+self.nx # Don't forget to account for virtual controls
 
         # Probably wanna cache this somewhere in beginning of run:
-        alpha = np.ones((T+1,1))
-        alpha[T] = 2
+        alpha = np.ones((T+1,1))*5
+        alpha[T] = 10
         x_goal = self.target
 
         control_penalty = 0.4
-        virtual_control_penalty = 2
+        # virtual_control_penalty = 1e10 #2.0
+        virtual_control_penalty = 1.0/self.model_slack_bounds
         R = np.diag([virtual_control_penalty]*NUV)
         R[0:self.nu, 0:self.nu] = np.diag([control_penalty]*self.nu)
 
@@ -597,19 +602,82 @@ class DynamicalSystem:
         # Calculate cost for last timestep
         # First, must integrate forward to get x_T. This requires weights
         weights = self.weights.get().reshape(-1)
+        # weights = self.weights
 
         # For debugging purposes
-        if self.name == 'doublependulum':
-            g = 9.82
-            weights = np.array([1.0/6, 1.0/16, 1.0/16, -3.0/8*g, 0, 1.0/16, 1.0/24, -1.0/16, -g/8, 0], dtype='float')
+        # if self.name == 'doublependulum':
+        #     g = 9.82
+        #     weights = np.array([1.0/6, 1.0/16, 1.0/16, -3.0/8*g, 0, 1.0/16, 1.0/24, -1.0/16, -g/8, 0], dtype='float')
         
         x_T = np.array([0]*self.nx, dtype='float')
         self.integrate(x[T-1], u[T-1], self.delta, weights, x_T)
 
+        # Add cost of last time step
         l[T] = alpha[T] * .5 * pow(np.linalg.norm(x_T - x_goal), 2)
 
         return l, lx, lu, lxx, luu, lux
 
+    def simplified_dynamics_get_cost(self,x,u):
+       
+        # The objective function is:
+        # alpha_T * .5 * ||x_T - x_g||^2 + sum_{t=0}^{T-1} [alpha_t * .5 * ||x_t - x_g||^2 + .5 * u_t'*R*u_t]
+
+        # Grab T from dimension of x, which has dimension T
+        T = x.shape[0]
+
+        # Probably wanna cache this somewhere in beginning of run:
+        alpha = np.ones((T+1,1))*.25
+        alpha[T] = .5
+        x_goal = self.target
+
+        control_penalty = 0.4
+        R = np.diag([control_penalty]*self.nu)
+
+        # Instantiate l, lx, lu, lxx, luu, lux
+        l = np.zeros((T+1, 1, 1))
+        lx = np.zeros((T, self.nx, 1))
+        lu = np.zeros((T, self.nu, 1))
+        lxx = np.zeros((T, self.nx, self.nx))
+        luu = np.zeros((T, self.nu, self.nu))
+        lux = np.zeros((T, self.nu, self.nx))
+
+        # Iterate through time steps, perform computations
+        for t in range(T):
+
+            # These derivations were derived in Chris Xie's notebook
+            l[t] = alpha[t] * .5 * pow(np.linalg.norm(x[t] - x_goal), 2) + .5 * u[t].dot( R.dot(u[t]) )
+            lx[t] = (alpha[t] * (x[t] - x_goal)).reshape((self.nx, 1))
+            lu[t] = (R.dot(u[t])).reshape((self.nu, 1))
+            lxx[t] = alpha[t] * np.eye(self.nx)
+            luu[t] = R
+            # lux[t] = 0, no need to change it, it has already been initialized to 0
+
+        # Calculate cost for last timestep
+        # First, must integrate forward to get x_T. This requires weights
+
+        x_T = np.array([0]*self.nx, dtype='float')
+
+        # Use simple dynamics to calculate last time step
+        def f(t,x):             
+
+            # embed()
+            return np.concatenate((u[T-1][:self.nu], x[:self.nx/2])) # Assume M = I, c+g = 0, so \ddot{q} = u
+
+        # Set up integration
+        ode = scipy.integrate.ode(lambda t_,x_ : f(t_,x_))
+        ode.set_integrator('dopri5')
+        ode.set_initial_value(x[T-1], 0)
+
+        # Integrate
+        ode.integrate(ode.t + self.delta)
+
+        # Update x_T appropriately
+        x_T = ode.y
+
+        # Add cost of last time step
+        l[T] = alpha[T] * .5 * pow(np.linalg.norm(x_T - x_goal), 2)
+
+        return l, lx, lu, lxx, luu, lux
 
     def discrete_time_linearization(self, x, u):
 
@@ -624,11 +692,12 @@ class DynamicalSystem:
 
         # Get weights
         weights = self.weights.get().reshape(-1)
+        # weights = self.weights
 
         # For debugging purposes
-        if self.name == 'doublependulum':
-            g = 9.82
-            weights = np.array([1.0/6, 1.0/16, 1.0/16, -3.0/8*g, 0, 1.0/16, 1.0/24, -1.0/16, -g/8, 0], dtype='float')
+        # if self.name == 'doublependulum':
+        #     g = 9.82
+        #     weights = np.array([1.0/6, 1.0/16, 1.0/16, -3.0/8*g, 0, 1.0/16, 1.0/24, -1.0/16, -g/8, 0], dtype='float')
 
         # linearize for each timestep
         for t in range(T):
@@ -637,6 +706,24 @@ class DynamicalSystem:
             self.linearize(x[t], u[t], self.delta, weights, fx[t], fu[t])
 
         return fx, fu
+
+    def simplified_dynamics_discrete_time_linearization(self, x, u):
+
+        # Grab T from dimension of x, which has dimension T
+        T = x.shape[0] 
+
+        # linearize for each timestep with simplified dynamics. This is done analytically.
+        fx_mat = np.eye(self.nx)
+        fx_mat[self.nx/2:, :self.nx/2] = self.delta * np.eye(self.nx/2)
+        fx = np.array([fx_mat,]*T)
+
+        # This assumes that self.nu = self.nx/2, i.e. fully actuated system
+        fu_mat = np.zeros((self.nx, self.nu))
+        fu_mat[:self.nx/2, :self.nu] = self.delta * np.eye(self.nx/2)
+        fu_mat[self.nx/2:, :self.nu] = pow(self.delta,2) * np.eye(self.nx/2)
+        fu = np.array([fu_mat,]*T)
+
+        return fx, fu        
 
 
     def discrete_time_rollout(self, policy, x0, T, debug_flag=False):
@@ -647,16 +734,14 @@ class DynamicalSystem:
         u = np.zeros((T,NUV)) 
         x[0] = x0
 
-        gx = array((1,self.nx))
-        gu = array((1,NUV))
-    
         # Get weights
         weights = self.weights.get().reshape(-1)
+        # weights = self.weights
 
         # For debugging purposes
-        if self.name == 'doublependulum':
-            g = 9.82
-            weights = np.array([1.0/6, 1.0/16, 1.0/16, -3.0/8*g, 0, 1.0/16, 1.0/24, -1.0/16, -g/8, 0], dtype='float')
+        # if self.name == 'doublependulum':
+        #     g = 9.82
+        #     weights = np.array([1.0/6, 1.0/16, 1.0/16, -3.0/8*g, 0, 1.0/16, 1.0/24, -1.0/16, -g/8, 0], dtype='float')
 
         if debug_flag:
             import pdb
@@ -668,16 +753,43 @@ class DynamicalSystem:
             # compute policy action
             u[t] = policy.discu(t,x[t])
             
-            # download state and action to GPU
-            gx.set(x[t].reshape(1,self.nx))
-            gu.set(u[t].reshape(1,NUV))
-            
             # compute next state
             if t < T-1:
                 self.integrate(x[t], u[t], self.delta, weights, x[t+1])
                 # wam7dofarm, may need to clip dynamics here
 
         return x,u
+
+    def simplified_dynamics_discrete_time_rollout(self, policy, x0, T):
+
+        # allocate space for states and actions
+        x = np.zeros((T,self.nx))
+        u = np.zeros((T,self.nu)) 
+        x[0] = x0
+
+        def f(t,x):
+            """ explicit dynamics"""
+            u = policy.discu(t,x)
+
+            # embed()
+            return np.concatenate((u[:self.nu], x[:self.nx/2])) # Assume M = I, c+g = 0, so \ddot{q} = u
+
+        ode = scipy.integrate.ode(lambda t_,x_ : f(t_,x_))
+        ode.set_integrator('dopri5')
+        ode.set_initial_value(x0, 0)
+
+        for t in range(T):
+
+            # compute policy action
+            u[t] = policy.discu(t,x[t])
+
+            ode.integrate(ode.t + self.delta)
+
+            if t < T-1:
+                x[t+1] = ode.y
+
+        return x, u
+
 
     def step(self, policy, n = 1, debug_flag = False):
         """ forward simulate system according to stored weight matrix and policy"""
@@ -712,7 +824,6 @@ class DynamicalSystem:
         trj = []
         while ode.successful() and ode.t + self.dt <= h:
             ode.integrate(ode.t+self.dt)
-            
             if self.name == 'wam7dofarm': # clip integration due to joint limits
                 for i in range(7):
                     if ode.y[7+i] < self.limits[i][0]:
@@ -995,12 +1106,11 @@ class DynamicalSystem:
         psi, gamma, n_obs = self.update_sufficient_statistics_doublependulum(traj)
 
         # least squares estimate    
+        # w = (psi + 1*np.eye(10)).I * gamma
         w = psi.I * gamma
         self.weights = to_gpu(w)
 
-        # Weights are in the form 1/5*[ml^2, b, mgl]
-        # With values specified in pendulum.py, true values are: [1, 0.05, 9.82]
-        print self.weights
+        # print self.weights
 
         # encourages exploration, more or less empirical rate decay
         self.model_slack_bounds = 1.0/self.n_obs   
@@ -1189,7 +1299,7 @@ class DynamicalSystem:
     # update = update_ls
     # update = update_ls_pendulum
     # update = update_ls_pendulum_sympybotics
-    # update = update_ls_doublependulum
+    update = update_ls_doublependulum
     # update = update_ls_cartpole
     # update = update_ls_wam7dofarm
     
@@ -1551,20 +1661,27 @@ class DDPPlanner():
         self.ds = ds
         self.x0 = x0
         self.T = T
+        self.old_k = None
+        self.old_K = None
+        self.lsx = None
+        self.lsu = None
+
+    def update_start_state(self, state):
+        self.x0 = state
         
     # run standard DDP planning
-    def direct_plan(self,iterations):
+    def direct_plan(self, iterations, verbosity=4):
         # set up DDP input functions
-        frollout = lambda u_,x_,K_,k_ : self.rollout(u_,x_,K_,k_)
+        frollout = lambda u_,x_,K_,k_,state=None,H=None : self.rollout(u_,x_,K_,k_,state,H)
         fcost = lambda x_,u_ : self.ds.get_cost(x_,u_)
         fdyngrad = lambda x_,u_ : self.ds.discrete_time_linearization(x_,u_)
         
         # call DDP optimizer (with virtual controls)
-        # policy,x,u = self.ddpopt(self.x0, frollout, fcost, fdyngrad, self.ds.nx, self.ds.nu, self.T, iterations=iterations) # add old_k, old_K to this
-        policy,x,u = self.ddpopt(self.x0, frollout, fcost, fdyngrad, self.ds.nx, self.ds.nu+self.ds.nx, self.T, iterations=iterations) # add old_k, old_K to this
+        # policy,x,u = self.ddpopt(self.x0, frollout, fcost, fdyngrad, self.ds.nx, self.ds.nu, self.T, iterations=iterations)
+        policy,x,u,success = self.ddpopt(self.x0, frollout, fcost, fdyngrad, self.ds.nx, self.ds.nu+self.ds.nx, self.T, lsx=self.lsx, lsu=self.lsu, old_k=self.old_k, old_K=self.old_K, verbosity=verbosity, iterations=iterations)
         
         # return result
-        return policy,x,u
+        return policy,x,u,success
         
     # DDP-based trajectory optimization with modular dynamics and cost computation
     def ddpopt(self,x0,frollout,fcost,fdyngrad,Dx,Du,T,lsx=None,lsu=None,old_k=None,old_K=None,verbosity=4,iterations=0):
@@ -1579,18 +1696,90 @@ class DDPPlanner():
         alpha = 1
         
         # initial rollout to get nominal trajectory
-        if lsx == None:
-            if verbosity > 3:
-                print 'Running initial rollout'
-            u = .1*np.random.randn(T,Du) # use random initial actions
-            if old_k == None:
-                old_k = np.zeros((T,Du))
-            if old_K == None:
-                old_K = np.zeros((T,Du,Dx))
-            lsx,lsu,policy = frollout(u,np.zeros((T,Dx)), old_K, old_k)
+        if verbosity > 3:
+            print 'Running initial rollout'
+        if lsx is None:
+            lsx = np.array([self.ds.initial_state(),]*T) # Copy x0 T times
+        if lsu is None:
+            # lsu = 1e-4*np.random.randn(T,Du) # use random initial actions
+            lsu = np.zeros((T,Du))
+        if old_k is None:
+            old_k = np.zeros((T,Du))
+        if old_K is None:
+            K_mat = np.zeros((Du,Dx))
+            k_v = 2
+            k_p = 2
+            # K_mat[self.ds.nu:self.ds.nu+Dx/2, 0:Dx/2] = -k_v * np.eye(Dx/2)
+            # K_mat[self.ds.nu+Dx/2:Dx+Du, Dx/2:Dx] = -k_p * np.eye(Dx/2)
+            old_K = np.array([K_mat,]*T) # Copy K_mat T times
 
-            # rollout(self,u,x,K,k,state=None,H=None) # function signature for my reference
-        
+        # import pdb
+        # pdb.set_trace()
+
+        lsx,lsu,policy = frollout(lsu, lsx, old_K, old_k, H=T)
+
+        # if np.isnan(np.sum(lsx)):# or np.isnan(np.sum(lsu)):
+
+        #     # Find where it is nan, then return ddpopt with a shortened horizon
+        #     new_T = np.where(np.isnan(lsx))[0][0] - 1 # weird looking python hack. If you don't understand, try it in ipython
+
+        #     if new_T <= 5:
+        #         return 0, lsx, lsu, False # Return success flag
+
+        #     new_lsx, new_lsu, new_k, new_K = None, None, None, None
+        #     if self.lsx is not None and lsx.shape[0] > new_T:
+        #         new_lsx = self.lsx[0:new_T, :]
+        #     if self.lsu is not None and lsu.shape[0] > new_T:
+        #         new_lsu = self.lsu[0:new_T, :]
+        #     if self.old_k is not None and old_k.shape[0] > new_T:
+        #         new_k = self.old_k[0:new_T, :]
+        #     if self.old_K is not None and old_K.shape[0] > new_T:
+        #         new_K = self.old_K[0:new_T, :]
+            
+        #     # print "Here 1"
+        #     # import pdb
+        #     # pdb.set_trace()
+
+        #     policy,x,u,success = self.ddpopt(x0, frollout, fcost, fdyngrad, self.ds.nx, self.ds.nu+self.ds.nx, new_T, lsx=new_lsx, lsu=new_lsu, old_k=new_k, old_K=new_K, verbosity=verbosity, iterations=iterations)
+
+        #     # print "Here 2"
+        #     # pdb.set_trace()
+
+        #     return policy, x, u, success
+
+        # allocate space for states and actions
+
+        # If initial rollout is too crazy, then estimated weights are crappy. Make approximation to model that M = I, c+g = 0. This means that ddq = tau
+        use_simplified_dynamics = False
+        l,lx,lu,lxx,luu,lux = fcost(lsx, lsu)
+        fx,fu = fdyngrad(lsx, lsu)
+        if np.isnan(np.sum(lsx)) or np.isnan(np.sum(l)) or np.isnan(np.sum(lx)) or np.isnan(np.sum(lu)) or np.isnan(np.sum(lxx)) or np.isnan(np.sum(luu)) or np.isnan(np.sum(lux)) or np.isnan(np.sum(fx)) or np.isnan(np.sum(fu)):
+            use_simplified_dynamics = True
+
+            # Use simplified dynamics in cost (just for last time step) and dynamics
+            fcost = lambda x_, u_ : self.ds.simplified_dynamics_get_cost(x_, u_)
+            frollout = lambda u_,x_,K_,k_,state=None,H=None : self.simplified_dynamics_rollout(u_,x_,K_,k_,state,H)
+            fdyngrad = lambda x_, u_ : self.ds.simplified_dynamics_discrete_time_linearization(x_,u_)
+
+            # Cut out virtual controls. This means reassigning lsx, lsu, old_k, and old_K
+            Du = self.ds.nu
+
+            lsx = np.array([self.ds.initial_state(),]*T)
+            lsu = np.zeros((T,Du))
+            old_k = np.zeros((T,Du))
+            K_mat = np.zeros((Du,Dx))
+            old_K = np.array([K_mat,]*T)
+
+            # Re-rollout using simplified dynamics, and CUT OUT virtual controls
+            lsx,lsu,policy = frollout(lsu, lsx, old_K, old_k, H=T)
+
+            print "!!!!!!!!!!!!!!!!!!!!!! ...USE SIMPLE DYNAMICS... !!!!!!!!!!!!!!!!!!!!!!"
+
+            # embed()
+            # import pdb
+            # pdb.set_trace()
+
+
         # allocate arrays
         Qx = np.zeros((T,Dx,1))
         Qu = np.zeros((T,Du,1))
@@ -1605,18 +1794,18 @@ class DDPPlanner():
             # use result from previous line search
             x = lsx.copy()
             u = lsu.copy()        
-            
+
             # differentiate the cost function
             if verbosity > 3:
                 print 'Differentiating cost function'
-            l,lx,lu,lxx,luu,lux = fcost(x,u)
+            l,lx,lu,lxx,luu,lux = fcost(x, u)
             cost = np.sum(l)
-        
+
             # differentiate the dynamics
             if verbosity > 3:
                 print 'Differentiating dynamics'
-            fx,fu = fdyngrad(x,u)
-            
+            fx,fu = fdyngrad(x, u)
+
             # print total cost
             if verbosity > 1:
                 print 'Iteration',itr,'initial return:',cost
@@ -1651,6 +1840,9 @@ class DDPPlanner():
                         # if we arrive here, Quut is not SPD, need to increase regularizer
                         fail = True
                         break
+                    # except ValueError:
+                    #     raise ValueError("Nans somewhere in DDP...")
+                        # embed()
                     
                     # compute linear feedback policy
                     k[t] = -scipy.linalg.cho_solve((L,bLower),Qu[t])
@@ -1676,7 +1868,7 @@ class DDPPlanner():
                     delc = np.max((del0,delc*del0))
                     mu = np.max((mumin,mu*delc))
                     if mu > 1e10:
-                        print 'Regularizer is too high!'
+                        print 'Regularizer is too high: ', mu, ' delc: ', delc
                     if verbosity > 2:
                         print 'Increasing regularizer:',mu
             
@@ -1695,10 +1887,10 @@ class DDPPlanner():
             best_cost = cost
             while line_search_success == False:
                 # perform rollout
-                lsx,lsu,lspolicy = frollout(u,x,K,k*alpha)
+                lsx,lsu,lspolicy = frollout(u,x,K,k*alpha,H=T)
                 
                 # compute rollout cost
-                new_cost = np.sum(fcost(lsx,lsu)[0])
+                new_cost = np.sum(fcost(lsx, lsu)[0])
                 
                 # compute del_cost and check optimality condition
                 del_cost = np.max((1e-4,-(alpha*sum1 + alpha**2*sum2)))
@@ -1745,8 +1937,8 @@ class DDPPlanner():
                 mu = np.max((mumin,mu*delc))
                 if verbosity > 0:
                     print 'LINESEARCH FAILED! Increasing regularizer:',mu
-                    if itr > 0:
-                        break
+                if itr > 0:
+                    break
                 
                 # resest trajectory
                 if best_cost < cost:
@@ -1771,7 +1963,31 @@ class DDPPlanner():
         # return policy
         if verbosity > 1:
             print 'DDP finished, returning policy'
-        return policy,lsx,lsu
+
+        # Save x, u, k, K
+        if T < self.T: # Copy laste entry to make it back to size self.T
+            self.lsx = np.concatenate((lsx, np.array([lsx[-1],]*(self.T-lsx.shape[0]))))
+            self.lsu = np.concatenate((lsu, np.array([lsu[-1],]*(self.T-lsu.shape[0]))))
+            self.old_k = np.concatenate((old_k, np.array([old_k[-1],]*(self.T-old_k.shape[0]))))
+            self.old_K = np.concatenate((old_K, np.array([old_K[-1],]*(self.T-old_K.shape[0]))))
+        
+        elif use_simplified_dynamics: # Reset lsx, su, old_k, old_K
+
+            self.lsx = lsx
+            self.lsu = np.concatenate((lsu, np.zeros((T, self.ds.nx))), axis=1)
+            self.old_k = np.concatenate((k, np.zeros((T, self.ds.nx, 1))), axis=1)
+            self.old_K = np.concatenate((K, np.zeros((T, self.ds.nx, self.ds.nx))), axis=1)
+
+            # Return some noise in the control
+            # lsu += np.random.randn(T,Du)
+
+        else:
+            self.lsx = lsx
+            self.lsu = lsu
+            self.old_k = k
+            self.old_K = K
+
+        return policy, lsx, lsu, True # Return success flag
         
     # helper function to perform a rollout
     def rollout(self,u,x,K,k,state=None,H=None):
@@ -1790,3 +2006,18 @@ class DDPPlanner():
         # return result
         return rox,rou,policy
 
+    def simplified_dynamics_rollout(self,u,x,K,k,state=None,H=None):
+        # fill in defaults
+        if state == None:
+            state = self.x0
+        if H == None:
+            H = self.T
+        
+        # create linear feedback policy
+        policy = LinearFeedbackPolicy(u,x,K,k.reshape(H,u.shape[1]),H*self.ds.dt,self.ds.dt)
+        
+        # run simulation
+        rox,rou = self.ds.simplified_dynamics_discrete_time_rollout(policy,state,H)
+        
+        # return result
+        return rox,rou,policy

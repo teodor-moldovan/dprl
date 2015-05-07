@@ -597,41 +597,45 @@ class TestsDynamicalSystem(unittest.TestCase):
 
 
     def test_ddp(self):
-        # constants
-        seed = 1
         
-        # get dynamical system
-        # no squashing
-        #env = self.DS(cost_type = 'quad_cost', squashing_function=None)
-        
-        # example with squashing
         env = self.DSKnown()
-        T = 25
+        T = 30
         
-        # sample initial state
-        np.random.seed(seed)
+        # get initial state
         env.initialize_state()
 
         x0 = env.state
-        #x0 = 2*np.pi*2*(np.random.random(env.nx)-0.5)
         
         # create DDP planner
         ddp = DDPPlanner(env,x0,T)
-        
-        # run DDP planner
-        policy,x,u = ddp.direct_plan(500)
-        #policy,x,u = ddp.incremental_plan(50,500,1,4)
-        #policy,x,u = ddp.continuation_plan(10,500)
-        
-        # execute
-        env.state = x0
+
+        # Set environment time to 0        
         env.t = 0
-        x,u = env.discrete_time_rollout(policy,env.state,T)
 
-        # Print states, controls
-        print "x:\n", x
-        print "u:\n", u
+        # g = 9.82
+        # env.weights = np.array([1.0/6, 1.0/16, 1.0/16, -3.0/8*g, 0, 1.0/16, 1.0/24, -1.0/16, -g/8, 0], dtype='float')
 
+        """
+        Note that to run this, I'll need to alter how the weights get passed in planning.py (discrete_time_rollout(), get_cost(), discrete_time_linearization())
+        """
+
+        for i in range(100):
+
+            # run DDP planner
+            policy,x,u = ddp.direct_plan(500,0)
+            #policy,x,u = ddp.incremental_plan(50,500,1,4)
+            #policy,x,u = ddp.continuation_plan(10,500)
+            
+            # execute
+            env.state = x[0]
+            x,u = env.discrete_time_rollout(policy,env.state,T)
+            env.state = x[1]
+            ddp.update_start_state(env.state)
+
+            # Print states, controls
+            # print "x:\n", x
+            # print "u:\n", u
+            print "Current state: ", env.state
 
 
     def test_learning(self):
@@ -640,14 +644,14 @@ class TestsDynamicalSystem(unittest.TestCase):
         env = self.DSKnown()     # proxy for real, known system.
         ds = self.DSLearned()    # model to be trained online
 
-        use_FORCES = True
+        use_FORCES = False
+        use_DDP = True
 
         if use_FORCES:
             import sys
             total_SQP_calls = 0
             total_SQP_successes = 0
             times_for_SQP_solve = []
-            wallclock_times_for_episode = []
             if env.name == 'pendulum':
                 sys.path.append('./{0}/sympybotics version'.format(env.name))
             elif env.name == 'wam7dofarm':
@@ -662,16 +666,24 @@ class TestsDynamicalSystem(unittest.TestCase):
             else:
                 sys.path.append('./{0}'.format(env.name))
             SQP = __import__("{0}_sqp_solver".format(env.name))
+        elif use_DDP:
+            pass
         else:
             pp = SlpNlp(GPMcompact(ds,ds.collocation_points))
 
+        # Stuff to keep track of stats
+        wallclock_times_for_episode = []
         counter = 0
 
+        # Check controls
+        max_u = 0
 
         while True:
             # loop over learning episodes
 
-            if counter >= 15:
+            print "%%%%%%%%%%%%%%%%%%%%%%%%% MAX CONTROL: ", max_u, " %%%%%%%%%%%%%%%%%%%%%%%%%"
+
+            if counter >= 10:
                 break
 
             if counter > 0:
@@ -694,9 +706,15 @@ class TestsDynamicalSystem(unittest.TestCase):
             if env.name == 'wam7dofarm':
                 trj = env.step(RandomPolicy(env.nu,umax=.1),70) # A bit more than number of base parameters
             else:
-                trj = env.step(RandomPolicy(env.nu,umax=.1),2*ds.nx) 
+                trj = env.step(RandomPolicy(env.nu,umax=.1),3*ds.nx) 
             #trj = env.step(RandomPolicy(env.nu,umax=.1),20) 
             ds.state = env.state.copy()
+
+            if use_DDP:
+                # For DDP
+                T = 50
+                # create DDP planner
+                ddp = DDPPlanner(ds,ds.state,T)
 
             cnt = 0
 
@@ -750,10 +768,38 @@ class TestsDynamicalSystem(unittest.TestCase):
                 except:
                     pass
 
-                # print ds.state
+                print ds.state
 
+                # Planning
                 tmm = time.time()
-                if use_FORCES:
+                if use_DDP:
+
+                    g = 9.82
+                    true_weights = np.array([1.0/6, 1.0/16, 1.0/16, -3.0/8*g, 0, 1.0/16, 1.0/24, -1.0/16, -g/8, 0])
+                    
+                    # Check weights 
+                    # print 'Weights\t True Weights:\n', str(ds.weights.get().reshape(-1)) + '\n' + str(true_weights)
+
+                    print "Distance from true_weights:\n", abs(np.matrix(true_weights - ds.weights.get().reshape(-1)).T)
+
+                    # Update the start state with observation
+                    ddp.update_start_state(ds.state)
+
+                    # run DDP planner
+                    pi, x, u, success = ddp.direct_plan(500,0)
+
+                    # Check control
+                    max_control = abs(u[:,:2]).max()
+                    if max_control > max_u:
+                        max_u = max_control
+                        print "%%%%%%%%%%%%%%%%%%%%%%%%% MAX CONTROL: ", max_u, " %%%%%%%%%%%%%%%%%%%%%%%%%"
+
+                    # print x
+
+                    if not success:
+                        print "...Failed..."
+
+                elif use_FORCES:
                     
                     # Get weights
                     weights = ds.weights.get().reshape(-1)
@@ -827,8 +873,13 @@ class TestsDynamicalSystem(unittest.TestCase):
                         else:
                             trj = env.step(RandomPolicy(env.nu,umax=.1), 3) # tends not to work..
                     else:
-                        # trj = env.step(pi, 0.5*delta/0.01) # Play with this parameter
-                        trj = env.step(pi, 5) # Play with this parameter
+                        if not success:
+                            pi = RandomPolicy(env.nu, umax=0.1)
+                            trj = env.step(pi, 5)
+                            # trj = env.step(RandomPolicy(env.nu,umax=.2), 3) # Trying an exploration heuristic
+                        else:
+                            # trj = env.step(pi, 0.5*delta/0.01) # Play with this parameter
+                            trj = env.step(pi, 5) # Play with this parameter
 
                 ds.state = env.state.copy()
                 # print "Count: {0}".format(cnt)
@@ -868,15 +919,19 @@ class TestsDynamicalSystem(unittest.TestCase):
                     # for wam 7 dof arm, get into cube goal radius        
                     print "State:\n", repr(ds.state)
                     print "Horizon: ", pi.max_h
-                    print "Distance to goal: ", dst, "\n" # last ting per time step I think           
-                    if (success and pi.max_h < .1) or dst < .1: # This changes per system
-                        # embed()
-                        # cnt += 1
-                        break
+                    print "Distance to goal: ", dst, "\n" # last ting per time step I think
+                    if use_FORCES:           
+                        if (success and pi.max_h < .1) or dst < .1: # This changes per system
+                            # embed()
+                            # cnt += 1
+                            break
+                    elif use_DDP:
+                        if dst < .01:
+                            break
                     # if cnt>20:
                     #     break
-                #if env.t >= ds.episode_max_h:
-                #    break
+                if env.t >= ds.episode_max_h:
+                   break
 
 
                 print "-------------------------------------------------------------------------"
@@ -885,7 +940,7 @@ class TestsDynamicalSystem(unittest.TestCase):
 
             counter += 1
 
-        # End for loop
+        # End while loop
 
         # Print out some stats for episode solves
         wallclock_times_for_episode = np.array(wallclock_times_for_episode)
@@ -894,12 +949,13 @@ class TestsDynamicalSystem(unittest.TestCase):
         stddev_time_for_episode = np.std(wallclock_times_for_episode)
         print "Standard Devation for episodes solves: ", stddev_time_for_episode
 
-        # Print out some stats for SQP solves
-        times_for_SQP_solve = np.array(times_for_SQP_solve)
-        mean_time_for_SQP = np.mean(times_for_SQP_solve)
-        print "Mean time for SQP solves: ", mean_time_for_SQP
-        stddev_time_for_SQP = np.std(times_for_SQP_solve)
-        print "Standard Devation for SQP solves: ", stddev_time_for_SQP
+        if use_FORCES:
+            # Print out some stats for SQP solves
+            times_for_SQP_solve = np.array(times_for_SQP_solve)
+            mean_time_for_SQP = np.mean(times_for_SQP_solve)
+            print "Mean time for SQP solves: ", mean_time_for_SQP
+            stddev_time_for_SQP = np.std(times_for_SQP_solve)
+            print "Standard Devation for SQP solves: ", stddev_time_for_SQP
 
 
     def test_pp(self):

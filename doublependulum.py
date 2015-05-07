@@ -8,6 +8,7 @@ class DoublePendulumBase:
     add_before_mod = np.pi # Should be 2pi in length
     vc_slack_add = 6
     name = "doublependulum"
+    max_control = 2.0
     def initial_state(self):
         state = np.zeros(self.nx)
         state[2:] = np.pi
