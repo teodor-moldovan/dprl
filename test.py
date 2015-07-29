@@ -712,7 +712,7 @@ class TestsDynamicalSystem(unittest.TestCase):
 
             if use_DDP:
                 # For DDP
-                T = 50
+                T = 50 # 50
                 # create DDP planner
                 ddp = DDPPlanner(ds,ds.state,T)
 
@@ -780,13 +780,22 @@ class TestsDynamicalSystem(unittest.TestCase):
                     # Check weights 
                     # print 'Weights\t True Weights:\n', str(ds.weights.get().reshape(-1)) + '\n' + str(true_weights)
 
-                    print "Distance from true_weights:\n", abs(np.matrix(true_weights - ds.weights.get().reshape(-1)).T)
+                    #print "Distance from true_weights:\n", abs(np.matrix(true_weights - ds.weights.get().reshape(-1)).T)
 
                     # Update the start state with observation
+
+                    #import numpy
+                    #debug_state = numpy.array([-0.97677835,  0.25880603,  2.79097248, -2.76028565])
+                    #ddp.update_start_state(debug_state)
                     ddp.update_start_state(ds.state)
 
                     # run DDP planner
-                    pi, x, u, success = ddp.direct_plan(500,0)
+                    pi, x, u, success = ddp.direct_plan(500,2)
+
+                    # Squashing
+                    if ds.name in ['doublependulum', 'cartpole', 'pendulum']:
+                        pi.us = ds.squash_control_keep_virtual_same(pi.us)
+                        u = ds.squash_control_keep_virtual_same(u)
 
                     # Check control
                     max_control = abs(u[:,:2]).max()
@@ -917,7 +926,6 @@ class TestsDynamicalSystem(unittest.TestCase):
                     dst = np.linalg.norm(ds.state - ds.target)
                     # if (pi.max_h < .1 and success) or dst < 1e-4: # 1e-4, using squared norm. 1e-2 if using norm
                     # for wam 7 dof arm, get into cube goal radius        
-                    print "State:\n", repr(ds.state)
                     print "Horizon: ", pi.max_h
                     print "Distance to goal: ", dst, "\n" # last ting per time step I think
                     if use_FORCES:           
@@ -926,7 +934,7 @@ class TestsDynamicalSystem(unittest.TestCase):
                             # cnt += 1
                             break
                     elif use_DDP:
-                        if dst < .01:
+                        if dst < .1:
                             break
                     # if cnt>20:
                     #     break

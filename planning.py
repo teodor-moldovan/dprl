@@ -11,6 +11,8 @@ from IPython import embed
 import os.path
 import sys
 from scipy.special import expit
+import scipy.linalg
+from numpy import exp
 
 try:
     import mosek
@@ -292,8 +294,7 @@ class DynamicalSystem:
         if self.name not in ['wam7dofarm', 'pendulum']: # Since these things have their dynamics spit out from sympybotics
             print 'Starting feature extraction'
 
-            features, weights, self.nfa, self.nf = self.__extract_features(
-                    implf_sym,self.symbols,self.nx)
+            features, weights, self.nfa, self.nf = self.__extract_features(implf_sym,self.symbols,self.nx)
             self._features = features
 
             #embed()
@@ -327,17 +328,27 @@ class DynamicalSystem:
             if self.name == 'pendulum':
                 sys.path.append('./pendulum/sympybotics version')
                 from pendulum_python_true_dynamics import dynamics, H
-            elif self.name == 'wam7dofarm':
-                sys.path.append('./wam7dofarm')
-                from wam7dofarm_python_true_dynamics import dynamics, H, true_weights
-                self.true_weights = true_weights
+                from cython_wrappers import integrate, linearize
+                self.integrate = integrate
+                self.linearize = linearize
+                self.delta = 0.05
+            elif self.name == 'cartpole':
+                sys.path.append('./cartpole')
+                from cython_wrappers import integrate, linearize
+                self.integrate = integrate
+                self.linearize = linearize
+                self.delta = 0.05
             elif self.name == 'doublependulum':
                 sys.path.append('./doublependulum')
                 from cython_wrappers import integrate, linearize
                 self.integrate = integrate
                 self.linearize = linearize
-                self.delta = 0.05
-
+                self.delta = 0.03
+            elif self.name == 'wam7dofarm':
+                sys.path.append('./wam7dofarm')
+                from wam7dofarm_python_true_dynamics import dynamics, H, true_weights
+                self.true_weights = true_weights
+ 
             self.dynamics = dynamics
             self.H = H
 
@@ -559,10 +570,42 @@ class DynamicalSystem:
     def squash_control(self, u):
         return (expit(u) - 0.5) * 2 * self.max_control
 
+    def squash_control_keep_virtual_same(self, u):
+        return np.concatenate((self.squash_control(u[:, :self.nu]), u[:, self.nu:]), axis=1)
+
+    def squash_derivative(self, z):
+    	# First derivative of sigmoid with a constant factor
+    	# Assumes numpy arrays so we can do element wise operations
+        return 2 * self.max_control * (1 - expit(z)) * expit(z)
+
+    def squash_second_derivative(self, z):
+    	# Same as second derivative of sigmoid function with a constant factor
+    	# Assumes numpy arrays so we can do element wise operations
+        x= 2 * self.max_control * exp(-z) * (exp(-z) - 1) / pow(1 + exp(-z) , 3)
+        if np.any(np.isnan(z)):
+            print 'z:', z
+            print 'denom:', pow(1 + exp(-z) , 3)
+            #import pdb
+            #pdb.set_trace()
+        #print 'numer:', 2 * self.max_control * exp(-z) * (exp(-z) - 1)
+        return x
+
+    def lu_squashed(self, u, R):
+    	# Assume u is an array
+        temp = self.squash_derivative(u) * self.squash_control(u)
+        return R.dot(temp)
+
+    def luu_squashed(self, u, R):
+    	# The analytical derivation makes use of the fact that R is diagonal
+    	# Assume u is an array, R is diagonal
+        temp = self.squash_derivative(u)**2 + self.squash_control(u) * self.squash_second_derivative(u)
+        return R.dot(np.diag(temp))
+
     def get_cost(self,x,u):
        
         # The objective function is:
         # alpha_T * .5 * ||x_T - x_g||^2 + sum_{t=0}^{T-1} [alpha_t * .5 * ||x_t - x_g||^2 + .5 * u_t'*R*u_t]
+		# Now I'm including squashing, so the above is not quite correct
 
         # Grab T from dimension of x, which has dimension T
         T = x.shape[0]
@@ -570,8 +613,8 @@ class DynamicalSystem:
         NUV = self.nu+self.nx # Don't forget to account for virtual controls
 
         # Probably wanna cache this somewhere in beginning of run:
-        alpha = np.ones((T+1,1))*5
-        alpha[T] = 10
+        alpha = np.ones((T+1,1))*10
+        alpha[T] = 20
         x_goal = self.target
 
         control_penalty = 0.4
@@ -588,15 +631,19 @@ class DynamicalSystem:
         luu = np.zeros((T, NUV, NUV))
         lux = np.zeros((T, NUV, self.nx))
 
+        su = self.squash_control_keep_virtual_same(u)
+
         # Iterate through time steps, perform computations
         for t in range(T):
 
             # These derivations were derived in Chris Xie's notebook
-            l[t] = alpha[t] * .5 * pow(np.linalg.norm(x[t] - x_goal), 2) + .5 * u[t].dot( R.dot(u[t]) )
+            # l[t] = alpha[t] * .5 * pow(np.linalg.norm(x[t] - x_goal), 2) + .5 * u[t].dot( R.dot(u[t]) )
+            l[t] = alpha[t] * .5 * pow(np.linalg.norm(x[t] - x_goal), 2) + .5 * su[t].dot( R.dot(su[t]) )     
             lx[t] = (alpha[t] * (x[t] - x_goal)).reshape((self.nx, 1))
-            lu[t] = (R.dot(u[t])).reshape((NUV, 1))
+            #lu[t] = (R.dot(u[t])).reshape((NUV, 1))
+            lu[t] = np.concatenate((self.lu_squashed(u[t, :self.nu], R[:self.nu,:self.nu]), R.dot(su[t])[self.nu:])).reshape((NUV,1))
             lxx[t] = alpha[t] * np.eye(self.nx)
-            luu[t] = R
+            luu[t] = scipy.linalg.block_diag(self.luu_squashed(u[t, :self.nu], R[:self.nu,:self.nu]), R[self.nu:, self.nu:]) #luu[t] = R
             # lux[t] = 0, no need to change it, it has already been initialized to 0
 
         # Calculate cost for last timestep
@@ -727,7 +774,7 @@ class DynamicalSystem:
 
 
     def discrete_time_rollout(self, policy, x0, T, debug_flag=False):
-                
+         
         # allocate space for states and actions
         x = np.zeros((T,self.nx))
         NUV = self.nu+self.nx # Don't forget to account for virtual controls
@@ -757,6 +804,10 @@ class DynamicalSystem:
             if t < T-1:
                 self.integrate(x[t], u[t], self.delta, weights, x[t+1])
                 # wam7dofarm, may need to clip dynamics here
+
+            #if any(np.isnan(x[t])):
+            #    import pdb
+            #    pdb.set_trace()
 
         return x,u
 
@@ -1089,7 +1140,6 @@ class DynamicalSystem:
             # tao = 2*m(np.concatenate((traj[3][:,0], traj[3][:,1]))).T
             
             # Concatenate
-            import scipy.linalg
             H = m(scipy.linalg.block_diag(H_1, H_2))
             max_control = 2
             tao = max_control*m(np.concatenate((traj[3][:,0], traj[3][:,1]))).T
@@ -1153,7 +1203,6 @@ class DynamicalSystem:
             axis=1)
 
             # Concatenate
-            import scipy.linalg
             H = m(scipy.linalg.block_diag(H_1, H_2))
             max_control, g = 10, 9.82
             # temp = np.ones(traj[3][:,0].shape)*-3*g
@@ -1298,8 +1347,8 @@ class DynamicalSystem:
     # update = update_cca
     # update = update_ls
     # update = update_ls_pendulum
-    # update = update_ls_pendulum_sympybotics
-    update = update_ls_doublependulum
+    update = update_ls_pendulum_sympybotics
+    # update = update_ls_doublependulum
     # update = update_ls_cartpole
     # update = update_ls_wam7dofarm
     
@@ -1830,7 +1879,8 @@ class DDPPlanner():
                     Qux[t] = lux[t] + fu[t].transpose().dot(Vxx.dot(fx[t]))
                     
                     # add regularizing parameter
-                    Quut = Quu[t] + mu*fu[t].transpose().dot(fu[t])
+                    #Quut = Quu[t] + mu*fu[t].transpose().dot(fu[t])
+                    Quut = Quu[t] + mu*np.eye(Du)
                     Quxt = Qux[t] + mu*fu[t].transpose().dot(fx[t])
                     
                     # perform Cholesky decomposition and check that Quut is SPD
@@ -1840,9 +1890,9 @@ class DDPPlanner():
                         # if we arrive here, Quut is not SPD, need to increase regularizer
                         fail = True
                         break
-                    # except ValueError:
-                    #     raise ValueError("Nans somewhere in DDP...")
-                        # embed()
+                    except ValueError:
+                        raise ValueError("Nans somewhere in DDP...")
+                        #embed()
                     
                     # compute linear feedback policy
                     k[t] = -scipy.linalg.cho_solve((L,bLower),Qu[t])
@@ -1865,6 +1915,9 @@ class DDPPlanner():
                     
                 # adjust regularizer if necessary
                 if fail == True:
+                    #import pdb
+                    #pdb.set_trace()
+                    #embed()
                     delc = np.max((del0,delc*del0))
                     mu = np.max((mumin,mu*delc))
                     if mu > 1e10:
@@ -1998,7 +2051,7 @@ class DDPPlanner():
             H = self.T
         
         # create linear feedback policy
-        policy = LinearFeedbackPolicy(u,x,K,k.reshape(H,u.shape[1]),H*self.ds.dt,self.ds.dt)
+        policy = LinearFeedbackPolicy(u,x,K,k.reshape(H,u.shape[1]),H*self.ds.delta,self.ds.delta)
         
         # run simulation
         rox,rou = self.ds.discrete_time_rollout(policy,state,H)
@@ -2014,7 +2067,7 @@ class DDPPlanner():
             H = self.T
         
         # create linear feedback policy
-        policy = LinearFeedbackPolicy(u,x,K,k.reshape(H,u.shape[1]),H*self.ds.dt,self.ds.dt)
+        policy = LinearFeedbackPolicy(u,x,K,k.reshape(H,u.shape[1]),H*self.ds.delta,self.ds.delta)
         
         # run simulation
         rox,rou = self.ds.simplified_dynamics_discrete_time_rollout(policy,state,H)

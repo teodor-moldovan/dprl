@@ -3,11 +3,12 @@ from test import TestsDynamicalSystem, unittest
 from sympy.physics.mechanics import *
 
 class CartPoleBase:
-    noise = np.array([0.05])
+    noise = np.array([0.00]) # 0.05
     angles_to_mod = np.array([False, False, True, False])
     add_before_mod = 0
     vc_slack_add = 3
     name = "cartpole"
+    max_control = 10
     def initial_state(self):
         state = np.zeros(self.nx)
         state[self.nx/2:] = .25*np.random.normal(size = self.nx/2)

@@ -110,7 +110,12 @@ namespace doublependulum {
         // State is: [w1, w2, t1, t2]
         VectorXd xdot(NX);      
 
-        double max_control = 1.0;
+        double max_control = 2.0;
+
+		// Squashing
+		for (int i = 0; i < NU; ++i) {
+			u(i) = (1.0 / (1.0 + exp(-1.0 * u(i))) - 0.5) * 2 * max_control;
+		}
 
         // Hand coded dynamics for doublependulum using weights
         Matrix<double, 2, 2> A;

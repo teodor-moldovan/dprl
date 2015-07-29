@@ -157,6 +157,13 @@ namespace cartpole {
         // State is: [w, v, t, x] = [dt, dx, t, x]
         VectorXd xdot(NX);
 
+        double max_control = 10.0;
+
+        // Squashing
+        for (int i = 0; i < NU; ++i) {
+            u(i) = (1.0 / (1.0 + exp(-1.0 * u(i))) - 0.5) * 2 * max_control;
+        }
+
         // Hand coded dynamics for cartpole using weights
         Matrix<double, 2, 2> A;
         Matrix<double, 2, 1> b;
@@ -217,6 +224,77 @@ namespace cartpole {
         VectorXd simulated_x_next = rk45_DP(f, x, u, delta, weights);
         return x_next - simulated_x_next;
     }
+
+    MatrixXd numpy_array_to_Eigen_matrix(double matrix[], int rows, int cols)
+    {
+
+      MatrixXd m(rows, cols);
+
+      for(int i = 0; i < rows; ++i) {
+        for(int j = 0; j < cols; ++j) {
+          m(i,j) = matrix[i*cols + j];
+        }
+      }
+
+      // std::cout << "Matrix:\n" << m << std::endl;
+
+      return m;
+
+    }
+
+    void Eigen_matrix_to_numpy_array(MatrixXd matrix, double* m)
+    {
+
+      int rows = matrix.rows();
+      int cols = matrix.cols();
+
+      // Put it in row major..?
+      for(int i = 0; i < rows; ++i) {
+        for(int j = 0; j < cols; ++j) {
+          m[i*cols + j] = matrix(i,j);
+        }
+      }
+
+    }
+
+    void integrate_forward(double* x_, double* u_, double delta, double* weights, double* x_next)
+    {
+
+      // Input conversion
+      VectorXd x(NX); x = numpy_array_to_Eigen_matrix(x_, NX, 1);
+      VectorXd u(NU+NV); u = numpy_array_to_Eigen_matrix(u_, NU+NV, 1);
+
+      VectorXd x_next_(NX); x_next_ = rk45_DP(continuous_dynamics, x, u, delta, weights);
+
+      // std::cout << "x_next:\n" << x_next_ << "\n";
+
+      // Output conversion
+      for(int i = 0; i < NX; ++i) {
+        x_next[i] = x_next_(i);
+      }
+    }
+
+    void linearize_dynamics(double* x_, double* u_, double delta, double* weights, double* jac_x, double* jac_u)
+    {
+
+      // Input conversion
+      VectorXd x(NX); x = numpy_array_to_Eigen_matrix(x_, NX, 1);
+      VectorXd u(NU+NV); u = numpy_array_to_Eigen_matrix(u_, NU+NV, 1);
+
+      Matrix<double, NX, NX+NU+NV+1> jac = numerical_jacobian(continuous_dynamics, x, u, delta, weights);
+      Matrix<double, NX, NX> DH_X = jac.leftCols(NX);
+      Matrix<double, NX, NU+NV> DH_U = jac.middleCols(NX, NU+NV);
+
+      // std::cout << "DH_X:\n" << DH_X << "\n";
+      // std::cout << "DH_U:\n" << DH_U << "\n";
+
+      // Output conversion
+      Eigen_matrix_to_numpy_array(DH_X, jac_x);
+      Eigen_matrix_to_numpy_array(DH_U, jac_u);
+
+    }
+
+
 
 };
 
