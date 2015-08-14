@@ -331,7 +331,7 @@ class DynamicalSystem:
                 from cython_wrappers import integrate, linearize
                 self.integrate = integrate
                 self.linearize = linearize
-                self.delta = 0.05
+                self.delta = 0.03
             elif self.name == 'cartpole':
                 sys.path.append('./cartpole')
                 from cython_wrappers import integrate, linearize
@@ -582,11 +582,11 @@ class DynamicalSystem:
     	# Same as second derivative of sigmoid function with a constant factor
     	# Assumes numpy arrays so we can do element wise operations
         x= 2 * self.max_control * exp(-z) * (exp(-z) - 1) / pow(1 + exp(-z) , 3)
-        if np.any(np.isnan(z)):
-            print 'z:', z
-            print 'denom:', pow(1 + exp(-z) , 3)
-            #import pdb
-            #pdb.set_trace()
+        #if np.any(np.isnan(z)):
+        #    print 'z:', z
+        #    print 'denom:', pow(1 + exp(-z) , 3)
+        #    import pdb
+        #    pdb.set_trace()
         #print 'numer:', 2 * self.max_control * exp(-z) * (exp(-z) - 1)
         return x
 
@@ -604,8 +604,9 @@ class DynamicalSystem:
     def get_cost(self,x,u):
        
         # The objective function is:
-        # alpha_T * .5 * ||x_T - x_g||^2 + sum_{t=0}^{T-1} [alpha_t * .5 * ||x_t - x_g||^2 + .5 * u_t'*R*u_t]
-		# Now I'm including squashing, so the above is not quite correct
+        # alpha_T * .5 * ||x_T - x_g||^2 + sum_{t=0}^{T-1} [alpha_t * .5 * ||x_t - x_g||^2 + .5 * s(u_t)'*R*s(u_t)]
+        # + u_t'*P*u_t
+        # This last term allows for u_t to not get too large
 
         # Grab T from dimension of x, which has dimension T
         T = x.shape[0]
@@ -613,8 +614,8 @@ class DynamicalSystem:
         NUV = self.nu+self.nx # Don't forget to account for virtual controls
 
         # Probably wanna cache this somewhere in beginning of run:
-        alpha = np.ones((T+1,1))*10
-        alpha[T] = 20
+        alpha = np.ones((T+1,1)) * 5
+        alpha[T] = 10
         x_goal = self.target
 
         control_penalty = 0.4
@@ -622,6 +623,10 @@ class DynamicalSystem:
         virtual_control_penalty = 1.0/self.model_slack_bounds
         R = np.diag([virtual_control_penalty]*NUV)
         R[0:self.nu, 0:self.nu] = np.diag([control_penalty]*self.nu)
+
+        # Constrain u_t to not get too large in magnitude
+        P = np.zeros(R.shape)
+        P[:self.nu, :self.nu] = np.eye(self.nu) * 1e-3
 
         # Instantiate l, lx, lu, lxx, luu, lux
         l = np.zeros((T+1, 1, 1))
@@ -638,12 +643,12 @@ class DynamicalSystem:
 
             # These derivations were derived in Chris Xie's notebook
             # l[t] = alpha[t] * .5 * pow(np.linalg.norm(x[t] - x_goal), 2) + .5 * u[t].dot( R.dot(u[t]) )
-            l[t] = alpha[t] * .5 * pow(np.linalg.norm(x[t] - x_goal), 2) + .5 * su[t].dot( R.dot(su[t]) )     
+            l[t] = alpha[t] * .5 * pow(np.linalg.norm(x[t] - x_goal), 2) + .5 * su[t].dot( R.dot(su[t]) ) + .5 * u[t].dot( P.dot(u[t]) )    
             lx[t] = (alpha[t] * (x[t] - x_goal)).reshape((self.nx, 1))
             #lu[t] = (R.dot(u[t])).reshape((NUV, 1))
-            lu[t] = np.concatenate((self.lu_squashed(u[t, :self.nu], R[:self.nu,:self.nu]), R.dot(su[t])[self.nu:])).reshape((NUV,1))
+            lu[t] = (np.concatenate((self.lu_squashed(u[t, :self.nu], R[:self.nu,:self.nu]), R.dot(su[t])[self.nu:])) + P.dot(u[t])).reshape((NUV,1))
             lxx[t] = alpha[t] * np.eye(self.nx)
-            luu[t] = scipy.linalg.block_diag(self.luu_squashed(u[t, :self.nu], R[:self.nu,:self.nu]), R[self.nu:, self.nu:]) #luu[t] = R
+            luu[t] = scipy.linalg.block_diag(self.luu_squashed(u[t, :self.nu], R[:self.nu,:self.nu]), R[self.nu:, self.nu:]) + P #luu[t] = R
             # lux[t] = 0, no need to change it, it has already been initialized to 0
 
         # Calculate cost for last timestep
@@ -680,6 +685,10 @@ class DynamicalSystem:
         control_penalty = 0.4
         R = np.diag([control_penalty]*self.nu)
 
+        # Constrain u_t to not get too large in magnitude
+        P = np.zeros(R.shape)
+        P[:self.nu, :self.nu] = np.eye(self.nu) * 1e-3
+
         # Instantiate l, lx, lu, lxx, luu, lux
         l = np.zeros((T+1, 1, 1))
         lx = np.zeros((T, self.nx, 1))
@@ -688,6 +697,7 @@ class DynamicalSystem:
         luu = np.zeros((T, self.nu, self.nu))
         lux = np.zeros((T, self.nu, self.nx))
 
+        """
         # Iterate through time steps, perform computations
         for t in range(T):
 
@@ -698,6 +708,22 @@ class DynamicalSystem:
             lxx[t] = alpha[t] * np.eye(self.nx)
             luu[t] = R
             # lux[t] = 0, no need to change it, it has already been initialized to 0
+        """
+
+        su = self.squash_control_keep_virtual_same(u)
+
+        # Iterate through time steps, perform computations
+        for t in range(T):
+
+            # These derivations were derived in Chris Xie's notebook
+            # l[t] = alpha[t] * .5 * pow(np.linalg.norm(x[t] - x_goal), 2) + .5 * u[t].dot( R.dot(u[t]) )
+            l[t] = alpha[t] * .5 * pow(np.linalg.norm(x[t] - x_goal), 2) + .5 * su[t].dot( R.dot(su[t]) ) + .5 * u[t].dot( P.dot(u[t]))
+            lx[t] = (alpha[t] * (x[t] - x_goal)).reshape((self.nx, 1))
+            lu[t] = (self.lu_squashed(u[t], R) + P.dot(u[t])).reshape((self.nu, 1)) #lu[t] = (R.dot(u[t])).reshape((self.nu, 1))
+            lxx[t] = alpha[t] * np.eye(self.nx)
+            luu[t] = self.luu_squashed(u[t], R) + P # luu[t] = R
+            # lux[t] = 0, no need to change it, it has already been initialized to 0
+
 
         # Calculate cost for last timestep
         # First, must integrate forward to get x_T. This requires weights
@@ -706,9 +732,11 @@ class DynamicalSystem:
 
         # Use simple dynamics to calculate last time step
         def f(t,x):             
-
+            # Squashing
+            u_last_squashed = self.squash_control(u[T-1, :self.nu])
             # embed()
-            return np.concatenate((u[T-1][:self.nu], x[:self.nx/2])) # Assume M = I, c+g = 0, so \ddot{q} = u
+            #return np.concatenate((u[T-1][:self.nu], x[:self.nx/2])) # Assume M = I, c+g = 0, so \ddot{q} = u
+            return np.concatenate((u_last_squashed, x[:self.nx/2])) # Assume M = I, c+g = 0, so \ddot{q} = u
 
         # Set up integration
         ode = scipy.integrate.ode(lambda t_,x_ : f(t_,x_))
@@ -764,14 +792,15 @@ class DynamicalSystem:
         fx_mat[self.nx/2:, :self.nx/2] = self.delta * np.eye(self.nx/2)
         fx = np.array([fx_mat,]*T)
 
-        # This assumes that self.nu = self.nx/2, i.e. fully actuated system
-        fu_mat = np.zeros((self.nx, self.nu))
-        fu_mat[:self.nx/2, :self.nu] = self.delta * np.eye(self.nx/2)
-        fu_mat[self.nx/2:, :self.nu] = pow(self.delta,2) * np.eye(self.nx/2)
-        fu = np.array([fu_mat,]*T)
+        # This assumes that self.nu = self.nx/2, i.e. fully actuated system (with squashing)
+        fu = np.zeros((T, self.nx, self.nu)) #fu_mat = np.zeros((T, self.nx, self.nu))
+        for t in range(T):
+            s_prime = np.diag(self.squash_derivative(u[t]))
+            fu[t, :self.nx/2, :self.nu] = self.delta * s_prime #fu_mat[:self.nx/2, :self.nu] = self.delta * np.eye(self.nx/2)
+            fu[t, self.nx/2:, :self.nu] = pow(self.delta,2) * s_prime #fu_mat[self.nx/2:, :self.nu] = pow(self.delta,2) * np.eye(self.nx/2)
+            # fu_mat = np.array([fu_mat,]*T)
 
         return fx, fu        
-
 
     def discrete_time_rollout(self, policy, x0, T, debug_flag=False):
          
@@ -821,9 +850,10 @@ class DynamicalSystem:
         def f(t,x):
             """ explicit dynamics"""
             u = policy.discu(t,x)
-
+            # Squashing
+            u_squash = self.squash_control(u)
             # embed()
-            return np.concatenate((u[:self.nu], x[:self.nx/2])) # Assume M = I, c+g = 0, so \ddot{q} = u
+            return np.concatenate((u_squash[:self.nu], x[:self.nx/2])) # Assume M = I, c+g = 0, so \ddot{q} = u
 
         ode = scipy.integrate.ode(lambda t_,x_ : f(t_,x_))
         ode.set_integrator('dopri5')
@@ -850,6 +880,9 @@ class DynamicalSystem:
         def f(t,x):
             """ explicit dynamics"""
             u = policy.u(t,x).reshape(-1)[:self.nu]
+
+            # Squashing
+            u = self.squash_control(u)
 
             if self.name in ['pendulum', 'wam7dofarm']:
                 dx = self.dynamics(x, u)
@@ -1068,7 +1101,8 @@ class DynamicalSystem:
             # update psi, gamma, n_obs
             self.psi += H_mat.T*H_mat
             self.gamma += H_mat.T*tao
-            self.n_obs += tao.shape[0]
+            if self.ddp_planner.use_simplified_dynamics == False: # hack. hope self.ddp_planner exists
+                self.n_obs += tao.shape[0]
         
         return self.psi, self.gamma, self.n_obs
 
@@ -1082,7 +1116,6 @@ class DynamicalSystem:
 
         # Weights are in the form [1/3*ml^2, b, 1/2*mgl]
         # With values specified in pendulum.py, true values are: [1/3, 0.05, 4.91]
-        print self.weights
 
         # encourages exploration, more or less empirical rate decay
         self.model_slack_bounds = 1.0/self.n_obs
@@ -1147,7 +1180,8 @@ class DynamicalSystem:
             # update psi, gamma, n_obs
             self.psi += H.T*H
             self.gamma += H.T*tao
-            self.n_obs += tao.shape[0]
+            if self.ddp_planner.use_simplified_dynamics == False: # hack. hope self.ddp_planner exists
+                self.n_obs += tao.shape[0]
         
         return self.psi, self.gamma, self.n_obs
 
@@ -1212,7 +1246,8 @@ class DynamicalSystem:
             # update psi, gamma, n_obs
             self.psi += H.T*H
             self.gamma += H.T*tao
-            self.n_obs += tao.shape[0]
+            if self.ddp_planner.use_simplified_dynamics == False: # hack. hope self.ddp_planner exists
+                self.n_obs += tao.shape[0]
         
         return self.psi, self.gamma, self.n_obs
 
@@ -1347,8 +1382,8 @@ class DynamicalSystem:
     # update = update_cca
     # update = update_ls
     # update = update_ls_pendulum
-    update = update_ls_pendulum_sympybotics
-    # update = update_ls_doublependulum
+    # update = update_ls_pendulum_sympybotics
+    update = update_ls_doublependulum
     # update = update_ls_cartpole
     # update = update_ls_wam7dofarm
     
@@ -1708,12 +1743,14 @@ class DDPPlanner():
     def __init__(self,ds,x0,T):
         # set user-specified parameters
         self.ds = ds
+        self.ds.ddp_planner = self
         self.x0 = x0
         self.T = T
         self.old_k = None
         self.old_K = None
         self.lsx = None
         self.lsu = None
+        self.use_simplified_dynamics = False
 
     def update_start_state(self, state):
         self.x0 = state
@@ -1724,16 +1761,44 @@ class DDPPlanner():
         frollout = lambda u_,x_,K_,k_,state=None,H=None : self.rollout(u_,x_,K_,k_,state,H)
         fcost = lambda x_,u_ : self.ds.get_cost(x_,u_)
         fdyngrad = lambda x_,u_ : self.ds.discrete_time_linearization(x_,u_)
-        
+
         # call DDP optimizer (with virtual controls)
         # policy,x,u = self.ddpopt(self.x0, frollout, fcost, fdyngrad, self.ds.nx, self.ds.nu, self.T, iterations=iterations)
         policy,x,u,success = self.ddpopt(self.x0, frollout, fcost, fdyngrad, self.ds.nx, self.ds.nu+self.ds.nx, self.T, lsx=self.lsx, lsu=self.lsu, old_k=self.old_k, old_K=self.old_K, verbosity=verbosity, iterations=iterations)
+       
+        # return result 
+        return policy,x,u,success
+
         
+        """
+        policy,x,u,success = self.ddpopt(self.x0, frollout, fcost, fdyngrad, self.ds.nx, self.ds.nu+self.ds.nx, self.T, lsx=self.lsx, lsu=self.lsu, old_k=self.old_k, old_K=self.old_K, verbosity=verbosity, iterations=iterations, cold_start=False)
+       
+        _policy, _x, _u, _success = self.ddpopt(self.x0, frollout, fcost, fdyngrad, self.ds.nx, self.ds.nu+self.ds.nx, self.T, lsx=self.lsx, lsu=self.lsu, old_k=self.old_k, old_K=self.old_K, verbosity=verbosity, iterations=iterations, cold_start=True)
+
+        if u.shape[1] == (self.ds.nx+self.ds.nu):
+            l,lx,lu,lxx,luu,lux = self.ds.get_cost(x, u)
+        else:
+            l,lx,lu,lxx,luu,lux = self.ds.simplified_dynamics_get_cost(x,u)
+        cost = np.sum(l)
+        if _u.shape[1] == (self.ds.nx+self.ds.nu):
+            l,lx,lu,lxx,luu,lux = self.ds.get_cost(_x, _u)
+        else:
+            l,lx,lu,lxx,luu,lux = self.ds.simplified_dynamics_get_cost(_x,_u)
+        _cost = np.sum(l)
+        if cost < _cost:
+            return policy, x, u, success
+        else:
+            print 'COLD START WAS BETTER'
+            return _policy, _x, _u, _success
+
+
         # return result
         return policy,x,u,success
-        
+        """
+
+
     # DDP-based trajectory optimization with modular dynamics and cost computation
-    def ddpopt(self,x0,frollout,fcost,fdyngrad,Dx,Du,T,lsx=None,lsu=None,old_k=None,old_K=None,verbosity=4,iterations=0):
+    def ddpopt(self,x0,frollout,fcost,fdyngrad,Dx,Du,T,lsx=None,lsu=None,old_k=None,old_K=None,verbosity=4,iterations=0, use_simplified_dynamics=False, cold_start=False):
         if verbosity > 1:
             print 'Running DDP solver with horizon',T
                 
@@ -1747,14 +1812,14 @@ class DDPPlanner():
         # initial rollout to get nominal trajectory
         if verbosity > 3:
             print 'Running initial rollout'
-        if lsx is None:
+        if lsx is None or cold_start:
             lsx = np.array([self.ds.initial_state(),]*T) # Copy x0 T times
-        if lsu is None:
+        if lsu is None or cold_start:
             # lsu = 1e-4*np.random.randn(T,Du) # use random initial actions
             lsu = np.zeros((T,Du))
-        if old_k is None:
+        if old_k is None or cold_start:
             old_k = np.zeros((T,Du))
-        if old_K is None:
+        if old_K is None or cold_start:
             K_mat = np.zeros((Du,Dx))
             k_v = 2
             k_p = 2
@@ -1767,43 +1832,13 @@ class DDPPlanner():
 
         lsx,lsu,policy = frollout(lsu, lsx, old_K, old_k, H=T)
 
-        # if np.isnan(np.sum(lsx)):# or np.isnan(np.sum(lsu)):
+        #use_simplified_dynamics = False
+        #l,lx,lu,lxx,luu,lux = fcost(lsx, lsu)
+        #fx,fu = fdyngrad(lsx, lsu)
+        #if np.isnan(np.sum(lsx)) or np.isnan(np.sum(l)) or np.isnan(np.sum(lx)) or np.isnan(np.sum(lu)) or np.isnan(np.sum(lxx)) or np.isnan(np.sum(luu)) or np.isnan(np.sum(lux)) or np.isnan(np.sum(fx)) or np.isnan(np.sum(fu)):
+        #    use_simplified_dynamics = True
 
-        #     # Find where it is nan, then return ddpopt with a shortened horizon
-        #     new_T = np.where(np.isnan(lsx))[0][0] - 1 # weird looking python hack. If you don't understand, try it in ipython
-
-        #     if new_T <= 5:
-        #         return 0, lsx, lsu, False # Return success flag
-
-        #     new_lsx, new_lsu, new_k, new_K = None, None, None, None
-        #     if self.lsx is not None and lsx.shape[0] > new_T:
-        #         new_lsx = self.lsx[0:new_T, :]
-        #     if self.lsu is not None and lsu.shape[0] > new_T:
-        #         new_lsu = self.lsu[0:new_T, :]
-        #     if self.old_k is not None and old_k.shape[0] > new_T:
-        #         new_k = self.old_k[0:new_T, :]
-        #     if self.old_K is not None and old_K.shape[0] > new_T:
-        #         new_K = self.old_K[0:new_T, :]
-            
-        #     # print "Here 1"
-        #     # import pdb
-        #     # pdb.set_trace()
-
-        #     policy,x,u,success = self.ddpopt(x0, frollout, fcost, fdyngrad, self.ds.nx, self.ds.nu+self.ds.nx, new_T, lsx=new_lsx, lsu=new_lsu, old_k=new_k, old_K=new_K, verbosity=verbosity, iterations=iterations)
-
-        #     # print "Here 2"
-        #     # pdb.set_trace()
-
-        #     return policy, x, u, success
-
-        # allocate space for states and actions
-
-        # If initial rollout is too crazy, then estimated weights are crappy. Make approximation to model that M = I, c+g = 0. This means that ddq = tau
-        use_simplified_dynamics = False
-        l,lx,lu,lxx,luu,lux = fcost(lsx, lsu)
-        fx,fu = fdyngrad(lsx, lsu)
-        if np.isnan(np.sum(lsx)) or np.isnan(np.sum(l)) or np.isnan(np.sum(lx)) or np.isnan(np.sum(lu)) or np.isnan(np.sum(lxx)) or np.isnan(np.sum(luu)) or np.isnan(np.sum(lux)) or np.isnan(np.sum(fx)) or np.isnan(np.sum(fu)):
-            use_simplified_dynamics = True
+        if use_simplified_dynamics:
 
             # Use simplified dynamics in cost (just for last time step) and dynamics
             fcost = lambda x_, u_ : self.ds.simplified_dynamics_get_cost(x_, u_)
@@ -1822,7 +1857,7 @@ class DDPPlanner():
             # Re-rollout using simplified dynamics, and CUT OUT virtual controls
             lsx,lsu,policy = frollout(lsu, lsx, old_K, old_k, H=T)
 
-            print "!!!!!!!!!!!!!!!!!!!!!! ...USE SIMPLE DYNAMICS... !!!!!!!!!!!!!!!!!!!!!!"
+            print "!!!!!!!!!!!!!!!!!!!!!! ...USING SIMPLE DYNAMICS... !!!!!!!!!!!!!!!!!!!!!!"
 
             # embed()
             # import pdb
@@ -1891,8 +1926,10 @@ class DDPPlanner():
                         fail = True
                         break
                     except ValueError:
-                        raise ValueError("Nans somewhere in DDP...")
+                        #raise ValueError("Nans somewhere in DDP...")
                         #embed()
+                        print 'Must be NaNs..., use simplified dynamics'
+                        return self.ddpopt(self.x0, frollout, fcost, fdyngrad, self.ds.nx, self.ds.nu+self.ds.nx, self.T, lsx=self.lsx, lsu=self.lsu, old_k=self.old_k, old_K=self.old_K, verbosity=verbosity, iterations=iterations, use_simplified_dynamics=True)
                     
                     # compute linear feedback policy
                     k[t] = -scipy.linalg.cho_solve((L,bLower),Qu[t])

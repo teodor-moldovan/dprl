@@ -768,19 +768,23 @@ class TestsDynamicalSystem(unittest.TestCase):
                 except:
                     pass
 
-                print ds.state
+                print 'State:', ds.state
 
                 # Planning
                 tmm = time.time()
                 if use_DDP:
 
-                    g = 9.82
-                    true_weights = np.array([1.0/6, 1.0/16, 1.0/16, -3.0/8*g, 0, 1.0/16, 1.0/24, -1.0/16, -g/8, 0])
-                    
                     # Check weights 
                     # print 'Weights\t True Weights:\n', str(ds.weights.get().reshape(-1)) + '\n' + str(true_weights)
 
-                    #print "Distance from true_weights:\n", abs(np.matrix(true_weights - ds.weights.get().reshape(-1)).T)
+                    # for doublependulum only
+                    if ds.name == 'doublependulum':
+                        g = 9.82
+                        true_weights = np.array([1.0/6, 1.0/16, 1.0/16, -3.0/8*g, 0, 1.0/16, 1.0/24, -1.0/16, -g/8, 0])
+                        print "Distance from true_weights:\n", abs(np.matrix(true_weights - ds.weights.get().reshape(-1)).T)
+
+                    else:
+                        print 'Weights:\n', str(ds.weights.get())
 
                     # Update the start state with observation
 
@@ -790,15 +794,16 @@ class TestsDynamicalSystem(unittest.TestCase):
                     ddp.update_start_state(ds.state)
 
                     # run DDP planner
-                    pi, x, u, success = ddp.direct_plan(500,2)
+                    pi, x, u, success = ddp.direct_plan(500,0)
 
                     # Squashing
                     if ds.name in ['doublependulum', 'cartpole', 'pendulum']:
-                        pi.us = ds.squash_control_keep_virtual_same(pi.us)
-                        u = ds.squash_control_keep_virtual_same(u)
-
+                        #pi.us = ds.squash_control_keep_virtual_same(pi.us)
+                        print 'First Control (no squash):', u[0,:env.nu]
+                        #u = ds.squash_control_keep_virtual_same(u)
+                        print 'First Control (with squash):', ds.squash_control_keep_virtual_same(u)[0,:env.nu]
                     # Check control
-                    max_control = abs(u[:,:2]).max()
+                    max_control = abs(ds.squash_control_keep_virtual_same(u)[:,:env.nu]).max()
                     if max_control > max_u:
                         max_u = max_control
                         print "%%%%%%%%%%%%%%%%%%%%%%%%% MAX CONTROL: ", max_u, " %%%%%%%%%%%%%%%%%%%%%%%%%"
@@ -924,6 +929,8 @@ class TestsDynamicalSystem(unittest.TestCase):
                     # dst = np.nansum( 
                     #     ((ds.state - ds.target)**2)[np.logical_not(ds.c_ignore)])
                     dst = np.linalg.norm(ds.state - ds.target)
+                    if abs(ds.state[0]) > 1e3:
+                        embed()
                     # if (pi.max_h < .1 and success) or dst < 1e-4: # 1e-4, using squared norm. 1e-2 if using norm
                     # for wam 7 dof arm, get into cube goal radius        
                     print "Horizon: ", pi.max_h
@@ -934,7 +941,7 @@ class TestsDynamicalSystem(unittest.TestCase):
                             # cnt += 1
                             break
                     elif use_DDP:
-                        if dst < .1:
+                        if dst < .05: #.01
                             break
                     # if cnt>20:
                     #     break
