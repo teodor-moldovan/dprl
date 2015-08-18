@@ -3,7 +3,7 @@ from test import TestsDynamicalSystem, unittest
 from sympy.physics.mechanics import *
 
 class CartPoleBase:
-    noise = np.array([0.00]) # 0.05
+    noise = np.array([0.05]) # 0.05
     angles_to_mod = np.array([False, False, True, False])
     add_before_mod = 0
     vc_slack_add = 3
@@ -26,7 +26,7 @@ class CartPoleBase:
         M = 0.5   # [kg]     mass of cart
         b = 0.1   # [N/m/s]  coefficient of friction between cart and ground
         g = 9.82  # [m/s^2]  acceleration of gravity
-        um = 10   # max control
+        um = self.max_control   # max control
         
         sin,cos,exp = sympy.sin, sympy.cos, sympy.exp
         s,c = sympy.sin(t), sympy.cos(t)

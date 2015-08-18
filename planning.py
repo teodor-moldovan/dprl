@@ -616,6 +616,14 @@ class DynamicalSystem:
         # Probably wanna cache this somewhere in beginning of run:
         alpha = np.ones((T+1,1)) * 5
         alpha[T] = 10
+        Q = np.diag([alpha[0,0]] * self.nx)
+        if self.name != 'wam7dofarm': # Don't penalize velocities
+            Q[:self.nx/2, :self.nx/2] = np.diag([0] * (self.nx/2))
+        if self.name == 'cartpole':
+            Q[0,0] = 1e-3
+            Q[1,1] = 1e-3
+            Q[2,2] = .3
+            Q[3,3] = .1
         x_goal = self.target
 
         control_penalty = 0.4
@@ -643,11 +651,15 @@ class DynamicalSystem:
 
             # These derivations were derived in Chris Xie's notebook
             # l[t] = alpha[t] * .5 * pow(np.linalg.norm(x[t] - x_goal), 2) + .5 * u[t].dot( R.dot(u[t]) )
-            l[t] = alpha[t] * .5 * pow(np.linalg.norm(x[t] - x_goal), 2) + .5 * su[t].dot( R.dot(su[t]) ) + .5 * u[t].dot( P.dot(u[t]) )    
-            lx[t] = (alpha[t] * (x[t] - x_goal)).reshape((self.nx, 1))
+            #l[t] = alpha[t] * .5 * pow(np.linalg.norm(x[t] - x_goal), 2) + .5 * su[t].dot( R.dot(su[t]) ) + .5 * u[t].dot( P.dot(u[t]) )    
+            l[t] = .5 * (x[t] - x_goal).dot( Q.dot(x[t] - x_goal) ) + .5 * su[t].dot( R.dot(su[t]) ) + .5 * u[t].dot( P.dot(u[t]) )    
+
+            #lx[t] = (alpha[t] * (x[t] - x_goal)).reshape((self.nx, 1))
+            lx[t] = (Q.dot(x[t] - x_goal)).reshape((self.nx, 1))
             #lu[t] = (R.dot(u[t])).reshape((NUV, 1))
             lu[t] = (np.concatenate((self.lu_squashed(u[t, :self.nu], R[:self.nu,:self.nu]), R.dot(su[t])[self.nu:])) + P.dot(u[t])).reshape((NUV,1))
-            lxx[t] = alpha[t] * np.eye(self.nx)
+            #lxx[t] = alpha[t] * np.eye(self.nx)
+            lxx[t] = Q
             luu[t] = scipy.linalg.block_diag(self.luu_squashed(u[t, :self.nu], R[:self.nu,:self.nu]), R[self.nu:, self.nu:]) + P #luu[t] = R
             # lux[t] = 0, no need to change it, it has already been initialized to 0
 
@@ -665,7 +677,8 @@ class DynamicalSystem:
         self.integrate(x[T-1], u[T-1], self.delta, weights, x_T)
 
         # Add cost of last time step
-        l[T] = alpha[T] * .5 * pow(np.linalg.norm(x_T - x_goal), 2)
+        #l[T] = alpha[T] * .5 * pow(np.linalg.norm(x_T - x_goal), 2)
+        l[T] = 100 * (x_T - x_goal).dot( Q.dot(x_T - x_goal) )
 
         return l, lx, lu, lxx, luu, lux
 
@@ -680,6 +693,12 @@ class DynamicalSystem:
         # Probably wanna cache this somewhere in beginning of run:
         alpha = np.ones((T+1,1))*.25
         alpha[T] = .5
+        Q = np.diag([alpha[0,0]] * self.nx)
+        if self.name == 'cartpole':
+            Q[0,0] = 1e-3
+            Q[1,1] = 1e-3
+            Q[2,2] = .3
+            Q[3,3] = .1
         x_goal = self.target
 
         control_penalty = 0.4
@@ -716,14 +735,12 @@ class DynamicalSystem:
         for t in range(T):
 
             # These derivations were derived in Chris Xie's notebook
-            # l[t] = alpha[t] * .5 * pow(np.linalg.norm(x[t] - x_goal), 2) + .5 * u[t].dot( R.dot(u[t]) )
-            l[t] = alpha[t] * .5 * pow(np.linalg.norm(x[t] - x_goal), 2) + .5 * su[t].dot( R.dot(su[t]) ) + .5 * u[t].dot( P.dot(u[t]))
-            lx[t] = (alpha[t] * (x[t] - x_goal)).reshape((self.nx, 1))
+            l[t] = .5 * (x[t] - x_goal).dot( Q.dot(x[t] - x_goal) ) + .5 * su[t].dot( R.dot(su[t]) ) + .5 * u[t].dot( P.dot(u[t]) )    
+            lx[t] = (Q.dot(x[t] - x_goal)).reshape((self.nx, 1))
             lu[t] = (self.lu_squashed(u[t], R) + P.dot(u[t])).reshape((self.nu, 1)) #lu[t] = (R.dot(u[t])).reshape((self.nu, 1))
-            lxx[t] = alpha[t] * np.eye(self.nx)
+            lxx[t] = Q
             luu[t] = self.luu_squashed(u[t], R) + P # luu[t] = R
             # lux[t] = 0, no need to change it, it has already been initialized to 0
-
 
         # Calculate cost for last timestep
         # First, must integrate forward to get x_T. This requires weights
@@ -736,7 +753,13 @@ class DynamicalSystem:
             u_last_squashed = self.squash_control(u[T-1, :self.nu])
             # embed()
             #return np.concatenate((u[T-1][:self.nu], x[:self.nx/2])) # Assume M = I, c+g = 0, so \ddot{q} = u
+            if self.name == 'cartpole': # Underactuated system
+                u_last_squashed = np.concatenate((u_last_squashed, u_last_squashed))
+                #u_last_squashed = np.concatenate(([0], u_last_squashed))
+                #u_last_squashed = np.concatenate((u_last_squashed, [0]))
             return np.concatenate((u_last_squashed, x[:self.nx/2])) # Assume M = I, c+g = 0, so \ddot{q} = u
+
+
 
         # Set up integration
         ode = scipy.integrate.ode(lambda t_,x_ : f(t_,x_))
@@ -750,7 +773,7 @@ class DynamicalSystem:
         x_T = ode.y
 
         # Add cost of last time step
-        l[T] = alpha[T] * .5 * pow(np.linalg.norm(x_T - x_goal), 2)
+        l[T] = 100 * (x_T - x_goal).dot( Q.dot(x_T - x_goal) )
 
         return l, lx, lu, lxx, luu, lux
 
@@ -853,7 +876,11 @@ class DynamicalSystem:
             # Squashing
             u_squash = self.squash_control(u)
             # embed()
-            return np.concatenate((u_squash[:self.nu], x[:self.nx/2])) # Assume M = I, c+g = 0, so \ddot{q} = u
+            if self.name == 'cartpole': # Underactuated system
+                u_squash = np.concatenate((u_squash, u_squash))
+                #u_squash = np.concatenate(([0], u_squash))
+                #u_squash = np.concatenate((u_squash, [0]))
+            return np.concatenate((u_squash, x[:self.nx/2])) # Assume M = I, c+g = 0, so \ddot{q} = u
 
         ode = scipy.integrate.ode(lambda t_,x_ : f(t_,x_))
         ode.set_integrator('dopri5')
@@ -1263,7 +1290,7 @@ class DynamicalSystem:
 
         # Weights are in the form 1/5*[ml^2, b, mgl]
         # With values specified in pendulum.py, true values are: [1, 0.05, 9.82]
-        print self.weights
+        #print self.weights
 
         # encourages exploration, more or less empirical rate decay
         self.model_slack_bounds = 1.0/self.n_obs
@@ -1383,8 +1410,8 @@ class DynamicalSystem:
     # update = update_ls
     # update = update_ls_pendulum
     # update = update_ls_pendulum_sympybotics
-    update = update_ls_doublependulum
-    # update = update_ls_cartpole
+    # update = update_ls_doublependulum
+    update = update_ls_cartpole
     # update = update_ls_wam7dofarm
     
     def cdyn(self, include_virtual_controls = False):
