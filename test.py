@@ -641,6 +641,13 @@ class TestsDynamicalSystem(unittest.TestCase):
     def test_learning(self):
         """ not a test, top level for experiments."""
 
+        """
+        import cProfile
+        from pstats import Stats
+        self.pr = cProfile.Profile()
+        self.pr.enable()
+        """
+
         env = self.DSKnown()     # proxy for real, known system.
         ds = self.DSLearned()    # model to be trained online
 
@@ -681,9 +688,9 @@ class TestsDynamicalSystem(unittest.TestCase):
         while True:
             # loop over learning episodes
 
-            print "%%%%%%%%%%%%%%%%%%%%%%%%% MAX CONTROL: ", max_u, " %%%%%%%%%%%%%%%%%%%%%%%%%"
+            #print "%%%%%%%%%%%%%%%%%%%%%%%%% MAX CONTROL: ", max_u, " %%%%%%%%%%%%%%%%%%%%%%%%%"
 
-            if counter >= 10:
+            if counter >= 50:
                 break
 
             if counter > 0:
@@ -701,6 +708,8 @@ class TestsDynamicalSystem(unittest.TestCase):
             except TypeError:
                 nz = env.noise
 
+            print ds.state
+
             # start with a sequence of random controls
             # need more random steps if system has more features
             if env.name == 'wam7dofarm':
@@ -712,9 +721,9 @@ class TestsDynamicalSystem(unittest.TestCase):
 
             if use_DDP:
                 # For DDP
-                T = 50 # 50
+                #T = 10 # 50
                 # create DDP planner
-                ddp = DDPPlanner(ds,ds.state,T)
+                ddp = DDPPlanner(ds, ds.state, ds.T)
 
             cnt = 0
 
@@ -794,7 +803,7 @@ class TestsDynamicalSystem(unittest.TestCase):
                     ddp.update_start_state(ds.state)
 
                     # run DDP planner
-                    pi, x, u, success = ddp.direct_plan(500,0)
+                    pi, x, u, success = ddp.direct_plan(10,0)
 
                     # Squashing
                     if ds.name in ['doublependulum', 'cartpole', 'pendulum']:
@@ -803,10 +812,10 @@ class TestsDynamicalSystem(unittest.TestCase):
                         #u = ds.squash_control_keep_virtual_same(u)
                         print 'First Control (with squash):', ds.squash_control_keep_virtual_same(u)[0,:env.nu]
                     # Check control
-                    max_control = abs(ds.squash_control_keep_virtual_same(u)[:,:env.nu]).max()
-                    if max_control > max_u:
-                        max_u = max_control
-                        print "%%%%%%%%%%%%%%%%%%%%%%%%% MAX CONTROL: ", max_u, " %%%%%%%%%%%%%%%%%%%%%%%%%"
+                    #max_control = abs(ds.squash_control_keep_virtual_same(u)[:,:env.nu]).max()
+                    #if max_control > max_u:
+                    #    max_u = max_control
+                    #    print "%%%%%%%%%%%%%%%%%%%%%%%%% MAX CONTROL: ", max_u, " %%%%%%%%%%%%%%%%%%%%%%%%%"
 
                     # print x
 
@@ -877,8 +886,8 @@ class TestsDynamicalSystem(unittest.TestCase):
                 # also, maybe we wanna take advantage of violation constraint. it doesn't quite work unless violation constraint is small enough
                 if env.name == 'wam7dofarm' and pi.max_h < .13:
                     trj = env.step(pi, pi.max_h/0.01)
-                elif env.name == 'cartpole' and pi.max_h < .2 and success and not added_slack:
-                    trj = env.step(pi, pi.max_h/0.01)
+                #elif env.name == 'cartpole' and pi.max_h < .2 and success and not added_slack:
+                #    trj = env.step(pi, pi.max_h/0.01)
                 else:
                     if use_FORCES and not success:
                         timesteps = 4
@@ -893,7 +902,7 @@ class TestsDynamicalSystem(unittest.TestCase):
                             # trj = env.step(RandomPolicy(env.nu,umax=.2), 3) # Trying an exploration heuristic
                         else:
                             # trj = env.step(pi, 0.5*delta/0.01) # Play with this parameter
-                            trj = env.step(pi, 5) # Play with this parameter
+                            trj = env.step(pi, 3) # Play with this parameter
 
                 ds.state = env.state.copy()
                 # print "Count: {0}".format(cnt)
@@ -904,11 +913,7 @@ class TestsDynamicalSystem(unittest.TestCase):
 
                     # robot.SetDOFValues(ds.state[7:])
 
-                    pos = forward_kin.end_effector_pos(ds.state)
-                    vel = forward_kin.end_effector_lin_vel(ds.state)
-
-                    # Position and linear velocity
-                    current_end_effector_pos_vel = np.concatenate((pos, vel))
+                    current_end_effector_pos_vel = forward_kin.p(ds.state)
                     displacements = current_end_effector_pos_vel - np.matrix(ds.target).T
 
                     # Just position, don't care about velocity
@@ -943,6 +948,8 @@ class TestsDynamicalSystem(unittest.TestCase):
                     elif use_DDP:
                         if dst < .05: #.01
                             break
+                        # Hack for Huber norm
+                        ds.update_cost(dst)
                     # if cnt>20:
                     #     break
                 if env.t >= ds.episode_max_h:
@@ -972,6 +979,13 @@ class TestsDynamicalSystem(unittest.TestCase):
             stddev_time_for_SQP = np.std(times_for_SQP_solve)
             print "Standard Devation for SQP solves: ", stddev_time_for_SQP
 
+        """
+        p = Stats (self.pr)
+        p.strip_dirs()
+        p.sort_stats ('cumulative')
+        p.print_stats ()
+        print "\n--->>>"
+        """
 
     def test_pp(self):
         """ tests whether we can plan in the known system. valuable for sanity check for planning.  used as a baseline experiment"""

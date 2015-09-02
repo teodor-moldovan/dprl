@@ -12,7 +12,8 @@ bin/
 build/
 pics/
 
-# PYC files
+# Python stuff
+*.pkl
 *.pyc
 
 # Eclipse stuff

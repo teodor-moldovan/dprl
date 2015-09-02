@@ -125,8 +125,13 @@ namespace doublependulum {
         A << weights[0], weights[1] * cos(x(2)-x(3)),
              weights[5] * cos(x(2)-x(3)), weights[6];
 
-        b << max_control*u(0) - weights[2]*pow(x(1),2)*sin(x(2)-x(3)) - weights[3]*sin(x(2)) - weights[4]*x(0),
-             max_control*u(1) - weights[7]*pow(x(0),2)*sin(x(2)-x(3)) - weights[8]*sin(x(3)) - weights[9]*x(1);
+        b << u(0) - weights[2]*pow(x(1),2)*sin(x(2)-x(3)) - weights[3]*sin(x(2)) - weights[4]*x(0),
+             u(1) - weights[7]*pow(x(0),2)*sin(x(2)-x(3)) - weights[8]*sin(x(3)) - weights[9]*x(1);
+
+        //b << max_control*u(0) - weights[2]*pow(x(1),2)*sin(x(2)-x(3)) - weights[3]*sin(x(2)) - weights[4]*x(0),
+        //     max_control*u(1) - weights[7]*pow(x(0),2)*sin(x(2)-x(3)) - weights[8]*sin(x(3)) - weights[9]*x(1);
+
+
 
         Vector2d temp = A.inverse() * b;
         

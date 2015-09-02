@@ -262,7 +262,7 @@ class LinearFeedbackPolicy:
         return self.us[t]+self.K[t].dot(x-self.xs[t])
         
 class DynamicalSystem:
-    dt, log_h_init,noise = 0.01, -1.0, np.array([0, 0, 0])
+    dt, log_h_init,noise = 0.02, -1.0, np.array([0, 0, 0])
     optimize_var = None
     fixed_horizon= False
     collocation_points = 15 #35
@@ -331,23 +331,24 @@ class DynamicalSystem:
                 from cython_wrappers import integrate, linearize
                 self.integrate = integrate
                 self.linearize = linearize
-                self.delta = 0.03
+                self.delta = 0.1
             elif self.name == 'cartpole':
                 sys.path.append('./cartpole')
                 from cython_wrappers import integrate, linearize
                 self.integrate = integrate
                 self.linearize = linearize
-                self.delta = 0.05
+                self.delta = 0.1
             elif self.name == 'doublependulum':
                 sys.path.append('./doublependulum')
                 from cython_wrappers import integrate, linearize
                 self.integrate = integrate
                 self.linearize = linearize
-                self.delta = 0.03
+                self.delta = 0.08
             elif self.name == 'wam7dofarm':
                 sys.path.append('./wam7dofarm')
                 from wam7dofarm_python_true_dynamics import dynamics, H, true_weights
                 self.true_weights = true_weights
+                self.delta = 0.05
  
             self.dynamics = dynamics
             self.H = H
@@ -605,7 +606,7 @@ class DynamicalSystem:
        
         # The objective function is:
         # alpha_T * .5 * ||x_T - x_g||^2 + sum_{t=0}^{T-1} [alpha_t * .5 * ||x_t - x_g||^2 + .5 * s(u_t)'*R*s(u_t)]
-        # + u_t'*P*u_t
+        # + .5 * u_t'*P*u_t
         # This last term allows for u_t to not get too large
 
         # Grab T from dimension of x, which has dimension T
@@ -614,27 +615,28 @@ class DynamicalSystem:
         NUV = self.nu+self.nx # Don't forget to account for virtual controls
 
         # Probably wanna cache this somewhere in beginning of run:
-        alpha = np.ones((T+1,1)) * 5
-        alpha[T] = 10
-        Q = np.diag([alpha[0,0]] * self.nx)
-        if self.name != 'wam7dofarm': # Don't penalize velocities
-            Q[:self.nx/2, :self.nx/2] = np.diag([0] * (self.nx/2))
-        if self.name == 'cartpole':
-            Q[0,0] = 1e-3
-            Q[1,1] = 1e-3
-            Q[2,2] = .3
-            Q[3,3] = .1
-        x_goal = self.target
+        #alpha = np.ones((T+1,1)) * 5
+        #alpha[T] = 10
+        #Q = np.diag([alpha[0,0]] * self.nx)
+        #velocity_cost = 1e-3
+        #if self.name != 'wam7dofarm': # Barely penalize velocities
+        #    Q[:self.nx/2, :self.nx/2] = np.diag([velocity_cost] * (self.nx/2))
+        #if self.name == 'cartpole':
+        #    Q[0,0] = 1e-3
+        #    Q[1,1] = .5
+        #    Q[2,2] = 300
+        #    Q[3,3] = .7
+        #x_goal = self.target
 
-        control_penalty = 0.4
+        #control_penalty = .4#5
         # virtual_control_penalty = 1e10 #2.0
         virtual_control_penalty = 1.0/self.model_slack_bounds
         R = np.diag([virtual_control_penalty]*NUV)
-        R[0:self.nu, 0:self.nu] = np.diag([control_penalty]*self.nu)
+        R[0:self.nu, 0:self.nu] = np.diag([self.control_penalty]*self.nu)
 
         # Constrain u_t to not get too large in magnitude
         P = np.zeros(R.shape)
-        P[:self.nu, :self.nu] = np.eye(self.nu) * 1e-3
+        P[:self.nu, :self.nu] = np.eye(self.nu) * self.u_penalty
 
         # Instantiate l, lx, lu, lxx, luu, lux
         l = np.zeros((T+1, 1, 1))
@@ -652,14 +654,14 @@ class DynamicalSystem:
             # These derivations were derived in Chris Xie's notebook
             # l[t] = alpha[t] * .5 * pow(np.linalg.norm(x[t] - x_goal), 2) + .5 * u[t].dot( R.dot(u[t]) )
             #l[t] = alpha[t] * .5 * pow(np.linalg.norm(x[t] - x_goal), 2) + .5 * su[t].dot( R.dot(su[t]) ) + .5 * u[t].dot( P.dot(u[t]) )    
-            l[t] = .5 * (x[t] - x_goal).dot( Q.dot(x[t] - x_goal) ) + .5 * su[t].dot( R.dot(su[t]) ) + .5 * u[t].dot( P.dot(u[t]) )    
+            l[t] = self.end_effector_cost(x[t]) + .5 * su[t].dot( R.dot(su[t]) ) + .5 * u[t].dot( P.dot(u[t]) )
+            lx[t] = self.l_x(x[t]).reshape((self.nx,1))
+            lxx[t] = self.l_xx(x[t])
 
             #lx[t] = (alpha[t] * (x[t] - x_goal)).reshape((self.nx, 1))
-            lx[t] = (Q.dot(x[t] - x_goal)).reshape((self.nx, 1))
             #lu[t] = (R.dot(u[t])).reshape((NUV, 1))
             lu[t] = (np.concatenate((self.lu_squashed(u[t, :self.nu], R[:self.nu,:self.nu]), R.dot(su[t])[self.nu:])) + P.dot(u[t])).reshape((NUV,1))
             #lxx[t] = alpha[t] * np.eye(self.nx)
-            lxx[t] = Q
             luu[t] = scipy.linalg.block_diag(self.luu_squashed(u[t, :self.nu], R[:self.nu,:self.nu]), R[self.nu:, self.nu:]) + P #luu[t] = R
             # lux[t] = 0, no need to change it, it has already been initialized to 0
 
@@ -677,8 +679,7 @@ class DynamicalSystem:
         self.integrate(x[T-1], u[T-1], self.delta, weights, x_T)
 
         # Add cost of last time step
-        #l[T] = alpha[T] * .5 * pow(np.linalg.norm(x_T - x_goal), 2)
-        l[T] = 100 * (x_T - x_goal).dot( Q.dot(x_T - x_goal) )
+        l[T] = 1000 * self.end_effector_cost(x_T)
 
         return l, lx, lu, lxx, luu, lux
 
@@ -691,22 +692,22 @@ class DynamicalSystem:
         T = x.shape[0]
 
         # Probably wanna cache this somewhere in beginning of run:
-        alpha = np.ones((T+1,1))*.25
-        alpha[T] = .5
-        Q = np.diag([alpha[0,0]] * self.nx)
-        if self.name == 'cartpole':
-            Q[0,0] = 1e-3
-            Q[1,1] = 1e-3
-            Q[2,2] = .3
-            Q[3,3] = .1
-        x_goal = self.target
+        #alpha = np.ones((T+1,1))*5
+        #alpha[T] = 10
+        #Q = np.diag([alpha[0,0]] * self.nx)
+        #velocity_cost = 1
+        #if self.name != 'wam7dofarm': # Barely penalize velocities
+        #    Q[:self.nx/2, :self.nx/2] = np.diag([velocity_cost] * (self.nx/2))
+        #if self.name == 'cartpole':
+        #    Q[2,2] = .3
+        #    Q[3,3] = .1
+        #x_goal = self.target
 
-        control_penalty = 0.4
-        R = np.diag([control_penalty]*self.nu)
+        R = np.diag([self.control_penalty]*self.nu)
 
         # Constrain u_t to not get too large in magnitude
         P = np.zeros(R.shape)
-        P[:self.nu, :self.nu] = np.eye(self.nu) * 1e-3
+        P[:self.nu, :self.nu] = np.eye(self.nu) * self.u_penalty
 
         # Instantiate l, lx, lu, lxx, luu, lux
         l = np.zeros((T+1, 1, 1))
@@ -715,30 +716,18 @@ class DynamicalSystem:
         lxx = np.zeros((T, self.nx, self.nx))
         luu = np.zeros((T, self.nu, self.nu))
         lux = np.zeros((T, self.nu, self.nx))
-
-        """
-        # Iterate through time steps, perform computations
-        for t in range(T):
-
-            # These derivations were derived in Chris Xie's notebook
-            l[t] = alpha[t] * .5 * pow(np.linalg.norm(x[t] - x_goal), 2) + .5 * u[t].dot( R.dot(u[t]) )
-            lx[t] = (alpha[t] * (x[t] - x_goal)).reshape((self.nx, 1))
-            lu[t] = (R.dot(u[t])).reshape((self.nu, 1))
-            lxx[t] = alpha[t] * np.eye(self.nx)
-            luu[t] = R
-            # lux[t] = 0, no need to change it, it has already been initialized to 0
-        """
-
         su = self.squash_control_keep_virtual_same(u)
 
         # Iterate through time steps, perform computations
         for t in range(T):
 
             # These derivations were derived in Chris Xie's notebook
-            l[t] = .5 * (x[t] - x_goal).dot( Q.dot(x[t] - x_goal) ) + .5 * su[t].dot( R.dot(su[t]) ) + .5 * u[t].dot( P.dot(u[t]) )    
-            lx[t] = (Q.dot(x[t] - x_goal)).reshape((self.nx, 1))
+
+            l[t] = self.end_effector_cost(x[t]) + .5 * su[t].dot( R.dot(su[t]) ) + .5 * u[t].dot( P.dot(u[t]) )
+            lx[t] = self.l_x(x[t]).reshape((self.nx,1))
+            lxx[t] = self.l_xx(x[t])
+
             lu[t] = (self.lu_squashed(u[t], R) + P.dot(u[t])).reshape((self.nu, 1)) #lu[t] = (R.dot(u[t])).reshape((self.nu, 1))
-            lxx[t] = Q
             luu[t] = self.luu_squashed(u[t], R) + P # luu[t] = R
             # lux[t] = 0, no need to change it, it has already been initialized to 0
 
@@ -754,8 +743,8 @@ class DynamicalSystem:
             # embed()
             #return np.concatenate((u[T-1][:self.nu], x[:self.nx/2])) # Assume M = I, c+g = 0, so \ddot{q} = u
             if self.name == 'cartpole': # Underactuated system
-                u_last_squashed = np.concatenate((u_last_squashed, u_last_squashed))
-                #u_last_squashed = np.concatenate(([0], u_last_squashed))
+                #u_last_squashed = np.concatenate((u_last_squashed, u_last_squashed))
+                u_last_squashed = np.concatenate(([0], u_last_squashed))
                 #u_last_squashed = np.concatenate((u_last_squashed, [0]))
             return np.concatenate((u_last_squashed, x[:self.nx/2])) # Assume M = I, c+g = 0, so \ddot{q} = u
 
@@ -773,7 +762,7 @@ class DynamicalSystem:
         x_T = ode.y
 
         # Add cost of last time step
-        l[T] = 100 * (x_T - x_goal).dot( Q.dot(x_T - x_goal) )
+        l[T] = 1000 * self.end_effector_cost(x_T)
 
         return l, lx, lu, lxx, luu, lux
 
@@ -818,10 +807,15 @@ class DynamicalSystem:
         # This assumes that self.nu = self.nx/2, i.e. fully actuated system (with squashing)
         fu = np.zeros((T, self.nx, self.nu)) #fu_mat = np.zeros((T, self.nx, self.nu))
         for t in range(T):
-            s_prime = np.diag(self.squash_derivative(u[t]))
-            fu[t, :self.nx/2, :self.nu] = self.delta * s_prime #fu_mat[:self.nx/2, :self.nu] = self.delta * np.eye(self.nx/2)
-            fu[t, self.nx/2:, :self.nu] = pow(self.delta,2) * s_prime #fu_mat[self.nx/2:, :self.nu] = pow(self.delta,2) * np.eye(self.nx/2)
-            # fu_mat = np.array([fu_mat,]*T)
+            if self.name == 'cartpole': # Hard coded for cartpole..
+                s_prime = np.diag(self.squash_derivative(u[t]))
+                fu[t, 1, 0] = self.delta * s_prime #fu_mat[:self.nx/2, :self.nu] = self.delta * np.eye(self.nx/2)
+                fu[t, 3, 0] = pow(self.delta,2) * s_prime #fu_mat[self.nx/2:, :self.nu] = pow(self.delta,2) * np.eye(self.nx/2)
+            else:
+                s_prime = np.diag(self.squash_derivative(u[t]))
+                fu[t, :self.nx/2, :self.nu] = self.delta * s_prime #fu_mat[:self.nx/2, :self.nu] = self.delta * np.eye(self.nx/2)
+                fu[t, self.nx/2:, :self.nu] = pow(self.delta,2) * s_prime #fu_mat[self.nx/2:, :self.nu] = pow(self.delta,2) * np.eye(self.nx/2)
+                # fu_mat = np.array([fu_mat,]*T)
 
         return fx, fu        
 
@@ -877,8 +871,8 @@ class DynamicalSystem:
             u_squash = self.squash_control(u)
             # embed()
             if self.name == 'cartpole': # Underactuated system
-                u_squash = np.concatenate((u_squash, u_squash))
-                #u_squash = np.concatenate(([0], u_squash))
+                #u_squash = np.concatenate((u_squash, u_squash))
+                u_squash = np.concatenate(([0], u_squash))
                 #u_squash = np.concatenate((u_squash, [0]))
             return np.concatenate((u_squash, x[:self.nx/2])) # Assume M = I, c+g = 0, so \ddot{q} = u
 
@@ -924,7 +918,11 @@ class DynamicalSystem:
         # policy might not be valid for long enough to simulate n timesteps
         h = min(self.dt*n,policy.max_h)
 
-        ode = scipy.integrate.ode(lambda t_,x_ : f(t_,x_)[0])
+        def _f(t,x):
+            return f(t,x)[0]
+
+        #ode = scipy.integrate.ode(lambda t_,x_ : f(t_,x_)[0])
+        ode = scipy.integrate.ode(_f)
         ode.set_integrator('dopri5')
         ode.set_initial_value(self.state, 0)
 
@@ -1086,7 +1084,7 @@ class DynamicalSystem:
         # Let psi = H_mat.T * H_mat
         # Let gamma = H_mat.T * tao
 
-        max_control = 5
+        max_control = 1
 
         # Matrx function
         m = np.matrix
@@ -1202,7 +1200,7 @@ class DynamicalSystem:
             # Concatenate
             H = m(scipy.linalg.block_diag(H_1, H_2))
             max_control = 2
-            tao = max_control*m(np.concatenate((traj[3][:,0], traj[3][:,1]))).T
+            tao = m(np.concatenate((traj[3][:,0], traj[3][:,1]))).T
 
             # update psi, gamma, n_obs
             self.psi += H.T*H
@@ -1268,7 +1266,7 @@ class DynamicalSystem:
             max_control, g = 10, 9.82
             # temp = np.ones(traj[3][:,0].shape)*-3*g
             temp = g*np.sin(traj[2][:,2]) # g*sin(t)
-            tao = m(np.concatenate((max_control*traj[3][:,0], temp))).T
+            tao = m(np.concatenate((traj[3][:,0], temp))).T
             
             # update psi, gamma, n_obs
             self.psi += H.T*H
@@ -1777,6 +1775,7 @@ class DDPPlanner():
         self.old_K = None
         self.lsx = None
         self.lsu = None
+        self.alpha = None
         self.use_simplified_dynamics = False
 
     def update_start_state(self, state):
@@ -1835,7 +1834,11 @@ class DDPPlanner():
         del0 = 2.0
         delc = del0
         alpha = 1
-        
+        #if self.alpha == None:
+        #    alpha = 1
+        #else:
+        #    alpha = self.alpha
+
         # initial rollout to get nominal trajectory
         if verbosity > 3:
             print 'Running initial rollout'
@@ -2028,7 +2031,7 @@ class DDPPlanner():
                         print 'Improved at alpha:',alpha,'(z =',z,'del_cost =',del_cost,'new_cost =',new_cost,')'
                 else:
                     alpha = alpha*0.5
-                    if alpha < 1e-12:
+                    if alpha < 1e-6:
                         break
                     if verbosity > 1:
                         print 'Failed to improve at alpha:',alpha,'(z =',z,'del_cost =',del_cost,'new_cost =',new_cost,')'
@@ -2103,6 +2106,7 @@ class DDPPlanner():
             self.lsu = lsu
             self.old_k = k
             self.old_K = K
+            #self.alpha = alpha*2
 
         return policy, lsx, lsu, True # Return success flag
         

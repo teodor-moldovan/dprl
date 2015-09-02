@@ -70,7 +70,36 @@ def numerical_hessian_of_cost(u,R):
 	hess /= eps**2
 	return hess
 
+########## GRADIENT AND HESSIAN FINITE DIFFERENCES #########
 
+def numerical_gradient(f, x):
+    # This function numerically calculates an approximation to the Gradient
+    # of f by using the finite differences formula
+    
+    grad = zeros(x.shape)
+    for i in range(len(grad)):
+        temp_up = x.copy()
+        temp_down = x.copy()
+        temp_up[i] += .5 * eps
+        temp_down[i] -= .5 * eps
+        grad[i] = f(temp_up) - f(temp_down)
+    grad /= eps
+
+    return grad
+
+def numerical_hessian(f, x):
+	# This function numerically calculates an approximation to the Hessian
+    # of f be using the finite differences formula
+
+    hess = zeros((len(x), len(x)))
+    for i in range(len(x)):
+        for j in range(len(x)):
+            temp_ij = x.copy(); temp_ij[i] += eps; temp_ij[j] += eps;
+            temp_i = x.copy(); temp_i[i] += eps;
+            temp_j = x.copy(); temp_j[j] += eps;
+            hess[i,j] = f(temp_ij) - f(temp_i) - f(temp_j) + f(x)
+    hess /= eps**2
+    return hess
 
 
 
@@ -123,5 +152,58 @@ def numerical_hessian_of_cost_with_vc(u,R):
 		hess[i,i] = get_cost_with_vc_squash(temp_up,R) - 2*get_cost_with_vc_squash(u,R) + get_cost_with_vc_squash(temp_down,R)
 	hess /= eps**2
 	return hess
+
+
+
+######### TESTING SOFT L1 "SMOOTH-ABS" FUNCTION ##########
+
+alpha = 1e-5
+
+def soft_L1(x, Q):
+    return sqrt(sum(Q.dot(x**2)) + alpha)
+
+def soft_L1_x(x, Q):
+    return 1.0/soft_L1(x) * Q.dot(x)
+
+def soft_L1_xx(x, Q):
+    temp = Q.dot(x)
+    return 1.0/(pow(soft_L1(x) ,3)) * (pow(soft_L1(x),2) * Q - outer(temp, temp))
+
+
+########## TESTING END EFFECTOR COST DERIVATIVES ##########
+
+Q_p = diag([3,2])
+Q_v = diag([1, 2, 0, 0])
+pos_goal = array([0,2])
+
+def p(x):
+    # End effector position
+    return array([-sin(x[2]) - sin(x[3]), cos(x[2]) + cos(x[3])])
+
+def dpdq(x):
+    # Jacobian of end effector position w.r.t. joint angles
+    return array([ [-cos(x[2]), -cos(x[3])], [-sin(x[2]), -sin(x[3])] ])
+
+def end_effector_cost(x):
+    # Assume x is an array
+    #return .5 * ( (p(x)-pos_goal).dot( Q_p.dot( p(x)-pos_goal ) ) + x.dot( Q_v.dot(x) ) )
+    return soft_L1(p(x)-pos_goal, Q_p) +.5* x.dot(Q_v.dot(x))
+
+def lx(x):
+    # Gradient of end effector cost
+    #first_term = dpdq(x).T.dot( Q_p.dot( p(x)-pos_goal ) )
+    first_term = dpdq(x).T.dot( 1.0/soft_L1(p(x)-pos_goal, Q_p) * Q_p.dot( p(x)-pos_goal ) )
+    first_term = np.concatenate((array([0,0]), first_term))
+    second_term = Q_v.dot(x)
+    return first_term + second_term
+
+def lxx(x):
+    # Hessian approximation (Gauss-Newton approximation)
+    first_term = np.zeros((4,4))
+    #first_term[2:,2:] = dpdq(x).T.dot( Q_p.dot( dpdq(x) ) )
+    temp = Q_p.dot(p(x)-pos_goal)
+    first_term[2:,2:] = dpdq(x).T.dot( 1.0/(pow(soft_L1(p(x)-pos_goal, Q_p) ,3)) * (pow(soft_L1(p(x)-pos_goal, Q_p),2) * Q_p - outer(temp, temp)) ).dot(dpdq(x))
+    second_term = Q_v
+    return first_term + second_term
 
 

@@ -157,53 +157,51 @@ def numerical_hessian_of_cost_with_vc(u,R):
 
 ######### TESTING SOFT L1 "SMOOTH-ABS" FUNCTION ##########
 
-alpha = 1e-5
+alpha = 0.05
 
-def soft_L1(x, Q):
-    return sqrt(sum(Q.dot(x**2)) + alpha)
+Q_p = diag([5,5])
 
-def soft_L1_x(x, Q):
-    return 1.0/soft_L1(x) * Q.dot(x)
+def soft_L1(x):
+    return sqrt(sum(Q_p.dot(x**2)) + alpha)
 
-def soft_L1_xx(x, Q):
-    temp = Q.dot(x)
-    return 1.0/(pow(soft_L1(x) ,3)) * (pow(soft_L1(x),2) * Q - outer(temp, temp))
 
 
 ########## TESTING END EFFECTOR COST DERIVATIVES ##########
 
-Q_p = diag([3,2])
-Q_v = diag([1, 0])
+control_penalty = 0.01
+u_penalty = 0.01
+velocity_cost = 0.04
+joint_cost = 0.0
+Q_v = diag([velocity_cost, velocity_cost, joint_cost, joint_cost])
+
 pos_goal = array([0,1])
 
 def p(x):
-    # End effector position for single pendulum
-    return array([sin(x[1]), -cos(x[1])])
+    # End effector position
+    return array([x[3] + sin(x[2]), -cos(x[2])])
 
 def dpdq(x):
-    # Jacobian of end effector position w.r.t. joint angles for single pendulum
-    return array([cos(x[1]), sin(x[1])])
+    # Jacobian of end effector position w.r.t. joint angles
+    return array([ [cos(x[2]), 1], [sin(x[2]), 0] ])
 
 def end_effector_cost(x):
     # Assume x is an array
-    #return .5 * ( (p(x)-pos_goal).dot( Q_p.dot( p(x)-pos_goal ) ) + x.dot( Q_v.dot(x) ) )
-    return soft_L1(p(x)-pos_goal, Q_p) +.5* x.dot(Q_v.dot(x))
+    return soft_L1(p(x)-pos_goal) +.5* x.dot(Q_v.dot(x))
 
-def lx(x):
+def l_x(x):
     # Gradient of end effector cost
-    #first_term = dpdq(x).T.dot( Q_p.dot( p(x)-pos_goal ) )
-    first_term = np.zeros(2)
-    first_term[1] = dpdq(x).T.dot( 1.0/soft_L1(p(x)-pos_goal, Q_p) * Q_p.dot( p(x)-pos_goal ) )
+    first_term = dpdq(x).T.dot( 1.0/soft_L1(p(x)-pos_goal) * Q_p.dot( p(x)-pos_goal ) )
+    first_term = np.concatenate((array([0,0]), first_term))
     second_term = Q_v.dot(x)
     return first_term + second_term
 
-def lxx(x):
+def l_xx(x):
     # Hessian approximation (Gauss-Newton approximation)
-    first_term = np.zeros((2,2))
-    #first_term[2:,2:] = dpdq(x).T.dot( Q_p.dot( dpdq(x) ) )
-    temp = Q_p.dot(p(x)-pos_goal)
-    first_term[1,1] = dpdq(x).T.dot( 1.0/(pow(soft_L1(p(x)-pos_goal, Q_p) ,3)) * (pow(soft_L1(p(x)-pos_goal, Q_p),2) * Q_p - outer(temp, temp)) ).dot(dpdq(x))
+    first_term = np.zeros((4,4))
+    temp1 = Q_p.dot(p(x)-pos_goal)
+    temp2 = soft_L1(p(x) - pos_goal)
+    temp3 = dpdq(x)
+    first_term[2:,2:] = temp3.T.dot( 1.0/(pow(temp2, 3)) * (pow(temp2, 2) * Q_p - outer(temp1, temp1)) ).dot(temp3)
     second_term = Q_v
     return first_term + second_term
-
 

@@ -4,11 +4,12 @@ import unittest
 from test import TestsDynamicalSystem
 
 class WAM7DOFarmBase:
-    noise = np.array([0.025])
+    noise = np.array([0.0])
     vc_slack_add = 0
     collocation_points = 8 # Make sure this is set right
     goal_radius = 0.1
     name = "wam7dofarm"
+    max_control = [ 77.3, 160.6, 95.6, 29.4, 11.6, 11.6, 2.7 ]
     def initial_state(self):
         self.nx = 14
         state = np.zeros(self.nx)
@@ -28,8 +29,8 @@ class WAM7DOFarmBase:
         def dyn():
             return [0]*14 # Just to get self.nx = 14 in planning.py...
             
-        def state_target(): # End effector position and linear velocity
-            return np.array([-2.67059718e-02, -9.34824138e-05,  8.18595702e-01, 3.15322, 0.0, 1.82051])
+        def state_target(): # linear velocity and end effector position 
+            return np.array([3.15322, 0.0, 1.82051, -2.67059718e-02, -9.34824138e-05,  8.18595702e-01])
 
         return locals()
 

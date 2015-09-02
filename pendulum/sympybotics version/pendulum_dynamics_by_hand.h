@@ -171,7 +171,7 @@ namespace pendulum {
         virtual_control = u.tail(NV);
 
         // Now compute ddq
-        ddq = M_mat.lu().solve(max_control*tau - c_vec - g_vec + virtual_control.head(half_NX));
+        ddq = M_mat.lu().solve(tau - c_vec - g_vec + virtual_control.head(half_NX));
         // ddq = M_mat.inverse() * (tau - c_vec - g_vec);
 
         // Stack [ddq, dq] into xdot

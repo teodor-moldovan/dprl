@@ -27,7 +27,7 @@ def g(parms, q):
 def dynamics(x, u):
 
 	# Max control thing
-	max_control = 5
+	#max_control = 5
 
 	# Dimension
 	nX = x.shape[0]
@@ -47,8 +47,8 @@ def dynamics(x, u):
 	g_vec = np.array(g(true_weights, q))
 
 	# Find ddq by solving the linear equation
-	ddq = np.linalg.solve(M_mat, max_control*u - c_vec - g_vec)
-	
+	ddq = np.linalg.solve(M_mat, u - c_vec - g_vec)
+
 	return np.array(np.concatenate((ddq, dq)))
 
 # Regressor matrix code

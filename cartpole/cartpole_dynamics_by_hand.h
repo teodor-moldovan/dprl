@@ -173,7 +173,7 @@ namespace cartpole {
              weights[5], weights[4]*cos(x(2));
 
         double g = 9.82; // Gravity
-        b << max_control*u(0) - weights[2]*x(0)*x(0)*sin(x(2)) - weights[3]*x(1) + u(NU+0),
+        b << u(0) - weights[2]*x(0)*x(0)*sin(x(2)) - weights[3]*x(1) + u(NU+0),
              g*sin(x(2)) + u(NU+1);
 
         Vector2d temp = A.inverse() * b;
