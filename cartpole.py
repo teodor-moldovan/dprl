@@ -4,7 +4,7 @@ from test import TestsDynamicalSystem, unittest
 from sympy.physics.mechanics import *
 
 class CartPoleBase:
-    noise = np.array([0.0]) # 0.05
+    noise = np.array([0.05]) # 0.05
     angles_to_mod = np.array([False, False, True, False])
     add_before_mod = 0
     vc_slack_add = 3
@@ -58,25 +58,28 @@ class CartPoleBase:
     control_penalty = 0.01
     u_penalty = 0.01
 
-    Q_p = diag([5,5])
+    Q_p = diag([1,20])
 
-    velocity_cost = 0.04
-    joint_cost = 0.0
-    Q_v = diag([velocity_cost, velocity_cost, joint_cost, joint_cost])
+    theta_velocity_cost = 0.07
+    x_velocity_cost = 0.03
+    theta_joint_cost = 0
+    x_joint_cost = 3
+    Q_v = diag([theta_velocity_cost, x_velocity_cost, theta_joint_cost, x_joint_cost])
 
-    alpha = 0.05
+    alpha = 0.1
 
     pos_goal = array([0,1])
 
     def update_cost(self, dst):
-        if dst < .5:
-            #self.Q_p = diag([0,0])
-            #self.Q_v = np.eye(4) * 5
-            self.control_penalty = 0.1
+        return # Turns out not changing the cost works best.
+        if abs(self.state[2] - pi)  < 1:
+            self.Q_p = diag([5,20])
+            self.alpha = .5
+            self.Q_v = diag([.1,.1,0,4])
         else:
-            #self.Q_p = diag([5,5])
-            #self.Q_v = diag([self.velocity_cost, self.velocity_cost, self.joint_cost, self.joint_cost])
-            self.control_penalty = 0.01
+            self.Q_p = diag([1,20])
+            self.alpha = 0.1
+            self.Q_v = diag([self.theta_velocity_cost, self.x_velocity_cost, self.theta_joint_cost, self.x_joint_cost])
 
     def soft_L1(self, x):
         Q_p = self.Q_p
@@ -128,7 +131,7 @@ class CartPoleBase:
         temp1 = Q_p.dot(p(x)-pos_goal)
         temp2 = soft_L1(p(x) - pos_goal)
         temp3 = dpdq(x)
-        first_term[2:,2:] = temp3.T.dot( 1.0/(pow(temp2, 3)) * (pow(temp2, 2) * Q_p - outer(temp1, temp1)) ).dot(temp3)
+        first_term[2:,2:] = temp3.T.dot( 1.0/(pow(temp2, 3)) * (pow(temp2, 2) * Q_p - np.outer(temp1, temp1)) ).dot(temp3)
         second_term = Q_v
         return first_term + second_term
 

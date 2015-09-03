@@ -805,12 +805,11 @@ class TestsDynamicalSystem(unittest.TestCase):
                     # run DDP planner
                     pi, x, u, success = ddp.direct_plan(10,0)
 
-                    # Squashing
-                    if ds.name in ['doublependulum', 'cartpole', 'pendulum']:
+                    #if ds.name in ['doublependulum', 'cartpole', 'pendulum']:
                         #pi.us = ds.squash_control_keep_virtual_same(pi.us)
-                        print 'First Control (no squash):', u[0,:env.nu]
+                        #print 'First Control (no squash):', u[0,:env.nu]
                         #u = ds.squash_control_keep_virtual_same(u)
-                        print 'First Control (with squash):', ds.squash_control_keep_virtual_same(u)[0,:env.nu]
+                        #print 'First Control (with squash):', ds.squash_control_keep_virtual_same(u)[0,:env.nu]
                     # Check control
                     #max_control = abs(ds.squash_control_keep_virtual_same(u)[:,:env.nu]).max()
                     #if max_control > max_u:
@@ -949,7 +948,7 @@ class TestsDynamicalSystem(unittest.TestCase):
                         if dst < .05: #.01
                             break
                         # Hack for Huber norm
-                        ds.update_cost(dst)
+                        #ds.update_cost(dst)
                     # if cnt>20:
                     #     break
                 if env.t >= ds.episode_max_h:
@@ -983,7 +982,7 @@ class TestsDynamicalSystem(unittest.TestCase):
         p = Stats (self.pr)
         p.strip_dirs()
         p.sort_stats ('cumulative')
-        p.print_stats ()
+        p.print_stats (.05)
         print "\n--->>>"
         """
 
