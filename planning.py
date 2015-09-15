@@ -262,7 +262,7 @@ class LinearFeedbackPolicy:
         return self.us[t]+self.K[t].dot(x-self.xs[t])
         
 class DynamicalSystem:
-    dt, log_h_init,noise = 0.02, -1.0, np.array([0, 0, 0])
+    dt, log_h_init,noise = 0.01, -1.0, np.array([0, 0, 0])
     optimize_var = None
     fixed_horizon= False
     collocation_points = 15 #35
@@ -347,8 +347,11 @@ class DynamicalSystem:
             elif self.name == 'wam7dofarm':
                 sys.path.append('./wam7dofarm')
                 from wam7dofarm_python_true_dynamics import dynamics, H, true_weights
+                from cython_wrappers import integrate, linearize
                 self.true_weights = true_weights
-                self.delta = 0.05
+                self.integrate = integrate
+                self.linearize = linearize
+                self.delta = 0.01
  
             self.dynamics = dynamics
             self.H = H
@@ -577,12 +580,15 @@ class DynamicalSystem:
     def squash_derivative(self, z):
     	# First derivative of sigmoid with a constant factor
     	# Assumes numpy arrays so we can do element wise operations
-        return 2 * self.max_control * (1 - expit(z)) * expit(z)
+        temp = expit(z)
+        return 2 * self.max_control * (1 - temp) * temp
 
     def squash_second_derivative(self, z):
     	# Same as second derivative of sigmoid function with a constant factor
     	# Assumes numpy arrays so we can do element wise operations
-        x= 2 * self.max_control * exp(-z) * (exp(-z) - 1) / pow(1 + exp(-z) , 3)
+        # x= 2 * self.max_control * exp(-z) * (exp(-z) - 1) / pow(1 + exp(-z) , 3)
+        temp = expit(z)
+        x= 2 * self.max_control * temp * (1-temp) * (1 - 2*temp)
         #if np.any(np.isnan(z)):
         #    print 'z:', z
         #    print 'denom:', pow(1 + exp(-z) , 3)
@@ -630,13 +636,20 @@ class DynamicalSystem:
 
         #control_penalty = .4#5
         # virtual_control_penalty = 1e10 #2.0
-        virtual_control_penalty = 1.0/self.model_slack_bounds
+        virtual_control_penalty = 1.0/self.model_slack_bounds * 0.003
         R = np.diag([virtual_control_penalty]*NUV)
-        R[0:self.nu, 0:self.nu] = np.diag([self.control_penalty]*self.nu)
+        if self.name == 'wam7dofarm':
+            R[0:self.nu, 0:self.nu] = self.R
+            #R[self.nu:, self.nu:] = 1e10 * np.eye(14) # Keep virtual controls down hack for true weights
+        else:
+            R[0:self.nu, 0:self.nu] = np.diag([self.control_penalty]*self.nu)
 
         # Constrain u_t to not get too large in magnitude
         P = np.zeros(R.shape)
-        P[:self.nu, :self.nu] = np.eye(self.nu) * self.u_penalty
+        if self.name == 'wam7dofarm':
+            P[:self.nu, :self.nu] = self.P
+        else:
+            P[:self.nu, :self.nu] = np.eye(self.nu) * self.u_penalty
 
         # Instantiate l, lx, lu, lxx, luu, lux
         l = np.zeros((T+1, 1, 1))
@@ -654,15 +667,19 @@ class DynamicalSystem:
             # These derivations were derived in Chris Xie's notebook
             # l[t] = alpha[t] * .5 * pow(np.linalg.norm(x[t] - x_goal), 2) + .5 * u[t].dot( R.dot(u[t]) )
             #l[t] = alpha[t] * .5 * pow(np.linalg.norm(x[t] - x_goal), 2) + .5 * su[t].dot( R.dot(su[t]) ) + .5 * u[t].dot( P.dot(u[t]) )    
-            l[t] = self.end_effector_cost(x[t]) + .5 * su[t].dot( R.dot(su[t]) ) + .5 * u[t].dot( P.dot(u[t]) )
-            lx[t] = self.l_x(x[t]).reshape((self.nx,1))
-            lxx[t] = self.l_xx(x[t])
+            if t == T-1:
+                c = 1
+            else:
+                c = (t+1)/float(T)
+            l[t] = c * (self.end_effector_cost(x[t]) + .5 * su[t].dot( R.dot(su[t]) ) + .5 * u[t].dot( P.dot(u[t]) ))
+            lx[t] = c * self.l_x(x[t]).reshape((self.nx,1))
+            lxx[t] = c * self.l_xx(x[t])
 
             #lx[t] = (alpha[t] * (x[t] - x_goal)).reshape((self.nx, 1))
             #lu[t] = (R.dot(u[t])).reshape((NUV, 1))
-            lu[t] = (np.concatenate((self.lu_squashed(u[t, :self.nu], R[:self.nu,:self.nu]), R.dot(su[t])[self.nu:])) + P.dot(u[t])).reshape((NUV,1))
+            lu[t] = c * (np.concatenate((self.lu_squashed(u[t, :self.nu], R[:self.nu,:self.nu]), R.dot(su[t])[self.nu:])) + P.dot(u[t])).reshape((NUV,1))
             #lxx[t] = alpha[t] * np.eye(self.nx)
-            luu[t] = scipy.linalg.block_diag(self.luu_squashed(u[t, :self.nu], R[:self.nu,:self.nu]), R[self.nu:, self.nu:]) + P #luu[t] = R
+            luu[t] =  c * (scipy.linalg.block_diag(self.luu_squashed(u[t, :self.nu], R[:self.nu,:self.nu]), R[self.nu:, self.nu:]) + P) #luu[t] = R
             # lux[t] = 0, no need to change it, it has already been initialized to 0
 
         # Calculate cost for last timestep
@@ -709,6 +726,10 @@ class DynamicalSystem:
         P = np.zeros(R.shape)
         P[:self.nu, :self.nu] = np.eye(self.nu) * self.u_penalty
 
+        if self.name == 'wam7dofarm':
+            R[:self.nu, :self.nu] = np.diag([100]*self.nu) # Trying to make simplified controls not so crazy
+            P[:self.nu, :self.nu] = np.diag([100]*self.nu)
+
         # Instantiate l, lx, lu, lxx, luu, lux
         l = np.zeros((T+1, 1, 1))
         lx = np.zeros((T, self.nx, 1))
@@ -716,6 +737,7 @@ class DynamicalSystem:
         lxx = np.zeros((T, self.nx, self.nx))
         luu = np.zeros((T, self.nu, self.nu))
         lux = np.zeros((T, self.nu, self.nx))
+        
         su = self.squash_control_keep_virtual_same(u)
 
         # Iterate through time steps, perform computations
@@ -723,12 +745,17 @@ class DynamicalSystem:
 
             # These derivations were derived in Chris Xie's notebook
 
-            l[t] = self.end_effector_cost(x[t]) + .5 * su[t].dot( R.dot(su[t]) ) + .5 * u[t].dot( P.dot(u[t]) )
-            lx[t] = self.l_x(x[t]).reshape((self.nx,1))
-            lxx[t] = self.l_xx(x[t])
+            if t == T-1:
+                c = 1
+            else:
+                c = (t+1)/float(T)
 
-            lu[t] = (self.lu_squashed(u[t], R) + P.dot(u[t])).reshape((self.nu, 1)) #lu[t] = (R.dot(u[t])).reshape((self.nu, 1))
-            luu[t] = self.luu_squashed(u[t], R) + P # luu[t] = R
+            l[t] = c * (self.end_effector_cost(x[t]) + .5 * su[t].dot( R.dot(su[t]) ) + .5 * u[t].dot( P.dot(u[t]) ))
+            lx[t] = c * self.l_x(x[t]).reshape((self.nx,1))
+            lxx[t] = c * self.l_xx(x[t])
+
+            lu[t] = c * (self.lu_squashed(u[t], R) + P.dot(u[t])).reshape((self.nu, 1)) #lu[t] = (R.dot(u[t])).reshape((self.nu, 1))
+            luu[t] = c * (self.luu_squashed(u[t], R) + P) # luu[t] = R
             # lux[t] = 0, no need to change it, it has already been initialized to 0
 
         # Calculate cost for last timestep
@@ -746,6 +773,8 @@ class DynamicalSystem:
                 #u_last_squashed = np.concatenate((u_last_squashed, u_last_squashed))
                 u_last_squashed = np.concatenate(([0], u_last_squashed))
                 #u_last_squashed = np.concatenate((u_last_squashed, [0]))
+            #elif self.name == 'wam7dofarm':
+            #    u_last_squashed *= 10
             return np.concatenate((u_last_squashed, x[:self.nx/2])) # Assume M = I, c+g = 0, so \ddot{q} = u
 
 
@@ -816,6 +845,8 @@ class DynamicalSystem:
                 fu[t, :self.nx/2, :self.nu] = self.delta * s_prime #fu_mat[:self.nx/2, :self.nu] = self.delta * np.eye(self.nx/2)
                 fu[t, self.nx/2:, :self.nu] = pow(self.delta,2) * s_prime #fu_mat[self.nx/2:, :self.nu] = pow(self.delta,2) * np.eye(self.nx/2)
                 # fu_mat = np.array([fu_mat,]*T)
+                #if self.name == 'wam7dofarm':
+                #    fu *= 10
 
         return fx, fu        
 
@@ -846,10 +877,20 @@ class DynamicalSystem:
             # compute policy action
             u[t] = policy.discu(t,x[t])
             
+            # Damping
+            state_copy = x[t].copy()
+            #state_copy[:7] *= (1 - 0.1)
+
             # compute next state
             if t < T-1:
-                self.integrate(x[t], u[t], self.delta, weights, x[t+1])
+                self.integrate(state_copy, u[t], self.delta, weights, x[t+1])
+                
                 # wam7dofarm, may need to clip dynamics here
+                #for i in range(7):
+                #    if x[t+1, i] > 10:
+                #        x[t+1, i] = 10
+                #    elif x[t+1, i] < -10:
+                #        x[t+1, i] = -10
 
             #if any(np.isnan(x[t])):
             #    import pdb
@@ -874,6 +915,8 @@ class DynamicalSystem:
                 #u_squash = np.concatenate((u_squash, u_squash))
                 u_squash = np.concatenate(([0], u_squash))
                 #u_squash = np.concatenate((u_squash, [0]))
+            #elif self.name == 'wam7dofarm':
+            #    u_squash *= 10
             return np.concatenate((u_squash, x[:self.nx/2])) # Assume M = I, c+g = 0, so \ddot{q} = u
 
         ode = scipy.integrate.ode(lambda t_,x_ : f(t_,x_))
@@ -893,7 +936,7 @@ class DynamicalSystem:
         return x, u
 
 
-    def step(self, policy, n = 1, debug_flag = False):
+    def step(self, policy, n = 1, debug_flag = False, dt = None):
         """ forward simulate system according to stored weight matrix and policy"""
 
         seed = int(np.random.random()*1000)
@@ -912,11 +955,18 @@ class DynamicalSystem:
                 dx = self.explf(to_gpu(x.reshape(1,x.size)),
                             to_gpu(u.reshape(1,u.size))).get()
                 dx = dx.reshape(-1)
-            
+           
+            # Damping
+            #if self.name == 'wam7dofarm':
+            #    dx[7:] *= (1-0.1)
+ 
             return dx,u
             
+        if dt == None:
+            dt = self.dt
+
         # policy might not be valid for long enough to simulate n timesteps
-        h = min(self.dt*n,policy.max_h)
+        h = min(dt*n,policy.max_h)
 
         def _f(t,x):
             return f(t,x)[0]
@@ -930,25 +980,62 @@ class DynamicalSystem:
             import pdb
             pdb.set_trace() 
 
+        # time = 0
+        # new_state = self.state
+
         trj = []
-        while ode.successful() and ode.t + self.dt <= h:
-            ode.integrate(ode.t+self.dt)
+        while ode.successful() and ode.t + dt <= h:
+            ode.integrate(ode.t+dt)
+            # import wam7dofarm_python_true_dynamics
+            # true_weights = wam7dofarm_python_true_dynamics.true_weights
+            # curr_state = new_state
+            # self.integrate(curr_state, f(ode.t, curr_state)[1], dt, true_weights, new_state)
+            # time += dt
+
             if self.name == 'wam7dofarm': # clip integration due to joint limits
                 for i in range(7):
                     if ode.y[7+i] < self.limits[i][0]:
-                        # print "---------------------- CLIPPED DYNAMICS ----------------------------"
+                        print "---------------- CLIPPED DYNAMICS IN SIMULATION FOR JOINT {0}, {1} < {2} -----------------".format(str(i+1), str(ode.y[7+i]), self.limits[i][0])
                         # embed()
                         ode.y[7+i] = self.limits[i][0]
                         ode.y[i] = 0 # zero out velocity
                     elif ode.y[7+i] > self.limits[i][1]:
-                        # print "---------------------- CLIPPED DYNAMICS ----------------------------"
+                        print "---------------- CLIPPED DYNAMICS IN SIMULATION FOR JOINT {0}, {1} > {2} -----------------".format(str(i+1), str(ode.y[7+i]), self.limits[i][1])
                         # embed()
                         ode.y[7+i] = self.limits[i][1]
                         ode.y[i] = 0
 
+                    # Velocity limits
+                    #if ode.y[i] > 10:
+                    #    ode.y[i] = 10
+                    #elif ode.y[i] < -10:
+                    #    ode.y[i] = -10
+
+            # if self.name == 'wam7dofarm': # clip integration due to joint limits
+            #     for i in range(7):
+            #         if new_state[7+i] < self.limits[i][0]:
+            #             print "---------------- CLIPPED DYNAMICS IN SIMULATION FOR JOINT {0}, {1} < {2} -----------------".format(str(i+1), str(new_state[7+i]), self.limits[i][0])
+            #             # embed()
+            #             new_state[7+i] = self.limits[i][0]
+            #             new_state[i] = 0 # zero out velocity
+            #         elif ode.y[7+i] > self.limits[i][1]:
+            #             print "---------------- CLIPPED DYNAMICS IN SIMULATION FOR JOINT {0}, {1} > {2} -----------------".format(str(i+1), str(new_state[7+i]), self.limits[i][1])
+            #             # embed()
+            #             new_state[7+i] = self.limits[i][1]
+            #             new_state[i] = 0
+
+            # import pdb
+            # pdb.set_trace()
+
             dx,u = f(ode.t,ode.y)
             trj.append((self.t+ode.t,dx,ode.y,u))
         
+            # dx,u = f(time, new_state)
+            # trj.append((self.t+time,dx,new_state,u))
+
+        #if ode.successful() == False:
+        #    embed()
+
         if len(trj)==0:
             ode.integrate(h) 
             self.state[:] = ode.y
@@ -1343,7 +1430,8 @@ class DynamicalSystem:
             # update psi, gamma, n_obs
             self.psi += H_mat.T*H_mat
             self.gamma += H_mat.T*tao
-            self.n_obs += tao.shape[0]
+            if self.ddp_planner.use_simplified_dynamics == False: # hack. hope self.ddp_planner exists
+                self.n_obs += tao.shape[0]     
         
         return self.psi, self.gamma, self.n_obs
 
@@ -1777,12 +1865,13 @@ class DDPPlanner():
         self.lsu = None
         self.alpha = None
         self.use_simplified_dynamics = False
+        self.prev_used_simplified_dynamics = False
 
     def update_start_state(self, state):
         self.x0 = state
         
     # run standard DDP planning
-    def direct_plan(self, iterations, verbosity=4):
+    def direct_plan(self, iterations, verbosity=4, cold_start=False):
         # set up DDP input functions
         frollout = lambda u_,x_,K_,k_,state=None,H=None : self.rollout(u_,x_,K_,k_,state,H)
         fcost = lambda x_,u_ : self.ds.get_cost(x_,u_)
@@ -1790,7 +1879,8 @@ class DDPPlanner():
 
         # call DDP optimizer (with virtual controls)
         # policy,x,u = self.ddpopt(self.x0, frollout, fcost, fdyngrad, self.ds.nx, self.ds.nu, self.T, iterations=iterations)
-        policy,x,u,success = self.ddpopt(self.x0, frollout, fcost, fdyngrad, self.ds.nx, self.ds.nu+self.ds.nx, self.T, lsx=self.lsx, lsu=self.lsu, old_k=self.old_k, old_K=self.old_K, verbosity=verbosity, iterations=iterations)
+        # return self.ddpopt(self.x0, frollout, fcost, fdyngrad, self.ds.nx, self.ds.nu+self.ds.nx, self.T, lsx=self.lsx, lsu=self.lsu, old_k=self.old_k, old_K=self.old_K, verbosity=verbosity, iterations=iterations, use_simplified_dynamics=True)
+        policy,x,u,success = self.ddpopt(self.x0, frollout, fcost, fdyngrad, self.ds.nx, self.ds.nu+self.ds.nx, self.T, lsx=self.lsx, lsu=self.lsu, old_k=self.old_k, old_K=self.old_K, verbosity=verbosity, iterations=iterations, cold_start = cold_start)
        
         # return result 
         return policy,x,u,success
@@ -1834,39 +1924,6 @@ class DDPPlanner():
         del0 = 2.0
         delc = del0
         alpha = 1
-        #if self.alpha == None:
-        #    alpha = 1
-        #else:
-        #    alpha = self.alpha
-
-        # initial rollout to get nominal trajectory
-        if verbosity > 3:
-            print 'Running initial rollout'
-        if lsx is None or cold_start:
-            lsx = np.array([self.ds.initial_state(),]*T) # Copy x0 T times
-        if lsu is None or cold_start:
-            # lsu = 1e-4*np.random.randn(T,Du) # use random initial actions
-            lsu = np.zeros((T,Du))
-        if old_k is None or cold_start:
-            old_k = np.zeros((T,Du))
-        if old_K is None or cold_start:
-            K_mat = np.zeros((Du,Dx))
-            k_v = 2
-            k_p = 2
-            # K_mat[self.ds.nu:self.ds.nu+Dx/2, 0:Dx/2] = -k_v * np.eye(Dx/2)
-            # K_mat[self.ds.nu+Dx/2:Dx+Du, Dx/2:Dx] = -k_p * np.eye(Dx/2)
-            old_K = np.array([K_mat,]*T) # Copy K_mat T times
-
-        # import pdb
-        # pdb.set_trace()
-
-        lsx,lsu,policy = frollout(lsu, lsx, old_K, old_k, H=T)
-
-        #use_simplified_dynamics = False
-        #l,lx,lu,lxx,luu,lux = fcost(lsx, lsu)
-        #fx,fu = fdyngrad(lsx, lsu)
-        #if np.isnan(np.sum(lsx)) or np.isnan(np.sum(l)) or np.isnan(np.sum(lx)) or np.isnan(np.sum(lu)) or np.isnan(np.sum(lxx)) or np.isnan(np.sum(luu)) or np.isnan(np.sum(lux)) or np.isnan(np.sum(fx)) or np.isnan(np.sum(fu)):
-        #    use_simplified_dynamics = True
 
         if use_simplified_dynamics:
 
@@ -1878,21 +1935,48 @@ class DDPPlanner():
             # Cut out virtual controls. This means reassigning lsx, lsu, old_k, and old_K
             Du = self.ds.nu
 
-            lsx = np.array([self.ds.initial_state(),]*T)
-            lsu = np.zeros((T,Du))
-            old_k = np.zeros((T,Du))
-            K_mat = np.zeros((Du,Dx))
-            old_K = np.array([K_mat,]*T)
-
-            # Re-rollout using simplified dynamics, and CUT OUT virtual controls
-            lsx,lsu,policy = frollout(lsu, lsx, old_K, old_k, H=T)
+            # If lsx is None or cold start or previous call to DDP was NOT using simple dynamics
+            if lsx is None or cold_start or self.prev_used_simplified_dynamics == False:
+                lsx = np.array([self.x0,]*T) # Copy x0 T times
+            else:
+                lsx = self.lsx
+            if lsu is None or cold_start or self.prev_used_simplified_dynamics == False:
+                lsu = np.zeros((T,Du))
+            else:
+                lsu = self.lsu[:,:self.ds.nu]
+            if old_k is None or cold_start or self.prev_used_simplified_dynamics == False:
+                old_k = np.zeros((T,Du))
+            else:
+                old_k = self.old_k[:, :self.ds.nu, :]
+            if old_K is None or cold_start or self.prev_used_simplified_dynamics == False:
+                K_mat = np.zeros((Du,Dx))
+                old_K = np.array([K_mat,]*T) # Copy K_mat T times
+            else:
+                old_K = self.old_K[:, :self.ds.nu, :]
 
             print "!!!!!!!!!!!!!!!!!!!!!! ...USING SIMPLE DYNAMICS... !!!!!!!!!!!!!!!!!!!!!!"
 
-            # embed()
-            # import pdb
-            # pdb.set_trace()
+            self.use_simplified_dynamics = True
 
+        else:
+
+            if verbosity > 3:
+                print 'Running initial rollout'
+            if lsx is None or cold_start:
+                lsx = np.array([self.x0,]*T) # Copy x0 T times
+            if lsu is None or cold_start:
+                # lsu = 1e-4*np.random.randn(T,Du) # use random initial actions
+                lsu = np.zeros((T,Du))
+            if old_k is None or cold_start:
+                old_k = np.zeros((T,Du))
+            if old_K is None or cold_start:
+                K_mat = np.zeros((Du,Dx))
+                old_K = np.array([K_mat,]*T) # Copy K_mat T times
+
+            self.use_simplified_dynamics = False
+
+        # initial rollout to get nominal trajectory
+        lsx,lsu,policy = frollout(lsu, lsx, old_K, old_k, H=T)
 
         # allocate arrays
         Qx = np.zeros((T,Dx,1))
@@ -1958,9 +2042,16 @@ class DDPPlanner():
                     except ValueError:
                         #raise ValueError("Nans somewhere in DDP...")
                         #embed()
+                        # if use_simplified_dynamics == True:
+                        #     import pdb
+                        #     pdb.set_trace()
                         print 'Must be NaNs..., use simplified dynamics'
+                        #embed()
                         return self.ddpopt(self.x0, frollout, fcost, fdyngrad, self.ds.nx, self.ds.nu+self.ds.nx, self.T, lsx=self.lsx, lsu=self.lsu, old_k=self.old_k, old_K=self.old_K, verbosity=verbosity, iterations=iterations, use_simplified_dynamics=True)
                     
+                    if np.any(np.isnan(Qux[t])):
+                        embed()
+
                     # compute linear feedback policy
                     k[t] = -scipy.linalg.cho_solve((L,bLower),Qu[t])
                     K[t] = -scipy.linalg.cho_solve((L,bLower),Qux[t])
@@ -2085,29 +2176,29 @@ class DDPPlanner():
             print 'DDP finished, returning policy'
 
         # Save x, u, k, K
-        if T < self.T: # Copy laste entry to make it back to size self.T
-            self.lsx = np.concatenate((lsx, np.array([lsx[-1],]*(self.T-lsx.shape[0]))))
-            self.lsu = np.concatenate((lsu, np.array([lsu[-1],]*(self.T-lsu.shape[0]))))
-            self.old_k = np.concatenate((old_k, np.array([old_k[-1],]*(self.T-old_k.shape[0]))))
-            self.old_K = np.concatenate((old_K, np.array([old_K[-1],]*(self.T-old_K.shape[0]))))
-        
-        elif use_simplified_dynamics: # Reset lsx, su, old_k, old_K
+        if use_simplified_dynamics: # Reset lsx, su, old_k, old_K
 
             self.lsx = lsx
             self.lsu = np.concatenate((lsu, np.zeros((T, self.ds.nx))), axis=1)
             self.old_k = np.concatenate((k, np.zeros((T, self.ds.nx, 1))), axis=1)
             self.old_K = np.concatenate((K, np.zeros((T, self.ds.nx, self.ds.nx))), axis=1)
 
+            self.prev_used_simplified_dynamics = True
+
             # Return some noise in the control
             # lsu += np.random.randn(T,Du)
 
         else:
+
             self.lsx = lsx
             self.lsu = lsu
             self.old_k = k
             self.old_K = K
             #self.alpha = alpha*2
 
+            self.prev_used_simplified_dynamics = False
+
+        #embed()
         return policy, lsx, lsu, True # Return success flag
         
     # helper function to perform a rollout

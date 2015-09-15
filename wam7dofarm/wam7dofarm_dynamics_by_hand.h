@@ -1,6 +1,6 @@
 
-#ifndef PENDULUM_DYNAMICS_BY_HAND_H_
-#define PENDULUM_DYNAMICS_BY_HAND_H_
+#ifndef WAM7DOFARM_DYNAMICS_BY_HAND_H_
+#define WAM7DOFARM_DYNAMICS_BY_HAND_H_
 
 #include <iostream>
 #include <math.h>
@@ -15,6 +15,7 @@ using namespace Eigen;
 
 double control_min[NU] = { -77.3, -160.6, -95.6, -29.4, -11.6, -11.6, -2.7 };
 double control_max[NU] = {  77.3,  160.6,  95.6,  29.4,  11.6,  11.6,  2.7 };
+//double control_max[NU] = {  30,  80,  50,  15,  5,  5,  .8 };
 
 #define EPS 1e-5
 
@@ -870,7 +871,12 @@ namespace wam7dofarm {
     {
 
         const int half_NX = NX/2;
-        double max_control = 1.0;
+        //double max_control = 1.0;
+
+        // Squashing
+        for (int i = 0; i < NU; ++i) {
+            u(i) = (1.0 / (1.0 + exp(-1.0 * u(i))) - 0.5) * 2 * control_max[i];
+        }
 
         // Create Eigen data structures
         Matrix<double, half_NX, 1> tau;
@@ -915,7 +921,8 @@ namespace wam7dofarm {
         virtual_control = u.tail(NV);
 
         // Now compute ddq
-        ddq = M_mat.lu().solve(max_control*tau - c_vec - g_vec);
+        //Matrix<double, half_NX, half_NX> I; I.setIdentity(half_NX, half_NX);
+        ddq = (M_mat).lu().solve(tau - c_vec + g_vec); // Reverse gravity, arm hanging down
         // ddq = M_mat.inverse() * (tau - c_vec - g_vec);
 
         // Stack [ddq, dq] into xdot
@@ -987,8 +994,77 @@ namespace wam7dofarm {
         return x_next - simulated_x_next;
     }
 
+    MatrixXd numpy_array_to_Eigen_matrix(double matrix[], int rows, int cols)
+    {
+
+      MatrixXd m(rows, cols);
+
+      for(int i = 0; i < rows; ++i) {
+        for(int j = 0; j < cols; ++j) {
+          m(i,j) = matrix[i*cols + j];
+        }
+      }
+
+      // std::cout << "Matrix:\n" << m << std::endl;
+
+      return m;
+
+    }
+
+    void Eigen_matrix_to_numpy_array(MatrixXd matrix, double* m)
+    {
+
+      int rows = matrix.rows();
+      int cols = matrix.cols();
+
+      // Put it in row major..?
+      for(int i = 0; i < rows; ++i) {
+        for(int j = 0; j < cols; ++j) {
+          m[i*cols + j] = matrix(i,j);
+        }
+      }
+
+    }
+
+    void integrate_forward(double* x_, double* u_, double delta, double* weights, double* x_next)
+    {
+
+      // Input conversion
+      VectorXd x(NX); x = numpy_array_to_Eigen_matrix(x_, NX, 1);
+      VectorXd u(NU+NV); u = numpy_array_to_Eigen_matrix(u_, NU+NV, 1);
+
+      VectorXd x_next_(NX); x_next_ = rk45_DP(continuous_dynamics, x, u, delta, weights);
+
+      // std::cout << "x_next:\n" << x_next_ << "\n";
+
+      // Output conversion
+      for(int i = 0; i < NX; ++i) {
+        x_next[i] = x_next_(i);
+      }
+    }
+
+    void linearize_dynamics(double* x_, double* u_, double delta, double* weights, double* jac_x, double* jac_u)
+    {
+
+      // Input conversion
+      VectorXd x(NX); x = numpy_array_to_Eigen_matrix(x_, NX, 1);
+      VectorXd u(NU+NV); u = numpy_array_to_Eigen_matrix(u_, NU+NV, 1);
+
+      Matrix<double, NX, NX+NU+NV+1> jac = numerical_jacobian(continuous_dynamics, x, u, delta, weights);
+      Matrix<double, NX, NX> DH_X = jac.leftCols(NX);
+      Matrix<double, NX, NU+NV> DH_U = jac.middleCols(NX, NU+NV);
+
+      // std::cout << "DH_X:\n" << DH_X << "\n";
+      // std::cout << "DH_U:\n" << DH_U << "\n";
+
+      // Output conversion
+      Eigen_matrix_to_numpy_array(DH_X, jac_x);
+      Eigen_matrix_to_numpy_array(DH_U, jac_u);
+
+    }
+
 };
 
-#endif /* PENDULUM_DYNAMICS_BY_HAND_H_ */
+#endif /* WAM7DOFARM_DYNAMICS_BY_HAND_H_ */
 
             

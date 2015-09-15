@@ -5,7 +5,7 @@ import time
 import scipy.linalg
 import scipy.special
 from IPython import embed
-import os
+import os, sys
 
 class TestsTools(unittest.TestCase):
     def test_array(self):
@@ -641,12 +641,10 @@ class TestsDynamicalSystem(unittest.TestCase):
     def test_learning(self):
         """ not a test, top level for experiments."""
 
-        """
         import cProfile
         from pstats import Stats
         self.pr = cProfile.Profile()
         self.pr.enable()
-        """
 
         env = self.DSKnown()     # proxy for real, known system.
         ds = self.DSLearned()    # model to be trained online
@@ -655,7 +653,6 @@ class TestsDynamicalSystem(unittest.TestCase):
         use_DDP = True
 
         if use_FORCES:
-            import sys
             total_SQP_calls = 0
             total_SQP_successes = 0
             times_for_SQP_solve = []
@@ -674,12 +671,22 @@ class TestsDynamicalSystem(unittest.TestCase):
                 sys.path.append('./{0}'.format(env.name))
             SQP = __import__("{0}_sqp_solver".format(env.name))
         elif use_DDP:
-            pass
+            if env.name == 'wam7dofarm':
+                sys.path.append('./{0}'.format(env.name))
+                import forward_kin
+                import wam7dofarm_python_true_dynamics
+                #import openravepy as rave
+                #renv = rave.Environment()
+                #renv.SetViewer('qtcoin')
+                #renv.Load('robots/wam7.kinbody.xml')
+                #robot = renv.GetBodies()[0]
+                #time.sleep(1)
         else:
             pp = SlpNlp(GPMcompact(ds,ds.collocation_points))
 
         # Stuff to keep track of stats
         wallclock_times_for_episode = []
+        simulation_times_for_episode = []
         counter = 0
 
         # Check controls
@@ -688,13 +695,15 @@ class TestsDynamicalSystem(unittest.TestCase):
         while True:
             # loop over learning episodes
 
-            #print "%%%%%%%%%%%%%%%%%%%%%%%%% MAX CONTROL: ", max_u, " %%%%%%%%%%%%%%%%%%%%%%%%%"
-
-            if counter >= 50:
+            if counter >= 1:
                 break
 
             if counter > 0:
-                wallclock_times_for_episode.append(time.time() - episode_start_time)
+                wallclock_times_for_episode.append(time.time() - episode_start_time - simulation_time)
+                simulation_times_for_episode.append(simulation_time)
+
+            # Calculate simulation time vs. computation time
+            simulation_time = 0
 
             episode_start_time = time.time()
 
@@ -708,14 +717,19 @@ class TestsDynamicalSystem(unittest.TestCase):
             except TypeError:
                 nz = env.noise
 
-            print ds.state
+            if env.name == 'wam7dofarm':
+                states = []
 
             # start with a sequence of random controls
             # need more random steps if system has more features
+            simulation_start = time.time()
             if env.name == 'wam7dofarm':
-                trj = env.step(RandomPolicy(env.nu,umax=.1),70) # A bit more than number of base parameters
+                states.append(ds.state[7:])
+                trj = env.step(RandomPolicy(env.nu,umax=.03), 5)
+                states.append(ds.state[7:])
             else:
-                trj = env.step(RandomPolicy(env.nu,umax=.1),3*ds.nx) 
+                trj = env.step(RandomPolicy(env.nu,umax=.1),3*ds.nx) # A bit more than number of base parameters
+            simulation_time += time.time() - simulation_start
             #trj = env.step(RandomPolicy(env.nu,umax=.1),20) 
             ds.state = env.state.copy()
 
@@ -739,6 +753,8 @@ class TestsDynamicalSystem(unittest.TestCase):
             # Initialize pi to a random policy. Hopefully this will be overwritten in the first time step.
             pi = PiecewiseConstantPolicy(np.zeros([ds.collocation_points-1, env.nu], dtype=float), 2*ds.nx)
 
+            ind = 0
+
             while True: # Plan, execute, check
                 # loop over time steps
 
@@ -756,13 +772,23 @@ class TestsDynamicalSystem(unittest.TestCase):
                 if env.name == 'wam7dofarm':
                     for i in range(7):
                         if ds.state[7+i] < env.limits[i][0]:
-                            # print "---------------------- CLIPPED DYNAMICS ----------------------------"
+                            print "---------------- CLIPPED DYNAMICS BY NOISE FOR JOINT {0}, {1} < {2} -----------------".format(str(i), str(ds.state[7+i]), env.limits[i][0])
                             # embed()
                             ds.state[7+i] = env.limits[i][0]
                         elif ds.state[7+i] > env.limits[i][1]:
-                            # print "---------------------- CLIPPED DYNAMICS ----------------------------"
+                            print "---------------- CLIPPED DYNAMICS BY NOISE FOR JOINT {0}, {1} > {2} -----------------".format(str(i), str(ds.state[7+i]), env.limits[i][1])
                             # embed()
                             ds.state[7+i] = env.limits[i][1]
+
+                if env.name == 'wam7dofarm':
+                    data = env.state.reshape((2,7)).T 
+                    col_width = 20
+                    print "".join(["Velocities:".ljust(col_width), "Joint angles:".ljust(col_width)])
+                    for i in range(7):
+                        print "".join([str(data[i,0]).ljust(col_width), str(data[i,1]).ljust(col_width)])
+                    # print np.matrix(env.state[:7]).T
+                    # print np.matrix(env.state[7:]).T
+
 
                 # Mod any angles that need to be modded by 2pi
                 try:
@@ -777,7 +803,8 @@ class TestsDynamicalSystem(unittest.TestCase):
                 except:
                     pass
 
-                print 'State:', ds.state
+                if ds.name in ['pendulum', 'cartpole', 'doublependulum']:
+                    print 'State:', ds.state
 
                 # Planning
                 tmm = time.time()
@@ -791,8 +818,7 @@ class TestsDynamicalSystem(unittest.TestCase):
                         g = 9.82
                         true_weights = np.array([1.0/6, 1.0/16, 1.0/16, -3.0/8*g, 0, 1.0/16, 1.0/24, -1.0/16, -g/8, 0])
                         print "Distance from true_weights:\n", abs(np.matrix(true_weights - ds.weights.get().reshape(-1)).T)
-
-                    else:
+                    elif ds.name in ['pendulum', 'cartpole']:
                         print 'Weights:\n', str(ds.weights.get())
 
                     # Update the start state with observation
@@ -802,14 +828,23 @@ class TestsDynamicalSystem(unittest.TestCase):
                     #ddp.update_start_state(debug_state)
                     ddp.update_start_state(ds.state)
 
-                    # run DDP planner
-                    pi, x, u, success = ddp.direct_plan(10,0)
+                    # Hack to check that true dynamics work
+                    #if ds.name == 'wam7dofarm':
+                    #    import tools
+                    #    old_weights = ds.weights.get().reshape(-1)
+                    #    true_weights = ds.true_weights.reshape((70,1))
+                    #    ds.weights = tools.to_gpu(true_weights)
 
-                    #if ds.name in ['doublependulum', 'cartpole', 'pendulum']:
-                        #pi.us = ds.squash_control_keep_virtual_same(pi.us)
-                        #print 'First Control (no squash):', u[0,:env.nu]
-                        #u = ds.squash_control_keep_virtual_same(u)
-                        #print 'First Control (with squash):', ds.squash_control_keep_virtual_same(u)[0,:env.nu]
+                    # embed()
+
+                    # run DDP planner
+                    if ind % 20 == 0:
+                        pi, x, u, success = ddp.direct_plan(10,0,cold_start=True)
+                    else:  
+                        pi, x, u, success = ddp.direct_plan(5,0)
+
+                    #print 'First Control (no squash):', u[0,:env.nu]
+                    #print 'First Control (with squash):', ds.squash_control_keep_virtual_same(u)[0,:env.nu]
                     # Check control
                     #max_control = abs(ds.squash_control_keep_virtual_same(u)[:,:env.nu]).max()
                     #if max_control > max_u:
@@ -883,10 +918,15 @@ class TestsDynamicalSystem(unittest.TestCase):
                 # Execute whole trajectory if close enough (hack for 7DOF arm)
                 # Maybe put an if env.name == 'wam7dofarm':
                 # also, maybe we wanna take advantage of violation constraint. it doesn't quite work unless violation constraint is small enough
-                if env.name == 'wam7dofarm' and pi.max_h < .13:
-                    trj = env.step(pi, pi.max_h/0.01)
+                #if env.name == 'wam7dofarm' and pi.max_h < .13:
+                #    trj = env.step(pi, pi.max_h/0.01)
                 #elif env.name == 'cartpole' and pi.max_h < .2 and success and not added_slack:
                 #    trj = env.step(pi, pi.max_h/0.01)
+                
+                prev_t = env.t
+
+                if False:
+                    pass
                 else:
                     if use_FORCES and not success:
                         timesteps = 4
@@ -901,7 +941,12 @@ class TestsDynamicalSystem(unittest.TestCase):
                             # trj = env.step(RandomPolicy(env.nu,umax=.2), 3) # Trying an exploration heuristic
                         else:
                             # trj = env.step(pi, 0.5*delta/0.01) # Play with this parameter
-                            trj = env.step(pi, 3) # Play with this parameter
+                            simulation_start = time.time()
+                            trj = env.step(pi, 5) # Play with this parameter
+                            states.append(ds.state[7:])
+                            simulation_time += time.time() - simulation_start
+                # if env.t - prev_t < .02:
+                #     embed()
 
                 ds.state = env.state.copy()
                 # print "Count: {0}".format(cnt)
@@ -910,23 +955,41 @@ class TestsDynamicalSystem(unittest.TestCase):
                 # stopping criteria
                 if env.name == 'wam7dofarm':
 
-                    # robot.SetDOFValues(ds.state[7:])
+                    print 'First Control (no squash):', u[0,:env.nu]
+                    print 'First Control (with squash):', ds.squash_control_keep_virtual_same(u)[0,:env.nu]
+
+                    #robot.SetDOFValues(ds.state[7:])
 
                     current_end_effector_pos_vel = forward_kin.p(ds.state)
                     displacements = current_end_effector_pos_vel - np.matrix(ds.target).T
 
                     # Just position, don't care about velocity
-                    pos_goal = np.matrix(ds.target[0:3]).T
-                    # displacements = pos - pos_goal
+                    pos_goal = np.matrix(ds.target[3:]).T
+                    pos_displacements = current_end_effector_pos_vel[3:] - pos_goal
+                    vel_goal = np.matrix(ds.target[:3]).T
+                    vel_displacements = current_end_effector_pos_vel[:3] - vel_goal
+
+                    # Joint goals
+                    max_j_pos_disp = max(abs(ds.state[7:] - ds.joint_position_goal))
+                    max_j_vel_disp = max(abs(ds.state[:7] - ds.joint_velocity_goal))
 
                     # Calculate L_inf distance to goal
-                    max_displacement = max(abs(displacements))[0,0]
-                    print "Joint state:\n", repr(ds.state)
-                    print "End effector state:\n", current_end_effector_pos_vel.T[0]
-                    print "Slack is: ", env.vc_slack_add
-                    print "Max displacement to goal: ", max_displacement, "\n" # last ting per time step I think
+                    #embed()
+                    max_pos_displacement = max(abs(pos_displacements))[0,0]
+                    max_vel_displacement = max(abs(vel_displacements))[0,0]
+                    #print "Joint state:\n", repr(ds.state)
+                    print "Horizon: ", pi.max_h
+                    true_weights = wam7dofarm_python_true_dynamics.true_weights.reshape((70,1))
+                    print "Distance from true_weights: ", np.linalg.norm(true_weights - ds.weights.get())
+                    print "End effector vel:\n", current_end_effector_pos_vel.T[:,:3]
+                    print "End effector pos:\n", current_end_effector_pos_vel.T[:,3:]
+                    #print "Slack is: ", env.vc_slack_add
+                    print "Max end effector position displacement to goal: ", max_pos_displacement  # last ting per time step I think
+                    print "Max end effector velocity displacement to goal: ", max_vel_displacement, "\n" # last ting per time step I think
+                    print "Max joint position displacement to goal: ", max_j_pos_disp
+                    print "max joint velocity displacement to goal: ", max_j_vel_disp, "\n"
 
-                    if max_displacement < env.goal_radius:
+                    if max_pos_displacement < env.pos_goal_radius and max_vel_displacement < env.vel_goal_radius:
                         break
 
                 else:
@@ -954,6 +1017,7 @@ class TestsDynamicalSystem(unittest.TestCase):
                 if env.t >= ds.episode_max_h:
                    break
 
+                ind += 1
 
                 print "-------------------------------------------------------------------------"
 
@@ -966,9 +1030,15 @@ class TestsDynamicalSystem(unittest.TestCase):
         # Print out some stats for episode solves
         wallclock_times_for_episode = np.array(wallclock_times_for_episode)
         mean_time_for_episode = np.mean(wallclock_times_for_episode)
-        print "Mean time for episode solves: ", mean_time_for_episode
+        print "Mean wallclock computation time for episode solves: ", mean_time_for_episode
         stddev_time_for_episode = np.std(wallclock_times_for_episode)
-        print "Standard Devation for episodes solves: ", stddev_time_for_episode
+        print "Standard Devation for wallclock computation times for episodes solves: ", stddev_time_for_episode
+
+        simulation_times_for_episode = np.array(simulation_times_for_episode)
+        mean_time_for_episode = np.mean(simulation_times_for_episode)
+        print "Mean simulation time for episode solves: ", mean_time_for_episode
+        stddev_time_for_episode = np.std(simulation_times_for_episode)
+        print "Standard Devation for simulation time for episodes solves: ", stddev_time_for_episode
 
         if use_FORCES:
             # Print out some stats for SQP solves
@@ -978,13 +1048,14 @@ class TestsDynamicalSystem(unittest.TestCase):
             stddev_time_for_SQP = np.std(times_for_SQP_solve)
             print "Standard Devation for SQP solves: ", stddev_time_for_SQP
 
-        """
         p = Stats (self.pr)
         p.strip_dirs()
         p.sort_stats ('cumulative')
-        p.print_stats (.05)
+        p.print_stats (.10)
         print "\n--->>>"
-        """
+
+        if env.name == 'wam7dofarm':
+            np.savetxt('trajectory.txt', states)
 
     def test_pp(self):
         """ tests whether we can plan in the known system. valuable for sanity check for planning.  used as a baseline experiment"""

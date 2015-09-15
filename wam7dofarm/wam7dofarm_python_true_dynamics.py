@@ -147,7 +147,7 @@ true_weights = np.array([L_1xx,
 def dynamics(x, u):
 
     # Max control thing
-    max_control = 1
+    #max_control = 1
 
     # Dimension
     nX = x.shape[0]
@@ -167,7 +167,7 @@ def dynamics(x, u):
     g_vec = np.array(g(true_weights, q))
 
     # Find ddq by solving the linear equation
-    ddq = np.linalg.solve(M_mat, max_control*u - c_vec - g_vec)
+    ddq = np.linalg.solve(M_mat, u - c_vec + g_vec) # Reversing gravity, make arm hang from wall
     
     return np.array(np.concatenate((ddq, dq)))
 
